@@ -179,8 +179,8 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Calculate total cost
-    const totalCost = (service.rate * quantity).toFixed(2);
+    // Calculate total cost (rate is per 1000 units)
+    const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
 
     // Check user balance
     const { data: userData } = await supabaseAdmin
