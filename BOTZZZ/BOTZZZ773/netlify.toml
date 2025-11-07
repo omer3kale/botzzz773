@@ -39,11 +39,11 @@
   to = "/contact.html"
   status = 200
 
-# 404 redirect
+# SPA fallback - serve index.html for all unmatched routes
 [[redirects]]
   from = "/*"
   to = "/index.html"
-  status = 404
+  status = 200
 
 # Headers for security and CORS
 [[headers]]
