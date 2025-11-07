@@ -127,10 +127,20 @@ async function addService() {
             </div>
             <div class="form-group">
                 <label>Provider ${hasProviders ? '*' : '(none available)'}</label>
-                <select name="provider" ${hasProviders ? 'required' : 'disabled'}>
+                <select name="provider" id="addServiceProviderSelect" ${hasProviders ? 'required' : 'disabled'} onchange="onProviderChange(this.value)">
                     ${providerOptions}
                 </select>
                 ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to link services.</small>'}
+            </div>
+            <div class="form-group">
+                <label>Provider Service ID *</label>
+                <div style="display: flex; gap: 8px;">
+                    <input type="text" name="providerServiceId" id="providerServiceIdInput" placeholder="Enter provider's service ID" required style="flex: 1;">
+                    <button type="button" onclick="showSyncedServices()" class="btn-secondary" style="white-space: nowrap;">
+                        📋 Select from Synced
+                    </button>
+                </div>
+                <small style="color: #94a3b8;">Get this ID from your provider panel or sync list.</small>
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -201,7 +211,8 @@ function submitAddService(event) {
             max_quantity: parseInt(serviceData.max, 10),
             description: serviceData.description || '',
             status: (serviceData.status || 'active').toLowerCase(),
-            providerId: serviceData.provider || null
+            providerId: serviceData.provider || null,
+            providerServiceId: serviceData.providerServiceId || null
         })
     })
     .then(response => response.json())
@@ -930,4 +941,120 @@ async function loadServices() {
         console.error('Load services error:', error);
         tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load services. Please refresh the page.</td></tr>';
     }
+}
+
+// ==========================================
+// Show Synced Services from Provider
+// ==========================================
+
+async function showSyncedServices() {
+    const providerSelect = document.getElementById('addServiceProviderSelect');
+    const providerId = providerSelect?.value;
+    
+    if (!providerId) {
+        showNotification('Please select a provider first', 'error');
+        return;
+    }
+    
+    const provider = providersCache.find(p => p.id == providerId);
+    if (!provider) {
+        showNotification('Provider not found', 'error');
+        return;
+    }
+    
+    // Show loading modal
+    createModal('Loading Services...', '<div style="text-align: center; padding: 40px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px;">Fetching services from provider...</p></div>');
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'sync',
+                providerId: providerId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to fetch services');
+        }
+        
+        const services = data.services || [];
+        
+        if (services.length === 0) {
+            createModal('No Services Found', '<p style="text-align: center; padding: 20px;">No services found from this provider. Try syncing the provider first.</p>', '<button class="btn-primary" onclick="closeModal()">OK</button>');
+            return;
+        }
+        
+        // Build services selection table
+        let tableHTML = `
+            <div style="max-height: 500px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead style="position: sticky; top: 0; background: #1e293b; z-index: 1;">
+                        <tr>
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #334155;">ID</th>
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #334155;">Service Name</th>
+                            <th style="padding: 12px; text-align: left; border-bottom: 2px solid #334155;">Rate</th>
+                            <th style="padding: 12px; text-align: center; border-bottom: 2px solid #334155;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+        
+        services.forEach(service => {
+            const serviceId = service.service || service.id || 'N/A';
+            const serviceName = escapeHtml(service.name || 'Unnamed Service');
+            const rate = parseFloat(service.rate || 0).toFixed(2);
+            
+            tableHTML += `
+                <tr style="border-bottom: 1px solid #334155;">
+                    <td style="padding: 12px;">${escapeHtml(String(serviceId))}</td>
+                    <td style="padding: 12px;">${serviceName}</td>
+                    <td style="padding: 12px;">$${rate}/1k</td>
+                    <td style="padding: 12px; text-align: center;">
+                        <button onclick="selectSyncedService('${escapeHtml(String(serviceId))}', '${serviceName.replace(/'/g, "\\'")}', ${rate})" class="btn-primary btn-sm">
+                            Select
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        tableHTML += `
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        createModal(`Select Service from ${provider.name}`, tableHTML, '<button class="btn-secondary" onclick="closeModal()">Cancel</button>');
+        
+    } catch (error) {
+        console.error('Failed to load synced services:', error);
+        createModal('Error', `<p style="text-align: center; padding: 20px; color: #ef4444;">${error.message}</p>`, '<button class="btn-primary" onclick="closeModal()">OK</button>');
+    }
+}
+
+function selectSyncedService(serviceId, serviceName, rate) {
+    // Fill the form with selected service data
+    const serviceIdInput = document.getElementById('providerServiceIdInput');
+    const serviceNameInput = document.querySelector('input[name="serviceName"]');
+    const rateInput = document.querySelector('input[name="rate"]');
+    
+    if (serviceIdInput) serviceIdInput.value = serviceId;
+    if (serviceNameInput) serviceNameInput.value = serviceName;
+    if (rateInput) rateInput.value = rate;
+    
+    closeModal();
+    showNotification('Service selected! Update other fields as needed.', 'success');
+}
+
+function onProviderChange(providerId) {
+    // Optional: Could auto-clear or validate fields when provider changes
+    console.log('Provider changed to:', providerId);
 }
