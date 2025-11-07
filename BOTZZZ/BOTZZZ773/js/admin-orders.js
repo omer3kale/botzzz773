@@ -1,5 +1,7 @@
 // Admin Orders Management with Real Modals
 
+let servicesCache = [];
+
 // Modal Helper Functions (shared with admin-users.js pattern)
 function createModal(title, content, actions = '') {
     const modalHTML = `
@@ -100,16 +102,15 @@ function viewOrder(orderId) {
 }
 
 // Edit order
-function editOrder(orderId) {
+async function editOrder(orderId) {
+    const servicesOptions = await getServicesOptions();
+    
     const content = `
         <form id="editOrderForm" onsubmit="submitEditOrder(event, ${orderId})" class="admin-form">
             <div class="form-group">
                 <label>Service</label>
                 <select name="service" required>
-                    <option value="instagram-followers">Instagram Followers</option>
-                    <option value="instagram-likes">Instagram Likes</option>
-                    <option value="tiktok-views">TikTok Views</option>
-                    <option value="youtube-subs">YouTube Subscribers</option>
+                    ${servicesOptions}
                 </select>
             </div>
             <div class="form-group">
@@ -210,7 +211,9 @@ function confirmCancelOrder(orderId) {
 }
 
 // Add Order Modal
-function showAddOrderModal() {
+async function showAddOrderModal() {
+    const servicesOptions = await getServicesOptions();
+    
     const content = `
         <form id="addOrderForm" onsubmit="submitAddOrder(event)" class="admin-form">
             <div class="form-group">
@@ -227,22 +230,7 @@ function showAddOrderModal() {
             <div class="form-group">
                 <label>Service *</label>
                 <select name="service" required>
-                    <option value="">Select Service</option>
-                    <optgroup label="Instagram">
-                        <option value="ig-followers">Instagram Followers</option>
-                        <option value="ig-likes">Instagram Likes</option>
-                        <option value="ig-views">Instagram Views</option>
-                    </optgroup>
-                    <optgroup label="TikTok">
-                        <option value="tt-followers">TikTok Followers</option>
-                        <option value="tt-likes">TikTok Likes</option>
-                        <option value="tt-views">TikTok Views</option>
-                    </optgroup>
-                    <optgroup label="YouTube">
-                        <option value="yt-subscribers">YouTube Subscribers</option>
-                        <option value="yt-likes">YouTube Likes</option>
-                        <option value="yt-views">YouTube Views</option>
-                    </optgroup>
+                    ${servicesOptions}
                 </select>
             </div>
             <div class="form-group">
@@ -435,4 +423,65 @@ async function loadOrders() {
         console.error('Load orders error:', error);
         tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
     }
+}
+
+// Helper function to get services options
+async function getServicesOptions() {
+    if (servicesCache.length > 0) {
+        return buildServicesOptionsHTML(servicesCache);
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/services', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        
+        const data = await response.json();
+        servicesCache = data.services || [];
+        return buildServicesOptionsHTML(servicesCache);
+    } catch (error) {
+        console.error('Failed to load services:', error);
+        return '<option value="">Failed to load services</option>';
+    }
+}
+
+function buildServicesOptionsHTML(services) {
+    if (services.length === 0) {
+        return '<option value="">No services available</option>';
+    }
+    
+    // Group by category
+    const grouped = {};
+    services.forEach(service => {
+        const category = (service.category || 'Other').toLowerCase();
+        const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+        if (!grouped[categoryName]) {
+            grouped[categoryName] = [];
+        }
+        grouped[categoryName].push(service);
+    });
+    
+    let html = '<option value="">Select Service</option>';
+    Object.keys(grouped).sort().forEach(categoryName => {
+        html += `<optgroup label="${escapeHtml(categoryName)}">`;
+        grouped[categoryName].forEach(service => {
+            const rate = parseFloat(service.rate || 0).toFixed(2);
+            html += `<option value="${service.id}">${escapeHtml(service.name)} - $${rate}/1k</option>`;
+        });
+        html += '</optgroup>';
+    });
+    
+    return html;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }

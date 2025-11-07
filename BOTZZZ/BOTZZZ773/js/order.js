@@ -2,23 +2,30 @@
 // Order Page JavaScript
 // ==========================================
 
+let servicesData = [];
+
 document.addEventListener('DOMContentLoaded', function() {
+    // Load services first
+    loadServices();
+    
     const orderForm = document.getElementById('orderForm');
-    const platformSelect = document.getElementById('platform');
+    const serviceSelect = document.getElementById('service');
     const quantityInput = document.getElementById('quantity');
-    const serviceTypeSelect = document.getElementById('serviceType');
     const estimatedPriceEl = document.getElementById('estimatedPrice');
     
     // Update estimated price on input change
     function updatePrice() {
-        const platform = platformSelect.value;
-        const service = serviceTypeSelect.value;
-        const quantity = parseInt(quantityInput.value) || 0;
+        const serviceId = serviceSelect?.value;
+        const quantity = parseInt(quantityInput?.value) || 0;
         
-        if (platform && service && quantity > 0) {
-            const price = calculatePrice(platform, service, quantity);
-            estimatedPriceEl.textContent = '$' + price;
-            estimatedPriceEl.style.animation = 'pulse 0.5s ease';
+        if (serviceId && quantity > 0) {
+            const service = servicesData.find(s => s.id == serviceId);
+            if (service) {
+                const rate = parseFloat(service.rate || 0);
+                const price = (quantity / 1000) * rate;
+                estimatedPriceEl.textContent = '$' + price.toFixed(2);
+                estimatedPriceEl.style.animation = 'pulse 0.5s ease';
+            }
         } else {
             estimatedPriceEl.textContent = '$0.00';
         }
@@ -34,8 +41,7 @@ document.addEventListener('DOMContentLoaded', function() {
     `;
     document.head.appendChild(style);
     
-    platformSelect?.addEventListener('change', updatePrice);
-    serviceTypeSelect?.addEventListener('change', updatePrice);
+    serviceSelect?.addEventListener('change', updatePrice);
     quantityInput?.addEventListener('input', updatePrice);
     
     // Handle form submission
@@ -77,12 +83,12 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.innerHTML = '<span>Processing...</span>';
             
             try {
-                // Get service_id from the service dropdown (will be added)
-                const serviceSelect = document.getElementById('service');
-                if (!serviceSelect || !serviceSelect.value) {
+                // Get service_id from the service dropdown
+                const serviceId = serviceSelect?.value;
+                if (!serviceId) {
                     showMessage('Please select a service', 'error');
                     submitBtn.disabled = false;
-                    submitBtn.textContent = originalText;
+                    submitBtn.textContent = originalBtnText;
                     return;
                 }
                 
@@ -94,7 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`
                     },
                     body: JSON.stringify({
-                        service_id: parseInt(serviceSelect.value),
+                        service_id: parseInt(serviceId),
                         link: data.link,
                         quantity: parseInt(data.quantity),
                         notes: data.notes || ''
@@ -129,33 +135,17 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Pre-fill service from URL parameter
     const urlParams = new URLSearchParams(window.location.search);
-    const service = urlParams.get('service');
+    const serviceParam = urlParams.get('service');
     
-    if (service) {
-        // Parse service ID (e.g., "ig-followers-hq" -> platform: instagram, service: followers)
-        const parts = service.split('-');
-        if (parts.length >= 2) {
-            const platformMap = {
-                'ig': 'instagram',
-                'tt': 'tiktok',
-                'yt': 'youtube',
-                'tw': 'twitter',
-                'fb': 'facebook',
-                'tg': 'telegram'
-            };
-            
-            const platform = platformMap[parts[0]] || parts[0];
-            const serviceType = parts[1];
-            
-            if (platformSelect && platform) {
-                platformSelect.value = platform;
+    if (serviceParam && serviceSelect) {
+        // Wait for services to load then select
+        const checkInterval = setInterval(() => {
+            if (servicesData.length > 0) {
+                clearInterval(checkInterval);
+                serviceSelect.value = serviceParam;
+                updatePrice();
             }
-            if (serviceTypeSelect && serviceType) {
-                serviceTypeSelect.value = serviceType;
-            }
-            
-            updatePrice();
-        }
+        }, 100);
     }
     
     // Real-time link validation
@@ -226,3 +216,86 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 console.log('💰 Order page loaded!');
+
+// ==========================================
+// Load Services from API
+// ==========================================
+
+async function loadServices() {
+    const serviceSelect = document.getElementById('service');
+    
+    if (!serviceSelect) return;
+    
+    try {
+        const response = await fetch('/.netlify/functions/services', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load services');
+        }
+        
+        servicesData = data.services || [];
+        console.log('[DEBUG] Loaded services for order form:', servicesData.length);
+        
+        if (servicesData.length === 0) {
+            serviceSelect.innerHTML = '<option value="">No services available</option>';
+            return;
+        }
+        
+        // Group services by category
+        const grouped = {};
+        servicesData.forEach(service => {
+            const category = (service.category || 'Other').toLowerCase();
+            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+            if (!grouped[categoryName]) {
+                grouped[categoryName] = [];
+            }
+            grouped[categoryName].push(service);
+        });
+        
+        // Build select options with optgroups
+        let html = '<option value="">Select a service</option>';
+        
+        Object.keys(grouped).sort().forEach(categoryName => {
+            html += `<optgroup label="${escapeHtml(categoryName)}">`;
+            grouped[categoryName].forEach(service => {
+                const rate = parseFloat(service.rate || 0).toFixed(2);
+                const min = parseInt(service.min_order || 10);
+                const max = parseInt(service.max_order || 10000);
+                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${max}">
+                    ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
+                </option>`;
+            });
+            html += '</optgroup>';
+        });
+        
+        serviceSelect.innerHTML = html;
+        console.log('[SUCCESS] Services populated in order form');
+        
+    } catch (error) {
+        console.error('[ERROR] Failed to load services:', error);
+        serviceSelect.innerHTML = '<option value="">Error loading services</option>';
+    }
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatNumber(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(0) + 'K';
+    }
+    return num.toString();
+}

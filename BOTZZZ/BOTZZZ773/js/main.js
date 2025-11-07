@@ -190,34 +190,6 @@ function hideLoading(button) {
     button.textContent = button.dataset.originalText || 'Submit';
 }
 
-// Price Calculator Helper
-function calculatePrice(platform, service, quantity) {
-    // Price per 1000 units
-    const prices = {
-        'instagram-followers': 1.81,
-        'instagram-likes': 0.11,
-        'instagram-views': 0.07,
-        'tiktok-followers': 0.78,
-        'tiktok-likes': 0.02,
-        'tiktok-views': 0.01,
-        'youtube-views': 0.93,
-        'youtube-subscribers': 13.50,
-        'youtube-likes': 0.75,
-        'twitter-followers': 12.80,
-        'twitter-likes': 3.51,
-        'facebook-likes': 1.17,
-        'facebook-followers': 0.39,
-        'telegram-members': 0.61,
-        'telegram-views': 0.07
-    };
-    
-    const key = `${platform}-${service}`;
-    const pricePerK = prices[key] || 1.00;
-    const total = (quantity / 1000) * pricePerK;
-    
-    return total.toFixed(2);
-}
-
 // Update Navigation Based on Authentication
 function updateAuthNavigation() {
     const token = localStorage.getItem('token');
