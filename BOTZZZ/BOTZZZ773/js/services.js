@@ -226,12 +226,12 @@ async function loadServicesFromAPI() {
                     <div class="service-row" data-service-id="${service.id}">
                         <div class="service-col">
                             <strong>${escapeHtml(service.name)}</strong>
-                            <span class="service-details">${escapeHtml(service.description || '')}</span>
+                            <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
                         </div>
                         <div class="service-col price">$${pricePerK}</div>
                         <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
                         <div class="service-col">
-                            <a href="order.html?service=${service.id}" class="btn btn-primary btn-sm">Order</a>
+                            <button onclick="showServiceDescription('${service.id}', '${escapeHtml(service.name).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${pricePerK}', '${formatNumber(min)}', '${formatNumber(max)}')" class="btn btn-primary btn-sm">Description</button>
                         </div>
                     </div>
                 `;
@@ -275,3 +275,109 @@ function formatNumber(num) {
     }
     return num.toString();
 }
+
+// ==========================================
+// Show Service Description Modal
+// ==========================================
+
+function showServiceDescription(serviceId, serviceName, description, rate, min, max) {
+    // Create modal HTML
+    const modalHTML = `
+        <div id="serviceDescriptionModal" class="modal" style="display: flex !important; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(4px);">
+            <div class="modal-content" style="background: white; border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); animation: modalSlideIn 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 24px;">
+                    <h2 style="color: #1E293B; margin: 0; font-size: 24px; font-weight: 600;">${serviceName}</h2>
+                    <button onclick="closeServiceDescription()" style="background: none; border: none; font-size: 28px; color: #64748B; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; transition: all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
+                </div>
+                
+                <div style="background: linear-gradient(135deg, #FF1494 0%, #FF6B35 100%); padding: 20px; border-radius: 12px; margin-bottom: 24px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center;">
+                        <div>
+                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Rate per 1000</div>
+                            <div style="color: white; font-size: 24px; font-weight: 700;">$${rate}</div>
+                        </div>
+                        <div>
+                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Minimum</div>
+                            <div style="color: white; font-size: 24px; font-weight: 700;">${min}</div>
+                        </div>
+                        <div>
+                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Maximum</div>
+                            <div style="color: white; font-size: 24px; font-weight: 700;">${max}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 24px;">
+                    <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Service Description</h3>
+                    <p style="color: #475569; line-height: 1.6; margin: 0; white-space: pre-wrap;">${description}</p>
+                </div>
+                
+                <div style="display: flex; gap: 12px;">
+                    <a href="order.html?service=${serviceId}" class="btn btn-primary" style="flex: 1; text-align: center; padding: 12px; font-size: 16px; font-weight: 600; text-decoration: none; display: block;">Order Now</a>
+                    <button onclick="closeServiceDescription()" class="btn btn-secondary" style="padding: 12px 24px; font-size: 16px; font-weight: 600;">Close</button>
+                </div>
+            </div>
+        </div>
+        
+        <style>
+            @keyframes modalSlideIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-20px) scale(0.95);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0) scale(1);
+                }
+            }
+        </style>
+    `;
+    
+    // Append modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+    
+    // Close on background click
+    document.getElementById('serviceDescriptionModal').addEventListener('click', function(e) {
+        if (e.target.id === 'serviceDescriptionModal') {
+            closeServiceDescription();
+        }
+    });
+    
+    // Close on Escape key
+    document.addEventListener('keydown', function escapeHandler(e) {
+        if (e.key === 'Escape') {
+            closeServiceDescription();
+            document.removeEventListener('keydown', escapeHandler);
+        }
+    });
+}
+
+function closeServiceDescription() {
+    const modal = document.getElementById('serviceDescriptionModal');
+    if (modal) {
+        modal.style.animation = 'modalSlideOut 0.2s ease';
+        setTimeout(() => {
+            modal.remove();
+            document.body.style.overflow = '';
+        }, 200);
+    }
+}
+
+// Add modal slide out animation
+const modalStyle = document.createElement('style');
+modalStyle.textContent = `
+    @keyframes modalSlideOut {
+        from {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        to {
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+        }
+    }
+`;
+document.head.appendChild(modalStyle);
