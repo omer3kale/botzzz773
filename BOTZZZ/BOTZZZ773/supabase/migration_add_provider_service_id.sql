@@ -14,6 +14,7 @@ BEGIN
         
         RAISE NOTICE 'Added provider_service_id column to services table';
     ELSE
+    
         RAISE NOTICE 'provider_service_id column already exists';
     END IF;
     

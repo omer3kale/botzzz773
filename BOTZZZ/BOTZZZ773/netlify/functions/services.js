@@ -69,7 +69,7 @@ async function handleGetServices(user, headers) {
       .from('services')
       .select(`
         *,
-        provider:providers(id, name, status)
+        provider:providers(id, name, status, markup)
       `);
 
     if (!isAdmin) {
@@ -209,7 +209,22 @@ async function handleUpdateService(user, data, headers) {
       };
     }
 
-    const { serviceId, name, category, rate, price, min_quantity, max_quantity, description, status, ...updateData } = data;
+    const {
+      serviceId,
+      name,
+      category,
+      rate,
+      price,
+      min_quantity,
+      max_quantity,
+      description,
+      status,
+      providerId,
+      provider_id,
+      providerServiceId,
+      provider_service_id,
+      ...updateData
+    } = data;
 
     if (!serviceId) {
       return {
@@ -229,6 +244,16 @@ async function handleUpdateService(user, data, headers) {
     if (max_quantity !== undefined) updates.max_quantity = max_quantity;
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;
+
+    const resolvedProviderId = providerId !== undefined ? providerId : provider_id;
+    if (resolvedProviderId !== undefined) {
+      updates.provider_id = resolvedProviderId || null;
+    }
+
+    const resolvedProviderServiceId = providerServiceId !== undefined ? providerServiceId : provider_service_id;
+    if (resolvedProviderServiceId !== undefined) {
+      updates.provider_service_id = resolvedProviderServiceId || null;
+    }
 
     const { data: service, error } = await supabaseAdmin
       .from('services')

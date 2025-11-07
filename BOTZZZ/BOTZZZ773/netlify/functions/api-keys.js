@@ -95,7 +95,10 @@ async function handleGetKeys(user, headers) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to fetch API keys' })
+        body: JSON.stringify({
+          error: 'Failed to fetch API keys',
+          details: error.message || error.code || 'Unknown error'
+        })
       };
     }
 
@@ -170,7 +173,10 @@ async function handleCreateKey(user, data, headers) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create API key' })
+        body: JSON.stringify({
+          error: 'Failed to create API key',
+          details: error.message || error.code || 'Unknown error'
+        })
       };
     }
 

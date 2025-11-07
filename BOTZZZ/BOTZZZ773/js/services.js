@@ -219,19 +219,27 @@ async function loadServicesFromAPI() {
             categoryServices.forEach(service => {
                 const rate = parseFloat(service.rate || 0);
                 const pricePerK = rate.toFixed(2);
-                const min = parseInt(service.min_order || 10);
-                const max = parseInt(service.max_order || 10000);
+                const minRaw = service.min_quantity ?? service.min_order;
+                const maxRaw = service.max_quantity ?? service.max_order;
+                const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
+                const max = maxRaw === null || maxRaw === undefined
+                    ? Infinity
+                    : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
+                const publicId = Number(service.public_id ?? service.publicId);
+                const labelId = Number.isFinite(publicId)
+                    ? `#${publicId}`
+                    : (service.provider_service_id ? `PID ${service.provider_service_id}` : 'ID');
                 
                 html += `
                     <div class="service-row" data-service-id="${service.id}">
                         <div class="service-col">
-                            <strong>${escapeHtml(service.name)}</strong>
+                            <strong>${labelId} · ${escapeHtml(service.name)}</strong>
                             <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
                         </div>
                         <div class="service-col price">$${pricePerK}</div>
                         <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
                         <div class="service-col">
-                            <button onclick="showServiceDescription('${service.id}', '${escapeHtml(service.name).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${pricePerK}', '${formatNumber(min)}', '${formatNumber(max)}')" class="btn btn-primary btn-sm">Description</button>
+                            <button onclick="showServiceDescription('${service.id}', '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${pricePerK}', '${formatNumber(min)}', '${formatNumber(max)}')" class="btn btn-primary btn-sm">Description</button>
                         </div>
                     </div>
                 `;
@@ -268,6 +276,10 @@ function escapeHtml(text) {
 }
 
 function formatNumber(num) {
+    if (!isFinite(num)) {
+        return '∞';
+    }
+
     if (num >= 1000000) {
         return (num / 1000000).toFixed(1) + 'M';
     } else if (num >= 1000) {

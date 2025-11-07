@@ -16,16 +16,31 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update estimated price on input change
     function updatePrice() {
         const serviceId = serviceSelect?.value;
-        const quantity = parseInt(quantityInput?.value) || 0;
-        
-        if (serviceId && quantity > 0) {
-            const service = servicesData.find(s => s.id == serviceId);
-            if (service) {
-                const rate = parseFloat(service.rate || 0);
-                const price = (quantity / 1000) * rate;
-                estimatedPriceEl.textContent = '$' + price.toFixed(2);
-                estimatedPriceEl.style.animation = 'pulse 0.5s ease';
+        const selectedOption = serviceSelect?.selectedOptions?.[0] || null;
+        const min = selectedOption ? Number(selectedOption.dataset.min) : 10;
+    const max = selectedOption ? (selectedOption.dataset.max === 'Infinity' ? Infinity : Number(selectedOption.dataset.max)) : 1000000;
+
+        if (quantityInput) {
+            quantityInput.min = Number.isFinite(min) ? min : 1;
+            quantityInput.max = Number.isFinite(max) ? max : '';
+
+            const hint = quantityInput.nextElementSibling;
+            if (hint) {
+                const minLabel = Number.isFinite(min) ? formatNumber(min) : '0';
+                const maxLabel = Number.isFinite(max) ? formatNumber(max) : '∞';
+                hint.textContent = `Minimum: ${minLabel} • Maximum: ${maxLabel}`;
+                hint.style.color = '#64748B';
             }
+        }
+
+        const quantity = Number(quantityInput?.value) || 0;
+        const service = servicesData.find(s => String(s.id) === String(serviceId));
+
+        if (service && quantity > 0) {
+            const rate = Number(service.rate || 0);
+            const price = (quantity / 1000) * rate;
+            estimatedPriceEl.textContent = '$' + price.toFixed(2);
+            estimatedPriceEl.style.animation = 'pulse 0.5s ease';
         } else {
             estimatedPriceEl.textContent = '$0.00';
         }
@@ -71,8 +86,30 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             
-            if (parseInt(data.quantity) < 10) {
-                showMessage('Minimum order quantity is 10', 'error');
+            const serviceId = serviceSelect?.value;
+            if (!serviceId) {
+                showMessage('Please select a service', 'error');
+                return;
+            }
+
+            const service = servicesData.find(s => String(s.id) === String(serviceId));
+            if (!service) {
+                showMessage('Selected service is no longer available. Please refresh.', 'error');
+                return;
+            }
+
+            const quantityValue = Number(data.quantity);
+            const minQuantity = Number.isFinite(service.min_quantity) && service.min_quantity > 0
+                ? service.min_quantity
+                : 10;
+            const maxQuantity = service.max_quantity === Infinity
+                ? Infinity
+                : (Number.isFinite(service.max_quantity) && service.max_quantity > 0
+                    ? service.max_quantity
+                    : 1000000);
+
+            if (!Number.isFinite(quantityValue) || quantityValue < minQuantity || quantityValue > maxQuantity) {
+                showMessage(`Quantity must be between ${formatNumber(minQuantity)} and ${formatNumber(maxQuantity)}.`, 'error');
                 return;
             }
             
@@ -83,15 +120,6 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.innerHTML = '<span>Processing...</span>';
             
             try {
-                // Get service_id from the service dropdown
-                const serviceId = serviceSelect?.value;
-                if (!serviceId) {
-                    showMessage('Please select a service', 'error');
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = originalBtnText;
-                    return;
-                }
-                
                 // Call Orders API
                 const response = await fetch('/.netlify/functions/orders', {
                     method: 'POST',
@@ -100,9 +128,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         'Authorization': `Bearer ${localStorage.getItem('token')}`
                     },
                     body: JSON.stringify({
-                        service_id: parseInt(serviceId),
+                        serviceId: String(serviceId),
                         link: data.link,
-                        quantity: parseInt(data.quantity),
+                        quantity: quantityValue,
                         notes: data.notes || ''
                     })
                 });
@@ -195,21 +223,45 @@ document.addEventListener('DOMContentLoaded', function() {
     // Quantity validation
     if (quantityInput) {
         quantityInput.addEventListener('input', function() {
-            const value = parseInt(this.value);
-            if (value && value < 10) {
-                this.style.borderColor = '#ef4444';
-                const hint = this.nextElementSibling;
+            const value = Number(this.value);
+            const selectedOption = serviceSelect?.selectedOptions?.[0] || null;
+            const min = selectedOption ? Number(selectedOption.dataset.min) : 10;
+            const max = selectedOption ? (selectedOption.dataset.max === 'Infinity' ? Infinity : Number(selectedOption.dataset.max)) : 1000000;
+            const hint = this.nextElementSibling;
+
+            if (!value) {
+                this.style.borderColor = '';
                 if (hint) {
-                    hint.textContent = '❌ Minimum quantity is 10';
+                    const minLabel = Number.isFinite(min) ? formatNumber(min) : '0';
+                    const maxLabel = Number.isFinite(max) ? formatNumber(max) : '∞';
+                    hint.textContent = `Minimum: ${minLabel} • Maximum: ${maxLabel}`;
+                    hint.style.color = '#64748B';
+                }
+                return;
+            }
+
+            if (value < min || !Number.isFinite(value)) {
+                this.style.borderColor = '#ef4444';
+                if (hint) {
+                    hint.textContent = `❌ Minimum quantity is ${formatNumber(min)}`;
                     hint.style.color = '#ef4444';
                 }
-            } else if (value) {
-                this.style.borderColor = '#10b981';
-                const hint = this.nextElementSibling;
+                return;
+            }
+
+            if (Number.isFinite(max) && value > max) {
+                this.style.borderColor = '#ef4444';
                 if (hint) {
-                    hint.textContent = '✅ Valid quantity';
-                    hint.style.color = '#10b981';
+                    hint.textContent = `❌ Maximum quantity is ${formatNumber(max)}`;
+                    hint.style.color = '#ef4444';
                 }
+                return;
+            }
+
+            this.style.borderColor = '#10b981';
+            if (hint) {
+                hint.textContent = '✅ Quantity looks good';
+                hint.style.color = '#10b981';
             }
         });
     }
@@ -240,7 +292,32 @@ async function loadServices() {
             throw new Error(data.error || 'Failed to load services');
         }
         
-        servicesData = data.services || [];
+        servicesData = (data.services || []).map(service => {
+            const rawMin = service.min_quantity ?? service.min_order;
+            const minCandidate = rawMin === null || rawMin === undefined ? NaN : Number(rawMin);
+            const minValue = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
+
+            const rawMax = service.max_quantity ?? service.max_order;
+            let maxValue;
+            if (rawMax === null || rawMax === undefined) {
+                maxValue = Infinity;
+            } else {
+                const maxCandidate = Number(rawMax);
+                maxValue = Number.isFinite(maxCandidate) && maxCandidate > 0 ? maxCandidate : 1000000;
+            }
+
+            const rateCandidate = Number(service.rate || 0);
+            const publicIdCandidate = Number(service.public_id ?? service.publicId);
+
+            return {
+                ...service,
+                id: String(service.id),
+                rate: Number.isFinite(rateCandidate) ? rateCandidate : 0,
+                min_quantity: minValue,
+                max_quantity: maxValue,
+                publicId: Number.isFinite(publicIdCandidate) ? publicIdCandidate : null
+            };
+        });
         console.log('[DEBUG] Loaded services for order form:', servicesData.length);
         
         if (servicesData.length === 0) {
@@ -265,11 +342,13 @@ async function loadServices() {
         Object.keys(grouped).sort().forEach(categoryName => {
             html += `<optgroup label="${escapeHtml(categoryName)}">`;
             grouped[categoryName].forEach(service => {
-                const rate = parseFloat(service.rate || 0).toFixed(2);
-                const min = parseInt(service.min_order || 10);
-                const max = parseInt(service.max_order || 10000);
-                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${max}">
-                    ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
+                const rate = Number(service.rate || 0).toFixed(2);
+                const min = service.min_quantity;
+                const max = service.max_quantity;
+                const datasetMax = max === Infinity ? 'Infinity' : max;
+                const labelId = service.publicId ? `#${service.publicId}` : (service.provider_service_id ? `PID ${service.provider_service_id}` : 'ID');
+                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${service.publicId ?? ''}">
+                    ${labelId} · ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
                 </option>`;
             });
             html += '</optgroup>';
@@ -292,6 +371,10 @@ function escapeHtml(text) {
 }
 
 function formatNumber(num) {
+    if (!isFinite(num)) {
+        return '∞';
+    }
+
     if (num >= 1000000) {
         return (num / 1000000).toFixed(1) + 'M';
     } else if (num >= 1000) {

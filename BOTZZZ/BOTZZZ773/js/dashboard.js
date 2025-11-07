@@ -169,17 +169,21 @@
                 // Categorize services
                 servicesData = {};
                 data.services.forEach(service => {
-                    const category = service.category.toLowerCase();
+                    const category = (service.category || 'other').toLowerCase();
+                    const publicId = Number(service.public_id ?? service.publicId);
+                    const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
+                    const maxQuantity = Number(service.max_quantity ?? service.max_order ?? 10000) || 10000;
                     if (!servicesData[category]) {
                         servicesData[category] = [];
                     }
                     servicesData[category].push({
                         id: service.id.toString(),
+                        publicId: Number.isFinite(publicId) ? publicId : null,
                         provider_service_id: service.provider_service_id || 'N/A',
                         name: service.name,
                         price: parseFloat(service.rate),
-                        min: service.min_quantity || 100,
-                        max: service.max_quantity || 10000,
+                        min: minQuantity,
+                        max: maxQuantity,
                         avgTime: service.avg_time || 'Not specified',
                         description: service.description || ''
                     });
@@ -222,12 +226,17 @@
                 servicesData[category].forEach(service => {
                     const option = document.createElement('option');
                     option.value = service.id;
-                    option.textContent = `[ID: ${service.provider_service_id}] ${service.name}`;
+                    const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
+                    option.textContent = `[${labelId}] ${service.name}`;
                     option.dataset.price = service.price;
                     option.dataset.min = service.min;
-                    option.dataset.max = service.max;
+                    option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
                     option.dataset.avgTime = service.avgTime;
                     option.dataset.description = service.description;
+                    option.dataset.serviceName = service.name;
+                    if (service.publicId) {
+                        option.dataset.publicId = service.publicId;
+                    }
                     serviceSelect.appendChild(option);
                 });
             }
@@ -240,27 +249,34 @@
             const option = e.target.options[e.target.selectedIndex];
             
             if (option.value) {
+                const minValue = Number(option.dataset.min);
+                const maxValue = option.dataset.max === 'Infinity'
+                    ? Infinity
+                    : Number(option.dataset.max);
                 selectedService = {
                     id: option.value,
-                    name: option.textContent,
+                    name: option.dataset.serviceName || option.textContent,
+                    displayLabel: option.textContent,
                     price: parseFloat(option.dataset.price),
-                    min: parseInt(option.dataset.min),
-                    max: parseInt(option.dataset.max),
-                    avgTime: option.dataset.avgTime
+                    min: Number.isFinite(minValue) ? minValue : 0,
+                    max: Number.isFinite(maxValue) ? maxValue : Infinity,
+                    avgTime: option.dataset.avgTime,
+                    publicId: option.dataset.publicId ? option.dataset.publicId : null
                 };
 
                 // Update quantity limits
                 if (quantityInput) {
                     quantityInput.min = selectedService.min;
-                    quantityInput.max = selectedService.max;
-                    quantityInput.placeholder = `Min: ${selectedService.min} - Max: ${selectedService.max}`;
+                    quantityInput.max = Number.isFinite(selectedService.max) ? selectedService.max : '';
+                    const maxLabel = Number.isFinite(selectedService.max) ? selectedService.max : 'Unlimited';
+                    quantityInput.placeholder = `Min: ${selectedService.min} - Max: ${maxLabel}`;
                     
                     // Update quantity info display
                     const quantityInfo = quantityInput.parentElement.querySelector('.quantity-info');
                     if (quantityInfo) {
                         quantityInfo.innerHTML = `
                             <span>Min: <strong>${selectedService.min}</strong></span>
-                            <span>Max: <strong>${selectedService.max.toLocaleString()}</strong></span>
+                            <span>Max: <strong>${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}</strong></span>
                         `;
                     }
                 }
@@ -272,10 +288,11 @@
 
                 // Show service info
                 if (serviceInfo) {
+                    const serviceLabel = selectedService.publicId ? `#${selectedService.publicId}` : selectedService.id;
                     serviceInfo.innerHTML = `
-                        <strong>Service ID:</strong> ${selectedService.id} | 
+                        <strong>Service ID:</strong> ${serviceLabel} | 
                         <strong>Price:</strong> $${selectedService.price.toFixed(4)} per 1000 | 
-                        <strong>Range:</strong> ${selectedService.min} - ${selectedService.max.toLocaleString()}
+                        <strong>Range:</strong> ${selectedService.min} - ${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}
                     `;
                     serviceInfo.classList.add('show');
                 }
@@ -341,6 +358,7 @@
                 services.forEach(service => {
                     if (service.name.toLowerCase().includes(searchTerm) || 
                         service.id.includes(searchTerm) ||
+                        (service.publicId && service.publicId.toString().includes(searchTerm)) ||
                         service.provider_service_id.toString().includes(searchTerm)) {
                         results.push({ ...service, category });
                     }
@@ -351,13 +369,18 @@
             serviceSelect.innerHTML = '<option value="" disabled selected>Search results...</option>';
             results.forEach(service => {
                 const option = document.createElement('option');
+                const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
                 option.value = service.id;
-                option.textContent = `[ID: ${service.provider_service_id}] [${service.category.toUpperCase()}] ${service.name}`;
+                option.textContent = `[${labelId}] [${service.category.toUpperCase()}] ${service.name}`;
                 option.dataset.price = service.price;
                 option.dataset.min = service.min;
-                option.dataset.max = service.max;
+                option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
                 option.dataset.avgTime = service.avgTime;
                 option.dataset.description = service.description;
+                option.dataset.serviceName = service.name;
+                if (service.publicId) {
+                    option.dataset.publicId = service.publicId;
+                }
                 serviceSelect.appendChild(option);
             });
 
@@ -386,8 +409,10 @@
             const quantity = parseInt(quantityInput.value);
 
             // Validate quantity
-            if (quantity < selectedService.min || quantity > selectedService.max) {
-                showToast(`Quantity must be between ${selectedService.min} and ${selectedService.max}`, 'error');
+            const maxLimit = Number.isFinite(selectedService.max) ? selectedService.max : Infinity;
+            if (quantity < selectedService.min || (Number.isFinite(maxLimit) && quantity > maxLimit)) {
+                const maxLabel = Number.isFinite(maxLimit) ? maxLimit : 'Unlimited';
+                showToast(`Quantity must be between ${selectedService.min} and ${maxLabel}`, 'error');
                 return;
             }
 
@@ -401,11 +426,10 @@
             }
 
             const orderData = {
-                service_id: selectedService.id,
-                service_name: selectedService.name,
+                serviceId: selectedService.id,
+                serviceLabel: selectedService.publicId ? `#${selectedService.publicId}` : selectedService.name,
                 link: orderLink,
-                quantity: quantity,
-                charge: charge
+                quantity
             };
 
             try {

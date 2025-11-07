@@ -34,6 +34,7 @@ function closeModal() {
 
 // Provider utilities for form dropdowns
 let providersCache = null;
+let servicesCache = [];
 
 // Expose cache invalidation globally
 window.invalidateProvidersCache = function() {
@@ -88,6 +89,57 @@ function buildProviderOptions(providers, includePlaceholder = true) {
         return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}</option>`;
     }).join('');
     return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No providers available</option>'));
+}
+
+function buildProviderOptionsWithSelected(providers, selectedId) {
+    const placeholder = `<option value=""${selectedId ? '' : ' selected'}>No provider linked</option>`;
+    const options = (providers || []).map(provider => {
+        const isSelected = provider.id === selectedId;
+        const statusLabel = provider.status ? ` (${provider.status})` : '';
+        return `<option value="${provider.id}"${isSelected ? ' selected' : ''}>${escapeHtml(provider.name)}${statusLabel}</option>`;
+    }).join('');
+    return placeholder + options;
+}
+
+function toNumeric(value) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatRatePerThousand(value) {
+    const numeric = toNumeric(value);
+    return numeric === null ? '—' : `$${numeric.toFixed(4)}`;
+}
+
+function formatQuantityValue(value) {
+    if (value === undefined || value === null) {
+        return '—';
+    }
+
+    if (value === 'Infinity') {
+        return 'Unlimited';
+    }
+
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+        return 'Unlimited';
+    }
+
+    return numeric.toLocaleString();
+}
+
+function isAdminCreatedService(service = {}) {
+    if (!service) return false;
+    if (service.origin && String(service.origin).toLowerCase() === 'manual') {
+        return true;
+    }
+    if (service.is_manual === true) {
+        return true;
+    }
+    if (service.type && String(service.type).toLowerCase() === 'custom') {
+        return true;
+    }
+    return !service.provider_service_id;
 }
 
 // Add new service
@@ -180,65 +232,171 @@ async function addService() {
     createModal('Add New Service', content, actions);
 }
 
-function submitAddService(event) {
+async function submitAddService(event) {
     event.preventDefault();
+
     const formData = new FormData(event.target);
     const serviceData = Object.fromEntries(formData);
-    
-    // Show loading state
+
     const submitBtn = document.querySelector('button[form="addServiceForm"]');
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
     }
-    
-    // Call backend API to create service
-    const token = localStorage.getItem('token');
-    
-    fetch('/.netlify/functions/services', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-            action: 'create',
-            name: serviceData.serviceName,
-            category: serviceData.category,
-            type: serviceData.type || 'service',
-            rate: parseFloat(serviceData.rate),
-            min_quantity: parseInt(serviceData.min, 10),
-            max_quantity: parseInt(serviceData.max, 10),
-            description: serviceData.description || '',
-            status: (serviceData.status || 'active').toLowerCase(),
-            providerId: serviceData.provider || null,
-            providerServiceId: serviceData.providerServiceId || null
-        })
-    })
-    .then(response => response.json())
-    .then(data => {
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/services', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'create',
+                name: serviceData.serviceName,
+                category: serviceData.category,
+                type: serviceData.type || 'service',
+                rate: parseFloat(serviceData.rate),
+                min_quantity: parseInt(serviceData.min, 10),
+                max_quantity: parseInt(serviceData.max, 10),
+                description: serviceData.description || '',
+                status: (serviceData.status || 'active').toLowerCase(),
+                providerId: serviceData.provider || null,
+                providerServiceId: serviceData.providerServiceId || null
+            })
+        });
+
+        const data = await response.json();
+
         if (data.success) {
             showNotification(data.message || 'Service created successfully!', 'success');
             closeModal();
-            loadServices();
+            await loadServices();
         } else {
             showNotification(data.error || 'Failed to create service', 'error');
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fas fa-plus"></i> Create Service';
-            }
         }
-    })
-    .catch(error => {
+    } catch (error) {
         console.error('Create service error:', error);
         showNotification('Failed to create service. Please try again.', 'error');
+    } finally {
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-plus"></i> Create Service';
         }
-    });
+    }
 }
 
+async function editService(serviceId) {
+    const service = servicesCache.find(item => String(item.id) === String(serviceId));
+    if (!service) {
+        showNotification('Service not found for editing', 'error');
+        return;
+    }
+
+    const providers = await fetchProvidersList();
+    const providerOptions = buildProviderOptionsWithSelected(providers, service.provider_id);
+
+    const categories = ['instagram', 'tiktok', 'youtube', 'twitter', 'facebook', 'other'];
+    const currentCategory = String(service.category || 'other').toLowerCase();
+    const categoryOptions = categories.map(category => {
+        const label = category.charAt(0).toUpperCase() + category.slice(1);
+        const selected = currentCategory === category ? ' selected' : '';
+        return `<option value="${category}"${selected}>${label}</option>`;
+    }).join('');
+
+    const isManualService = isAdminCreatedService(service);
+    const publicIdValue = toNumeric(service.public_id);
+    const publicIdDisplay = isManualService && publicIdValue !== null ? `#${publicIdValue}` : '—';
+    const providerIdDisplay = service.provider_service_id ? escapeHtml(service.provider_service_id) : '—';
+
+    const providerMarkup = toNumeric(service.provider?.markup);
+    let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
+    const retailRate = toNumeric(service.rate);
+
+    if (providerCost === null && retailRate !== null && providerMarkup !== null && providerMarkup > -100) {
+        const factor = 1 + providerMarkup / 100;
+        if (factor !== 0) {
+            providerCost = retailRate / factor;
+        }
+    }
+
+    const catalogRate = retailRate !== null ? retailRate : (providerCost !== null ? providerCost : null);
+    const minValue = toNumeric(service.min_quantity);
+    const maxValue = toNumeric(service.max_quantity);
+
+    const content = `
+        <form id="editServiceForm" onsubmit="submitEditService(event, '${serviceId}')" class="admin-form">
+            <div class="form-group" style="display: flex; gap: 16px; font-size: 13px; color: #94a3b8;">
+                <span><strong>Our ID:</strong> ${publicIdDisplay}</span>
+                <span><strong>Provider ID:</strong> ${providerIdDisplay}</span>
+            </div>
+            <div class="form-group">
+                <label>Service Name *</label>
+                <input type="text" name="serviceName" value="${escapeHtml(service.name)}" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Category *</label>
+                    <select name="category" required>
+                        ${categoryOptions}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="active"${service.status === 'active' ? ' selected' : ''}>Active</option>
+                        <option value="inactive"${service.status === 'inactive' ? ' selected' : ''}>Inactive</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Provider</label>
+                <select name="provider">
+                    ${providerOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Provider Service ID</label>
+                <input type="text" name="providerServiceId" value="${providerIdDisplay !== '—' ? providerIdDisplay : ''}" placeholder="Enter provider service ID">
+                <small style="color: #94a3b8;">Leave blank to detach from provider.</small>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Retail Rate per 1000 *</label>
+                    <input type="number" name="rate" step="0.0001" min="0" value="${catalogRate !== null ? catalogRate : ''}" required>
+                </div>
+                <div class="form-group">
+                    <label>Provider Cost per 1000</label>
+                    <input type="text" value="${formatRatePerThousand(providerCost)}" disabled>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Min Quantity *</label>
+                    <input type="number" name="min" min="1" value="${minValue !== null ? minValue : ''}" required>
+                </div>
+                <div class="form-group">
+                    <label>Max Quantity *</label>
+                    <input type="number" name="max" min="1" value="${maxValue !== null ? maxValue : ''}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" rows="3" placeholder="Optional">${escapeHtml(service.description || '')}</textarea>
+            </div>
+        </form>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" form="editServiceForm" class="btn-primary">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
+    `;
+
+    createModal(`Edit Service`, content, actions);
+}
 // Import services from provider
 async function importServices() {
     const providers = await fetchProvidersList();
@@ -625,52 +783,27 @@ async function submitAddSubscription(event) {
     }
 }
 
-// Edit service
-function editService(serviceId) {
-    const content = `
-        <form id="editServiceForm" onsubmit="submitEditService(event, ${serviceId})" class="admin-form">
-            <div class="form-group">
-                <label>Service Name *</label>
-                <input type="text" name="serviceName" value="Instagram Followers" required>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Rate per 1000 *</label>
-                    <input type="number" name="rate" value="5.50" min="0" step="0.01" required>
-                </div>
-                <div class="form-group">
-                    <label>Min *</label>
-                    <input type="number" name="min" value="100" min="1" required>
-                </div>
-                <div class="form-group">
-                    <label>Max *</label>
-                    <input type="number" name="max" value="10000" min="1" required>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Status</label>
-                <select name="status">
-                    <option value="Active" selected>Active</option>
-                    <option value="Inactive">Inactive</option>
-                </select>
-            </div>
-        </form>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="editServiceForm" class="btn-primary">
-            <i class="fas fa-save"></i> Save Changes
-        </button>
-    `;
-    
-    createModal(`Edit Service #${serviceId}`, content, actions);
-}
-
 async function submitEditService(event, serviceId) {
     event.preventDefault();
     const formData = new FormData(event.target);
     const serviceData = Object.fromEntries(formData);
+
+    const rateValue = Number.parseFloat(serviceData.rate);
+    const minQuantity = Number.parseInt(serviceData.min, 10);
+    const maxQuantityRaw = (serviceData.max || '').toString().trim();
+    const maxQuantity = maxQuantityRaw === '' ? null : Number.parseInt(maxQuantityRaw, 10);
+    const payload = {
+        serviceId,
+        name: serviceData.serviceName,
+        category: serviceData.category,
+        rate: Number.isFinite(rateValue) ? rateValue : 0,
+        min_quantity: Number.isFinite(minQuantity) ? minQuantity : null,
+        max_quantity: Number.isFinite(maxQuantity) ? maxQuantity : null,
+        description: serviceData.description || '',
+        status: (serviceData.status || 'inactive').toLowerCase(),
+        providerId: serviceData.provider || null,
+        providerServiceId: (serviceData.providerServiceId || '').trim() || null
+    };
     
     const submitBtn = document.querySelector('button[form="editServiceForm"]');
     if (submitBtn) {
@@ -686,23 +819,14 @@ async function submitEditService(event, serviceId) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                serviceId: serviceId,
-                name: serviceData.serviceName,
-                category: serviceData.category,
-                rate: parseFloat(serviceData.rate),
-                min_quantity: parseInt(serviceData.min),
-                max_quantity: parseInt(serviceData.max),
-                description: serviceData.description,
-                status: serviceData.status
-            })
+            body: JSON.stringify(payload)
         });
         
         const data = await response.json();
         if (data.success) {
             showNotification(`Service #${serviceId} updated successfully!`, 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            await loadServices();
         } else {
             showNotification(data.error || 'Failed to update service', 'error');
             if (submitBtn) {
@@ -874,12 +998,13 @@ async function loadServices() {
         });
 
         const data = await response.json();
-        
-        if (data.services && data.services.length > 0) {
+        servicesCache = Array.isArray(data.services) ? data.services : [];
+
+        if (servicesCache.length > 0) {
             tbody.innerHTML = '';
             
             let activeCount = 0;
-            data.services.forEach(service => {
+            servicesCache.forEach(service => {
                 if (service.status === 'active') activeCount++;
                 
                 const statusClass = service.status === 'active' ? 'completed' : 'pending';
@@ -889,22 +1014,68 @@ async function loadServices() {
                            service.category === 'twitter' ? 'fab fa-twitter' :
                            service.category === 'facebook' ? 'fab fa-facebook' :
                            'fas fa-box';
+
+                const isManualService = isAdminCreatedService(service);
+                const publicIdValue = toNumeric(service.public_id);
+                const ourIdLabel = isManualService && publicIdValue !== null
+                    ? `#${publicIdValue}`
+                    : (isManualService ? 'Pending ID' : 'Imported');
+                const providerId = service.provider_service_id ? escapeHtml(service.provider_service_id) : null;
+                const providerLabel = providerId ? `Provider ${providerId}` : 'No provider';
+
+                const providerMarkup = toNumeric(service.provider?.markup);
+                let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
+                const retailRate = toNumeric(service.rate);
+
+                if (providerCost === null && retailRate !== null && providerMarkup !== null && providerMarkup > -100) {
+                    const factor = 1 + providerMarkup / 100;
+                    if (factor !== 0) {
+                        providerCost = retailRate / factor;
+                    }
+                }
+
+                let catalogRate = retailRate;
+                if (catalogRate === null && providerCost !== null) {
+                    const factor = providerMarkup !== null ? 1 + providerMarkup / 100 : 1;
+                    catalogRate = providerCost * factor;
+                }
+
+                const providerRateDisplay = formatRatePerThousand(providerCost);
+                const catalogRateDisplay = formatRatePerThousand(catalogRate);
+
+                const categoryRaw = String(service.category || 'Default');
+                const categoryLabel = categoryRaw.charAt(0).toUpperCase() + categoryRaw.slice(1);
+                const minQuantity = formatQuantityValue(service.min_quantity);
+                const maxQuantity = (service.max_quantity === null || service.max_quantity === undefined)
+                    ? 'Unlimited'
+                    : formatQuantityValue(service.max_quantity);
+                const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
                 
                 const row = `
                     <tr>
                         <td><input type="checkbox" class="service-checkbox"></td>
-                        <td>${service.provider_service_id || 'N/A'}</td>
+                        <td>
+                            <div class="cell-stack cell-stack-ids">
+                                <span class="cell-primary${isManualService && publicIdValue !== null ? '' : ' cell-muted'}">${ourIdLabel}</span>
+                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
+                            </div>
+                        </td>
                         <td>
                             <div class="service-name">
                                 <i class="${icon}"></i>
-                                ${service.name}
+                                ${escapeHtml(service.name)}
                             </div>
                         </td>
-                        <td>${service.category || 'Default'}</td>
-                        <td>${service.provider?.name || 'N/A'}</td>
-                        <td>$${parseFloat(service.rate || 0).toFixed(4)}</td>
-                        <td>${service.min_quantity || 0}</td>
-                        <td>${service.max_quantity || 0}</td>
+                        <td>${escapeHtml(categoryLabel)}</td>
+                        <td>${providerName}</td>
+                        <td>
+                            <div class="cell-stack cell-stack-right">
+                                <span class="cell-secondary">Provider: ${providerRateDisplay}</span>
+                                <span class="cell-primary cell-highlight">Retail: ${catalogRateDisplay}</span>
+                            </div>
+                        </td>
+                        <td>${minQuantity}</td>
+                        <td>${maxQuantity}</td>
                         <td><span class="status-badge ${statusClass}">${service.status}</span></td>
                         <td>
                             <div class="actions-dropdown">
@@ -923,14 +1094,14 @@ async function loadServices() {
             });
             
             // Update stats
-            document.getElementById('totalServices').textContent = data.services.length;
+            document.getElementById('totalServices').textContent = servicesCache.length;
             document.getElementById('activeServices').textContent = activeCount;
             document.getElementById('lastSync').textContent = new Date().toLocaleDateString();
             
             // Update pagination
             const paginationInfo = document.getElementById('paginationInfo');
             if (paginationInfo) {
-                paginationInfo.textContent = `Showing 1-${Math.min(data.services.length, 50)} of ${data.services.length}`;
+                paginationInfo.textContent = `Showing 1-${Math.min(servicesCache.length, 50)} of ${servicesCache.length}`;
             }
         } else {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #888;">No services found</td></tr>';
