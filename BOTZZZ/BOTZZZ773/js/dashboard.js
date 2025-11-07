@@ -215,7 +215,7 @@
     // Populate services based on category
     if (categorySelect && serviceSelect) {
         categorySelect.addEventListener('change', (e) => {
-            const category = e.target.value;
+            const category = e.target.value.toLowerCase();
             serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
             
             if (category && servicesData[category]) {
@@ -227,6 +227,7 @@
                     option.dataset.min = service.min;
                     option.dataset.max = service.max;
                     option.dataset.avgTime = service.avgTime;
+                    option.dataset.description = service.description;
                     serviceSelect.appendChild(option);
                 });
             }
@@ -356,12 +357,16 @@
                 option.dataset.min = service.min;
                 option.dataset.max = service.max;
                 option.dataset.avgTime = service.avgTime;
+                option.dataset.description = service.description;
                 serviceSelect.appendChild(option);
             });
 
             if (results.length === 0) {
                 serviceSelect.innerHTML = '<option value="" disabled selected>No services found</option>';
             }
+            
+            // Reset category select when searching
+            categorySelect.value = '';
         });
     }
 
