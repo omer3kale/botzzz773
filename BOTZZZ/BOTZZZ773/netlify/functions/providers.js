@@ -332,18 +332,35 @@ async function syncProvider(data, headers) {
     params.append('key', provider.api_key);
     params.append('action', 'services');
     
-    const response = await axios.post(provider.api_url, params, {
-      timeout: 30000,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    });
+    let response;
+    try {
+      response = await axios.post(provider.api_url, params, {
+        timeout: 30000,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+    } catch (axiosError) {
+      console.error('Provider API request failed:', axiosError.message);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to connect to provider API',
+          details: axiosError.message
+        })
+      };
+    }
 
     if (!Array.isArray(response.data)) {
+      console.error('Invalid provider response format:', typeof response.data);
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Invalid response from provider' })
+        body: JSON.stringify({ 
+          error: 'Invalid response from provider',
+          details: 'Expected array of services'
+        })
       };
     }
 

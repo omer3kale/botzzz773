@@ -1505,7 +1505,19 @@ async function syncProvider(providerId) {
         
         updateProgress(80, 'Processing services...');
         
-        const data = await response.json();
+        let data;
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            console.warn('[WARN] Non-JSON response received:', text);
+            try {
+                data = JSON.parse(text);
+            } catch (e) {
+                throw new Error('Invalid response from server');
+            }
+        }
         
         console.log('[DEBUG] Sync response:', data);
         
