@@ -1,7 +1,7 @@
 # Netlify Configuration
 [build]
   publish = "."
-  command = "echo 'No build required'"
+  command = "npm install"
   functions = "netlify/functions"
   node_bundler = "esbuild"
   
