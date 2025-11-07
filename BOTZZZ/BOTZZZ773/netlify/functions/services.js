@@ -62,16 +62,23 @@ exports.handler = async (event) => {
 
 async function handleGetServices(user, headers) {
   try {
-    // Get all active services (public endpoint)
-    const { data: services, error } = await supabase
+    const isAdmin = user && user.role === 'admin';
+    const client = isAdmin ? supabaseAdmin : supabase;
+
+    let query = client
       .from('services')
       .select(`
         *,
         provider:providers(id, name, status)
-      `)
-      .eq('status', 'active')
-      .order('category', { ascending: true })
-      .order('name', { ascending: true });
+      `);
+
+    if (!isAdmin) {
+      query = query.eq('status', 'active');
+    }
+
+    query = query.order('category', { ascending: true }).order('name', { ascending: true });
+
+    const { data: services, error } = await query;
 
     if (error) {
       console.error('Get services error:', error);

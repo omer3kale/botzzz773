@@ -17,6 +17,106 @@ function getUserFromToken(authHeader) {
   }
 }
 
+function extractProviderIdFromPath(path = '') {
+  const segments = path.split('/').filter(Boolean);
+  const lastSegment = segments[segments.length - 1];
+  if (!lastSegment || lastSegment.toLowerCase() === 'providers') {
+    return null;
+  }
+  return decodeURIComponent(lastSegment);
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function canonicalizeAction(rawAction, params) {
+  const actionAliases = {
+    create: 'create',
+    add: 'create',
+    new: 'create',
+    createprovider: 'create',
+    addprovider: 'create',
+    provideradd: 'create',
+    providercreate: 'create',
+    createprovideraction: 'create',
+    sync: 'sync',
+    syncprovider: 'sync',
+    syncservices: 'sync',
+    import: 'sync',
+    importservices: 'sync',
+    refresh: 'sync',
+    test: 'test',
+    testprovider: 'test',
+    testconnection: 'test',
+    validate: 'test'
+  };
+
+  let normalized = '';
+
+  if (rawAction !== undefined && rawAction !== null) {
+    const actionStr = String(rawAction).trim().toLowerCase();
+    if (actionStr) {
+      normalized = actionAliases[actionStr];
+      if (!normalized) {
+        const collapsed = actionStr.replace(/[\s_-]+/g, '');
+        normalized = actionAliases[collapsed] || '';
+      }
+    }
+  }
+
+  if (!normalized && hasProviderCreatePayload(params)) {
+    normalized = 'create';
+  }
+
+  if (!normalized && hasProviderSyncPayload(params)) {
+    normalized = 'sync';
+  }
+
+  return normalized;
+}
+
+function sanitizeString(value) {
+  if (value === undefined || value === null) {
+    return '';
+  }
+  return String(value).trim();
+}
+
+function parseMarkup(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function normalizeProviderPayload(raw = {}) {
+  const name = sanitizeString(firstDefined(raw.name, raw.providerName, raw.provider_name, raw.provider));
+  const apiUrl = sanitizeString(firstDefined(raw.apiUrl, raw.api_url, raw.url, raw.endpoint));
+  const apiKey = sanitizeString(firstDefined(raw.apiKey, raw.api_key, raw.key, raw.providerKey));
+  const markup = parseMarkup(firstDefined(raw.markup, raw.defaultMarkup, raw.providerMarkup, raw.priceMarkup));
+  const rawStatus = firstDefined(raw.status, raw.providerStatus, raw.state);
+  const status = rawStatus ? String(rawStatus).trim().toLowerCase() : undefined;
+
+  return { name, apiUrl, apiKey, markup, status };
+}
+
+function hasProviderCreatePayload(raw = {}) {
+  const payload = normalizeProviderPayload(raw);
+  return Boolean(payload.name || payload.apiKey || payload.apiUrl);
+}
+
+function hasProviderSyncPayload(raw = {}) {
+  return Boolean(firstDefined(raw.providerId, raw.provider_id, raw.id, raw.provider, raw.targetProviderId));
+}
+
+function extractProviderId(raw = {}) {
+  return firstDefined(raw.providerId, raw.provider_id, raw.id, raw.provider, raw.targetProviderId);
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -42,6 +142,19 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}');
+    const queryParams = event.queryStringParameters || {};
+
+    if (!body.action && queryParams.action) {
+      body.action = queryParams.action;
+    }
+
+    const providerIdFromPath = extractProviderIdFromPath(event.path || '');
+    const providerIdFromQuery = firstDefined(queryParams.providerId, queryParams.provider_id, queryParams.id);
+    const providerId = firstDefined(body.providerId, body.provider_id, providerIdFromQuery, providerIdFromPath);
+
+    if (providerId) {
+      body.providerId = providerId;
+    }
 
     switch (event.httpMethod) {
       case 'GET':
@@ -101,19 +214,14 @@ async function handleGetProviders(headers) {
 }
 
 async function handleAction(data, headers) {
-  const { action, ...params } = data;
-  let normalizedAction = typeof action === 'string' ? action.trim().toLowerCase() : '';
+  const { action, ...params } = data || {};
+  const normalizedAction = canonicalizeAction(action, params);
 
-  // When no explicit action is provided but provider fields exist, default to create.
-  if (!normalizedAction) {
-    if (params && (params.name || params.apiUrl || params.api_key || params.apiKey)) {
-      normalizedAction = 'create';
-    } else if (params && params.providerId) {
-      normalizedAction = 'sync';
-    }
-  }
-
-  console.log('[DEBUG] handleAction called with:', { action, normalizedAction, params: Object.keys(params) });
+  console.log('[DEBUG] handleAction called with:', {
+    action,
+    normalizedAction,
+    paramKeys: params ? Object.keys(params) : []
+  });
 
   switch (normalizedAction) {
     case 'test':
@@ -139,7 +247,7 @@ async function handleAction(data, headers) {
 
 async function testProvider(data, headers) {
   try {
-    const { apiUrl, apiKey } = data;
+    const { apiUrl, apiKey } = normalizeProviderPayload(data);
 
     if (!apiUrl || !apiKey) {
       return {
@@ -150,11 +258,15 @@ async function testProvider(data, headers) {
     }
 
     // Test connection by fetching balance
-    const response = await axios.post(apiUrl, {
-      key: apiKey,
-      action: 'balance'
-    }, {
-      timeout: 10000
+    const params = new URLSearchParams();
+    params.append('key', apiKey);
+    params.append('action', 'balance');
+    
+    const response = await axios.post(apiUrl, params, {
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
     if (response.data.balance !== undefined) {
@@ -190,7 +302,7 @@ async function testProvider(data, headers) {
 
 async function syncProvider(data, headers) {
   try {
-    const { providerId } = data;
+    const providerId = extractProviderId(data);
 
     if (!providerId) {
       return {
@@ -216,11 +328,15 @@ async function syncProvider(data, headers) {
     }
 
     // Fetch services from provider
-    const response = await axios.post(provider.api_url, {
-      key: provider.api_key,
-      action: 'services'
-    }, {
-      timeout: 30000
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'services');
+    
+    const response = await axios.post(provider.api_url, params, {
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
     if (!Array.isArray(response.data)) {
@@ -299,9 +415,15 @@ async function syncProvider(data, headers) {
 
 async function createProvider(data, headers) {
   try {
-    const { name, apiUrl, apiKey, markup, status } = data;
+    const { name, apiUrl, apiKey, markup, status } = normalizeProviderPayload(data);
 
-    console.log('[DEBUG] Create provider request:', { name, apiUrl, apiKey: apiKey?.substring(0, 10) + '...', markup, status });
+    console.log('[DEBUG] Create provider request:', {
+      name,
+      apiUrl,
+      apiKey: apiKey ? apiKey.substring(0, 10) + '...' : undefined,
+      markup,
+      status
+    });
 
     if (!name || !apiKey) {
       return {
@@ -313,18 +435,25 @@ async function createProvider(data, headers) {
 
     // Use a default API URL if not provided (will be updated when testing/syncing)
     const providerApiUrl = apiUrl || 'https://provider-api.example.com';
-    const providerMarkup = markup !== undefined ? markup : 15; // Default 15% markup if not provided
+    const providerMarkup = Number.isFinite(markup) ? markup : 15; // Default 15% markup if not provided
+    const providerStatus = status || 'active';
 
     const insertData = {
       name,
       api_url: providerApiUrl,
       api_key: apiKey,
       markup: providerMarkup,
-      status: status ? status.toLowerCase() : 'active'  // Ensure lowercase status
+      status: providerStatus
       // Note: description field removed as it doesn't exist in providers table
     };
 
-    console.log('[DEBUG] Inserting provider:', { ...insertData, api_key: insertData.api_key?.substring(0, 10) + '...' });
+    console.log('[DEBUG] Inserting provider:', {
+      name: insertData.name,
+      api_url: insertData.api_url,
+      api_key: insertData.api_key ? insertData.api_key.substring(0, 10) + '...' : undefined,
+      markup: insertData.markup,
+      status: insertData.status
+    });
 
     const { data: provider, error } = await supabaseAdmin
       .from('providers')
@@ -371,7 +500,14 @@ async function createProvider(data, headers) {
 
 async function handleUpdateProvider(data, headers) {
   try {
-    const { providerId, ...updateData } = data;
+    const providerId = extractProviderId(data);
+    const updateData = { ...data };
+    delete updateData.providerId;
+    delete updateData.provider_id;
+    delete updateData.id;
+    delete updateData.provider;
+    delete updateData.targetProviderId;
+    delete updateData.action;
 
     if (!providerId) {
       return {
@@ -379,6 +515,10 @@ async function handleUpdateProvider(data, headers) {
         headers,
         body: JSON.stringify({ error: 'Provider ID is required' })
       };
+    }
+
+    if (updateData.status) {
+      updateData.status = String(updateData.status).trim().toLowerCase();
     }
 
     const { data: provider, error } = await supabaseAdmin
@@ -417,7 +557,7 @@ async function handleUpdateProvider(data, headers) {
 
 async function handleDeleteProvider(data, headers) {
   try {
-    const { providerId } = data;
+    const providerId = extractProviderId(data);
 
     if (!providerId) {
       return {

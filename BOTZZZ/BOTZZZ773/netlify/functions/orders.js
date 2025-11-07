@@ -476,12 +476,17 @@ async function handleCancelOrder(user, data, headers) {
 
 async function submitOrderToProvider(provider, orderData) {
   try {
-    const response = await axios.post(provider.api_url, {
-      key: provider.api_key,
-      action: 'add',
-      service: orderData.service,
-      link: orderData.link,
-      quantity: orderData.quantity
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'add');
+    params.append('service', orderData.service);
+    params.append('link', orderData.link);
+    params.append('quantity', orderData.quantity);
+    
+    const response = await axios.post(provider.api_url, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
     if (response.data.order) {

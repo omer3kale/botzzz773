@@ -1084,6 +1084,22 @@ function submitAddProvider(event) {
     const formData = new FormData(event.target);
     const providerData = Object.fromEntries(formData);
     
+    // Show loading state
+    const submitBtn = document.querySelector('button[form="addProviderForm"]');
+    const originalBtnHTML = submitBtn ? submitBtn.innerHTML : '';
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    }
+    
+    console.log('[DEBUG] Creating provider:', {
+        name: providerData.providerName,
+        apiUrl: providerData.apiUrl,
+        apiKey: providerData.apiKey ? providerData.apiKey.substring(0, 10) + '...' : undefined,
+        markup: parseFloat(providerData.markup) || 15,
+        status: (providerData.status || 'Active').toLowerCase()
+    });
+    
     // Call backend API to add provider
     fetch('/.netlify/functions/providers', {
         method: 'POST',
@@ -1097,23 +1113,45 @@ function submitAddProvider(event) {
             apiUrl: providerData.apiUrl,
             apiKey: providerData.apiKey,
             markup: parseFloat(providerData.markup) || 15,
-            status: (providerData.status || 'Active').toLowerCase()  // Ensure lowercase
+            status: (providerData.status || 'Active').toLowerCase()
         })
     })
-    .then(response => response.json())
-    .then(data => {
-        console.log('Add provider response:', data);
+    .then(response => {
+        console.log('[DEBUG] Provider creation response status:', response.status);
+        return response.json().then(data => ({
+            status: response.status,
+            ok: response.ok,
+            data
+        }));
+    })
+    .then(({ status, ok, data }) => {
+        console.log('[DEBUG] Provider creation response:', { status, ok, data });
+        
         if (data.success) {
             showNotification(`Provider "${providerData.providerName}" added successfully!`, 'success');
             closeModal();
-            loadProviders(); // Reload the providers list
+            loadProviders();
+            // Invalidate services page provider cache
+            if (typeof window.invalidateProvidersCache === 'function') {
+                window.invalidateProvidersCache();
+            }
         } else {
-            throw new Error(data.error || 'Failed to add provider');
+            const errorMsg = data.error || data.message || data.details || 'Failed to create provider';
+            console.error('[ERROR] Provider creation failed:', errorMsg);
+            showNotification(errorMsg, 'error');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnHTML;
+            }
         }
     })
     .catch(error => {
-        console.error('Error adding provider:', error);
-        showNotification(error.message || 'Failed to add provider', 'error');
+        console.error('[ERROR] Provider creation exception:', error);
+        showNotification(error.message || 'Failed to add provider. Check console for details.', 'error');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHTML;
+        }
     });
 }
 
@@ -1227,51 +1265,117 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function editProvider(providerId) {
-    const content = `
-        <form id="editProviderForm" onsubmit="submitEditProvider(event, ${providerId})" class="admin-form">
-            <div class="form-group">
-                <label>Provider Name *</label>
-                <input type="text" name="providerName" value="SMM Provider ${providerId}" required>
-            </div>
-            <div class="form-group">
-                <label>API URL *</label>
-                <input type="url" name="apiUrl" value="https://api.provider${providerId}.com/v2" required>
-            </div>
-            <div class="form-group">
-                <label>API Key *</label>
-                <input type="text" name="apiKey" value="••••••••••••••••" required>
-            </div>
-            <div class="form-row">
+async function editProvider(providerId) {
+    console.log('[DEBUG] Editing provider:', providerId);
+    
+    // Show loading modal first
+    createModal('Edit Provider', `
+        <div style="text-align: center; padding: 40px;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+            <p>Loading provider data...</p>
+        </div>
+    `);
+    
+    try {
+        // Fetch the current provider data
+        const response = await fetch('/.netlify/functions/providers', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success || !data.providers) {
+            throw new Error('Failed to load provider data');
+        }
+        
+        // Find the specific provider
+        const provider = data.providers.find(p => p.id === providerId);
+        
+        if (!provider) {
+            throw new Error('Provider not found');
+        }
+        
+        // Now show the edit form with actual data
+        const content = `
+            <form id="editProviderForm" onsubmit="submitEditProvider(event, '${providerId}')" class="admin-form">
                 <div class="form-group">
-                    <label>Default Markup (%)</label>
-                    <input type="number" name="markup" value="15" min="0" max="100">
+                    <label>Provider Name *</label>
+                    <input type="text" name="providerName" value="${escapeHtml(provider.name)}" required>
                 </div>
                 <div class="form-group">
-                    <label>Status</label>
-                    <select name="status">
-                        <option value="Active" selected>Active</option>
-                        <option value="Inactive">Inactive</option>
-                    </select>
+                    <label>API URL *</label>
+                    <input type="url" name="apiUrl" value="${escapeHtml(provider.api_url)}" required>
                 </div>
+                <div class="form-group">
+                    <label>API Key *</label>
+                    <input type="text" name="apiKey" value="${escapeHtml(provider.api_key)}" required>
+                    <small style="color: #888;">Enter new key or leave unchanged</small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Default Markup (%)</label>
+                        <input type="number" name="markup" value="${provider.markup || 0}" min="0" max="100" step="0.01">
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select name="status">
+                            <option value="active" ${provider.status === 'active' ? 'selected' : ''}>Active</option>
+                            <option value="inactive" ${provider.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+        `;
+        
+        const actions = `
+            <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+            <button type="submit" form="editProviderForm" class="btn-primary">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
+        `;
+        
+        createModal(`Edit Provider: ${escapeHtml(provider.name)}`, content, actions);
+        
+    } catch (error) {
+        console.error('Error loading provider:', error);
+        const content = `
+            <div style="text-align: center; padding: 40px;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
+                <p style="color: #ef4444;">${error.message || 'Failed to load provider'}</p>
+                <button class="btn-primary" onclick="closeModal()" style="margin-top: 20px;">Close</button>
             </div>
-        </form>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="editProviderForm" class="btn-primary">
-            <i class="fas fa-save"></i> Save Changes
-        </button>
-    `;
-    
-    createModal(`Edit Provider #${providerId}`, content, actions);
+        `;
+        createModal('Error', content);
+    }
 }
 
 function submitEditProvider(event, providerId) {
     event.preventDefault();
+    console.log('[DEBUG] Submitting edit for provider:', providerId);
+    
     const formData = new FormData(event.target);
     const providerData = Object.fromEntries(formData);
+    
+    // Disable submit button
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    }
+    
+    const payload = {
+        providerId: providerId,
+        name: providerData.providerName,
+        api_url: providerData.apiUrl,
+        api_key: providerData.apiKey,
+        markup: parseFloat(providerData.markup) || 0,
+        status: providerData.status
+    };
+    
+    console.log('[DEBUG] Update payload:', payload);
     
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'PUT',
@@ -1279,16 +1383,14 @@ function submitEditProvider(event, providerId) {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
-        body: JSON.stringify({
-            name: providerData.providerName,
-            api_url: providerData.apiUrl,
-            api_key: providerData.apiKey,
-            markup: parseFloat(providerData.markup) || 15,
-            status: providerData.status
-        })
+        body: JSON.stringify(payload)
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[DEBUG] Update response status:', response.status);
+        return response.json();
+    })
     .then(data => {
+        console.log('[DEBUG] Update response data:', data);
         if (data.success) {
             showNotification(`Provider updated successfully!`, 'success');
             closeModal();
@@ -1300,6 +1402,11 @@ function submitEditProvider(event, providerId) {
     .catch(error => {
         console.error('Error updating provider:', error);
         showNotification(error.message || 'Failed to update provider', 'error');
+        // Re-enable button
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }
     });
 }
 
@@ -1325,14 +1432,22 @@ function deleteProvider(providerId) {
 }
 
 function confirmDeleteProvider(providerId) {
+    console.log('[DEBUG] Deleting provider:', providerId);
+    
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'DELETE',
         headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ providerId: providerId })
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('[DEBUG] Delete response status:', response.status);
+        return response.json();
+    })
     .then(data => {
+        console.log('[DEBUG] Delete response data:', data);
         if (data.success) {
             showNotification(`Provider deleted successfully`, 'success');
             closeModal();
@@ -1347,82 +1462,168 @@ function confirmDeleteProvider(providerId) {
     });
 }
 
-function syncProvider(providerId) {
+async function syncProvider(providerId) {
+    console.log('[DEBUG] Syncing provider:', providerId);
+    
     const content = `
         <div style="text-align: center; padding: 20px;">
             <i class="fas fa-sync fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Syncing services from provider #${providerId}...</p>
+            <p>Syncing services from provider...</p>
             <div style="background: rgba(0,0,0,0.3); border-radius: 8px; height: 8px; margin-top: 20px; overflow: hidden;">
-                <div id="syncProgress" style="background: #FF1494; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                <div id="syncProgress" style="background: #FF1494; height: 100%; width: 30%; transition: width 0.3s;"></div>
             </div>
-            <p id="syncStatus" style="color: #888; margin-top: 12px;">Connecting to provider...</p>
+            <p id="syncStatus" style="color: #888; margin-top: 12px;">Connecting to provider API...</p>
         </div>
     `;
     
-    createModal('Syncing Services', content);
+    createModal('Syncing Services', content, '', false); // No close button during sync
     
-    // Simulate sync progress
-    let progress = 0;
-    const interval = setInterval(() => {
-        progress += 10;
-        const progressBar = document.getElementById('syncProgress');
-        const statusText = document.getElementById('syncStatus');
+    try {
+        const token = localStorage.getItem('token');
         
-        if (progressBar) progressBar.style.width = progress + '%';
+        // Update progress
+        const updateProgress = (percent, status) => {
+            const progressBar = document.getElementById('syncProgress');
+            const statusText = document.getElementById('syncStatus');
+            if (progressBar) progressBar.style.width = percent + '%';
+            if (statusText) statusText.textContent = status;
+        };
         
-        if (progress === 30 && statusText) {
-            statusText.textContent = 'Fetching service list...';
-        } else if (progress === 60 && statusText) {
-            statusText.textContent = 'Importing services...';
-        } else if (progress === 90 && statusText) {
-            statusText.textContent = 'Updating prices...';
-        } else if (progress >= 100) {
-            clearInterval(interval);
-            if (statusText) statusText.textContent = 'Sync completed!';
+        updateProgress(50, 'Fetching services from provider...');
+        
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'sync',
+                providerId: providerId
+            })
+        });
+        
+        updateProgress(80, 'Processing services...');
+        
+        const data = await response.json();
+        
+        console.log('[DEBUG] Sync response:', data);
+        
+        if (data.success) {
+            updateProgress(100, 'Sync completed!');
+            
+            const message = `Successfully synced services!\n` +
+                `Added: ${data.added || 0}\n` +
+                `Updated: ${data.updated || 0}\n` +
+                `Total: ${data.total || 0}`;
+            
             setTimeout(() => {
                 closeModal();
-                showNotification(`Successfully synced 87 services from provider #${providerId}!`, 'success');
+                showNotification(message, 'success');
+                loadProviders(); // Refresh provider list
+                // Invalidate services cache
+                if (typeof window.invalidateProvidersCache === 'function') {
+                    window.invalidateProvidersCache();
+                }
             }, 1000);
+        } else {
+            throw new Error(data.error || 'Sync failed');
         }
-    }, 300);
+    } catch (error) {
+        console.error('[ERROR] Sync provider failed:', error);
+        const statusText = document.getElementById('syncStatus');
+        if (statusText) {
+            statusText.innerHTML = `<span style="color: #ef4444;">❌ ${error.message}</span>`;
+        }
+        
+        setTimeout(() => {
+            closeModal();
+            showNotification('Sync failed: ' + error.message, 'error');
+        }, 2000);
+    }
 }
 
-function testProvider(providerId) {
+async function testProvider(providerId) {
+    console.log('[DEBUG] Testing provider:', providerId);
+    
     const content = `
         <div style="text-align: center; padding: 20px;">
             <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Testing connection to provider #${providerId}...</p>
+            <p>Testing connection to provider...</p>
+            <p id="testStatus" style="color: #888; margin-top: 12px;">Connecting to API...</p>
         </div>
     `;
     
-    createModal('Testing Connection', content);
+    createModal('Testing Connection', content, '', false);
     
-    setTimeout(() => {
+    try {
+        const token = localStorage.getItem('token');
+        
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'test',
+                providerId: providerId
+            })
+        });
+        
+        const data = await response.json();
+        console.log('[DEBUG] Test response:', data);
+        
         closeModal();
-        const resultContent = `
-            <div style="text-align: center; padding: 20px;">
-                <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 20px;"></i>
-                <p style="font-size: 18px; font-weight: 600; margin-bottom: 20px;">Connection Successful!</p>
-                <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; text-align: left;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                        <div>
-                            <div style="color: #888; font-size: 12px;">Response Time</div>
-                            <div style="font-weight: 600;">145ms</div>
-                        </div>
-                        <div>
-                            <div style="color: #888; font-size: 12px;">API Version</div>
-                            <div style="font-weight: 600;">-</div>
-                        </div>
-                        <div>
-                            <div style="color: #888; font-size: 12px;">Available Services</div>
-                            <div style="font-weight: 600;">-</div>
-                        </div>
-                        <div>
-                            <div style="color: #888; font-size: 12px;">Balance</div>
-                            <div style="font-weight: 600; color: #10b981;">-</div>
+        
+        if (data.success) {
+            const resultContent = `
+                <div style="text-align: center; padding: 20px;">
+                    <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 20px;"></i>
+                    <p style="font-size: 18px; font-weight: 600; margin-bottom: 20px;">Connection Successful!</p>
+                    <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; text-align: left;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div>
+                                <div style="color: #888; font-size: 12px;">Response Time</div>
+                                <div style="font-weight: 600;">${data.responseTime || '-'}ms</div>
+                            </div>
+                            <div>
+                                <div style="color: #888; font-size: 12px;">API Status</div>
+                                <div style="font-weight: 600; color: #10b981;">Online</div>
+                            </div>
+                            <div>
+                                <div style="color: #888; font-size: 12px;">Available Services</div>
+                                <div style="font-weight: 600;">${data.servicesCount || '-'}</div>
+                            </div>
+                            <div>
+                                <div style="color: #888; font-size: 12px;">Balance</div>
+                                <div style="font-weight: 600; color: #10b981;">$${data.balance || '0.00'}</div>
+                            </div>
                         </div>
                     </div>
                 </div>
+            `;
+            
+            const actions = `
+                <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
+            `;
+            
+            createModal('Connection Test Result', resultContent, actions);
+        } else {
+            throw new Error(data.error || 'Connection test failed');
+        }
+    } catch (error) {
+        console.error('[ERROR] Test provider failed:', error);
+        closeModal();
+        
+        const errorContent = `
+            <div style="text-align: center; padding: 20px;">
+                <i class="fas fa-times-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
+                <p style="font-size: 18px; font-weight: 600; margin-bottom: 20px;">Connection Failed</p>
+                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 16px;">
+                    <p style="color: #ef4444; margin: 0;">${error.message}</p>
+                </div>
+                <p style="color: #888; margin-top: 12px; font-size: 14px;">Please check your API credentials and try again.</p>
             </div>
         `;
         
@@ -1430,8 +1631,8 @@ function testProvider(providerId) {
             <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
         `;
         
-        createModal('Connection Test Result', resultContent, actions);
-    }, 2000);
+        createModal('Connection Test Result', errorContent, actions);
+    }
 }
 
 // Initialize on load

@@ -32,8 +32,72 @@ function closeModal() {
     }
 }
 
+// Provider utilities for form dropdowns
+let providersCache = null;
+
+// Expose cache invalidation globally
+window.invalidateProvidersCache = function() {
+    providersCache = null;
+    console.log('[DEBUG] Providers cache invalidated');
+};
+
+async function fetchProvidersList(force = false) {
+    if (!force && Array.isArray(providersCache)) {
+        return providersCache;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        providersCache = [];
+        return providersCache;
+    }
+
+    try {
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+        providersCache = data.success ? (data.providers || []) : [];
+        console.log(`[DEBUG] Fetched ${providersCache.length} providers`);
+    } catch (error) {
+        console.error('Fetch providers error:', error);
+        providersCache = [];
+    }
+
+    return providersCache;
+}
+
+function escapeHtml(text = '') {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function buildProviderOptions(providers, includePlaceholder = true) {
+    const placeholder = includePlaceholder ? '<option value="">Select provider</option>' : '';
+    const options = (providers || []).map(provider => {
+        const statusLabel = provider.status ? ` (${provider.status})` : '';
+        return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}</option>`;
+    }).join('');
+    return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No providers available</option>'));
+}
+
 // Add new service
-function addService() {
+async function addService() {
+    const providers = await fetchProvidersList();
+    const hasProviders = providers.length > 0;
+    const providerOptions = hasProviders
+        ? buildProviderOptions(providers)
+        : '<option value="" disabled>No providers available</option>';
+
     const content = `
         <form id="addServiceForm" onsubmit="submitAddService(event)" class="admin-form">
             <div class="form-group">
@@ -55,20 +119,18 @@ function addService() {
                 <div class="form-group">
                     <label>Type *</label>
                     <select name="type" required>
-                        <option value="default">Default</option>
+                        <option value="service" selected>Standard</option>
                         <option value="subscription">Subscription</option>
                         <option value="custom">Custom</option>
                     </select>
                 </div>
             </div>
             <div class="form-group">
-                <label>Provider *</label>
-                <select name="provider" required>
-                    <option value="">Select Provider</option>
-                    <option value="1">SMM Provider 1</option>
-                    <option value="2">SMM Provider 2</option>
-                    <option value="3">SMM Provider 3</option>
+                <label>Provider ${hasProviders ? '*' : '(none available)'}</label>
+                <select name="provider" ${hasProviders ? 'required' : 'disabled'}>
+                    ${providerOptions}
                 </select>
+                ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to link services.</small>'}
             </div>
             <div class="form-row">
                 <div class="form-group">
@@ -91,8 +153,8 @@ function addService() {
             <div class="form-group">
                 <label>Status</label>
                 <select name="status">
-                    <option value="Active" selected>Active</option>
-                    <option value="Inactive">Inactive</option>
+                    <option value="active" selected>Active</option>
+                    <option value="inactive">Inactive</option>
                 </select>
             </div>
         </form>
@@ -100,7 +162,7 @@ function addService() {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="addServiceForm" class="btn-primary">
+        <button type="submit" form="addServiceForm" class="btn-primary" ${hasProviders ? '' : 'disabled'}>
             <i class="fas fa-plus"></i> Create Service
         </button>
     `;
@@ -131,15 +193,15 @@ function submitAddService(event) {
         },
         body: JSON.stringify({
             action: 'create',
-            name: serviceData.name,
+            name: serviceData.serviceName,
             category: serviceData.category,
-            type: serviceData.type || 'default',
+            type: serviceData.type || 'service',
             rate: parseFloat(serviceData.rate),
-            min_quantity: parseInt(serviceData.min),
-            max_quantity: parseInt(serviceData.max),
+            min_quantity: parseInt(serviceData.min, 10),
+            max_quantity: parseInt(serviceData.max, 10),
             description: serviceData.description || '',
-            status: serviceData.status || 'active',
-            provider_id: serviceData.provider || null
+            status: (serviceData.status || 'active').toLowerCase(),
+            providerId: serviceData.provider || null
         })
     })
     .then(response => response.json())
@@ -147,7 +209,7 @@ function submitAddService(event) {
         if (data.success) {
             showNotification(data.message || 'Service created successfully!', 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            loadServices();
         } else {
             showNotification(data.error || 'Failed to create service', 'error');
             if (submitBtn) {
@@ -167,17 +229,21 @@ function submitAddService(event) {
 }
 
 // Import services from provider
-function importServices() {
+async function importServices() {
+    const providers = await fetchProvidersList();
+    const hasProviders = providers.length > 0;
+    const providerOptions = hasProviders
+        ? buildProviderOptions(providers)
+        : '<option value="" disabled>No providers available</option>';
+
     const content = `
         <form id="importServicesForm" onsubmit="submitImportServices(event)" class="admin-form">
             <div class="form-group">
-                <label>Select Provider *</label>
-                <select name="provider" id="importProvider" required onchange="loadProviderServices(this.value)">
-                    <option value="">Choose a provider...</option>
-                    <option value="1">SMM Provider 1 (87 services)</option>
-                    <option value="2">SMM Provider 2 (124 services)</option>
-                    <option value="3">SMM Provider 3 (56 services)</option>
+                <label>Select Provider ${hasProviders ? '*' : '(none available)'}</label>
+                <select name="provider" id="importProvider" ${hasProviders ? 'required' : 'disabled'} onchange="loadProviderServices(this.value)">
+                    ${providerOptions}
                 </select>
+                ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to import services.</small>'}
             </div>
             <div class="form-group">
                 <label>Markup Percentage *</label>
@@ -208,7 +274,7 @@ function importServices() {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="importServicesForm" class="btn-primary">
+        <button type="submit" form="importServicesForm" class="btn-primary" ${hasProviders ? '' : 'disabled'}>
             <i class="fas fa-file-import"></i> Import Services
         </button>
     `;
@@ -408,7 +474,13 @@ async function submitCreateCategory(event) {
 }
 
 // Add subscription service
-function addSubscription() {
+async function addSubscription() {
+    const providers = await fetchProvidersList();
+    const hasProviders = providers.length > 0;
+    const providerOptions = hasProviders
+        ? buildProviderOptions(providers)
+        : '<option value="" disabled>No providers available</option>';
+
     const content = `
         <form id="addSubscriptionForm" onsubmit="submitAddSubscription(event)" class="admin-form">
             <div class="form-group">
@@ -425,11 +497,11 @@ function addSubscription() {
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Provider *</label>
-                    <select name="provider" required>
-                        <option value="1">SMM Provider 1</option>
-                        <option value="2">SMM Provider 2</option>
+                    <label>Provider ${hasProviders ? '*' : '(none available)'}</label>
+                    <select name="provider" ${hasProviders ? 'required' : 'disabled'}>
+                        ${providerOptions}
                     </select>
+                    ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to configure subscriptions.</small>'}
                 </div>
             </div>
             <h4 style="margin: 20px 0 12px; color: #FF1494;">Subscription Settings</h4>
@@ -472,7 +544,7 @@ function addSubscription() {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="addSubscriptionForm" class="btn-primary">
+        <button type="submit" form="addSubscriptionForm" class="btn-primary" ${hasProviders ? '' : 'disabled'}>
             <i class="fas fa-sync-alt"></i> Create Subscription
         </button>
     `;
@@ -505,10 +577,18 @@ async function submitAddSubscription(event) {
                 category: subscriptionData.category,
                 type: 'subscription',
                 rate: parseFloat(subscriptionData.rate),
-                min_quantity: parseInt(subscriptionData.minQuantity),
-                max_quantity: parseInt(subscriptionData.maxQuantity),
+                min_quantity: parseInt(subscriptionData.minQty, 10),
+                max_quantity: parseInt(subscriptionData.maxQty, 10),
                 description: subscriptionData.description || '',
-                status: 'active'
+                status: 'active',
+                providerId: subscriptionData.provider || null,
+                metadata: {
+                    intervalMinutes: parseInt(subscriptionData.interval, 10) || null,
+                    postsQuantity: parseInt(subscriptionData.posts, 10) || null,
+                    delayMinutes: parseInt(subscriptionData.delay, 10) || 0,
+                    expiryDays: parseInt(subscriptionData.expiry, 10) || null,
+                    planType: 'subscription'
+                }
             })
         });
         
@@ -516,12 +596,12 @@ async function submitAddSubscription(event) {
         if (data.success) {
             showNotification('Subscription service created successfully!', 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            loadServices();
         } else {
             showNotification(data.error || 'Failed to create subscription', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Subscription';
+                submitBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Create Subscription';
             }
         }
     } catch (error) {
@@ -529,7 +609,7 @@ async function submitAddSubscription(event) {
         showNotification('Failed to create subscription. Please try again.', 'error');
         if (submitBtn) {
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '<i class="fas fa-plus"></i> Add Subscription';
+            submitBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Create Subscription';
         }
     }
 }
@@ -810,7 +890,7 @@ async function loadServices() {
                             </div>
                         </td>
                         <td>${service.category || 'Default'}</td>
-                        <td>${service.providers?.name || 'N/A'}</td>
+                        <td>${service.provider?.name || 'N/A'}</td>
                         <td>$${parseFloat(service.rate || 0).toFixed(4)}</td>
                         <td>${service.min_quantity || 0}</td>
                         <td>${service.max_quantity || 0}</td>

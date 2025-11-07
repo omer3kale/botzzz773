@@ -50,7 +50,9 @@ exports.handler = async (event) => {
     hasToken: !!tokenString,
     tokenLength: tokenString?.length,
     tokenStart: tokenString?.substring(0, 20) + '...',
-    tokenEnd: '...' + tokenString?.substring(tokenString.length - 20)
+    tokenEnd: '...' + tokenString?.substring(tokenString.length - 20),
+    tokenHasNewlines: tokenString ? /[\r\n]/.test(tokenString) : false,
+    tokenHasSpaces: tokenString ? /\s/.test(tokenString) : false
   });
   
   const user = getUserFromToken(authHeader);

@@ -5,7 +5,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Users Table
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE users (
 );
 
 -- Providers Table
-CREATE TABLE providers (
+CREATE TABLE IF NOT EXISTS providers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL,
     api_url VARCHAR(255) NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE providers (
 );
 
 -- Services Table
-CREATE TABLE services (
+CREATE TABLE IF NOT EXISTS services (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     provider_id UUID REFERENCES providers(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE services (
 );
 
 -- Orders Table
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_number VARCHAR(20) UNIQUE NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -75,7 +75,7 @@ CREATE TABLE orders (
 );
 
 -- Payments Table
-CREATE TABLE payments (
+CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     transaction_id VARCHAR(100) UNIQUE NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -89,7 +89,7 @@ CREATE TABLE payments (
 );
 
 -- Tickets Table
-CREATE TABLE tickets (
+CREATE TABLE IF NOT EXISTS tickets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ticket_number VARCHAR(20) UNIQUE NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -103,7 +103,7 @@ CREATE TABLE tickets (
 );
 
 -- Ticket Messages Table
-CREATE TABLE ticket_messages (
+CREATE TABLE IF NOT EXISTS ticket_messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ticket_id UUID REFERENCES tickets(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -114,7 +114,7 @@ CREATE TABLE ticket_messages (
 );
 
 -- Subscriptions Table (for recurring orders)
-CREATE TABLE subscriptions (
+CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     service_id UUID REFERENCES services(id) ON DELETE SET NULL,
@@ -131,19 +131,27 @@ CREATE TABLE subscriptions (
 );
 
 -- API Keys Table
-CREATE TABLE api_keys (
+CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    key_hash VARCHAR(255) NOT NULL,
-    key_prefix VARCHAR(20) NOT NULL,
+    key TEXT UNIQUE,
+    key_hash TEXT,
+    key_prefix VARCHAR(32),
+    key_last_four VARCHAR(4),
     name VARCHAR(100),
+    permissions TEXT[] DEFAULT ARRAY['read'],
+    status VARCHAR(20) DEFAULT 'active',
     last_used TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    expires_at TIMESTAMP WITH TIME ZONE
+    expires_at TIMESTAMP WITH TIME ZONE,
+    CONSTRAINT api_keys_hash_presence CHECK (
+        (key IS NULL AND key_hash IS NOT NULL AND key_prefix IS NOT NULL AND key_last_four IS NOT NULL)
+        OR (key IS NOT NULL AND key_hash IS NULL AND key_prefix IS NULL AND key_last_four IS NULL)
+    )
 );
 
 -- Settings Table
-CREATE TABLE settings (
+CREATE TABLE IF NOT EXISTS settings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     key VARCHAR(100) UNIQUE NOT NULL,
     value JSONB NOT NULL,
@@ -152,7 +160,7 @@ CREATE TABLE settings (
 );
 
 -- Activity Logs Table
-CREATE TABLE activity_logs (
+CREATE TABLE IF NOT EXISTS activity_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     action VARCHAR(100) NOT NULL,
@@ -163,18 +171,22 @@ CREATE TABLE activity_logs (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_api_key ON users(api_key);
-CREATE INDEX idx_orders_user_id ON orders(user_id);
-CREATE INDEX idx_orders_status ON orders(status);
-CREATE INDEX idx_orders_created_at ON orders(created_at DESC);
-CREATE INDEX idx_payments_user_id ON payments(user_id);
-CREATE INDEX idx_payments_status ON payments(status);
-CREATE INDEX idx_tickets_user_id ON tickets(user_id);
-CREATE INDEX idx_tickets_status ON tickets(status);
-CREATE INDEX idx_services_category ON services(category);
-CREATE INDEX idx_services_status ON services(status);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);
+CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_services_category ON services(category);
+CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_raw ON api_keys(key) WHERE key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_key_prefix ON api_keys(key_prefix) WHERE key_prefix IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash) WHERE key_hash IS NOT NULL;
 
 -- Row Level Security (RLS) Policies
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
@@ -233,35 +245,108 @@ END;
 $$ language 'plpgsql';
 
 -- Apply updated_at triggers
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_users_updated_at'
+    ) THEN
+        CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
-CREATE TRIGGER update_providers_updated_at BEFORE UPDATE ON providers
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_providers_updated_at'
+    ) THEN
+        CREATE TRIGGER update_providers_updated_at BEFORE UPDATE ON providers
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
-CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON services
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_services_updated_at'
+    ) THEN
+        CREATE TRIGGER update_services_updated_at BEFORE UPDATE ON services
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
-CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_orders_updated_at'
+    ) THEN
+        CREATE TRIGGER update_orders_updated_at BEFORE UPDATE ON orders
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
-CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_payments_updated_at'
+    ) THEN
+        CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
-CREATE TRIGGER update_tickets_updated_at BEFORE UPDATE ON tickets
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger WHERE tgname = 'update_tickets_updated_at'
+    ) THEN
+        CREATE TRIGGER update_tickets_updated_at BEFORE UPDATE ON tickets
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+    END IF;
+END
+$$;
 
 -- Insert default admin user (password: admin123 - CHANGE THIS!)
-INSERT INTO users (email, username, password_hash, full_name, role, balance, status) VALUES
-('admin@smmPanel.com', 'admin', '$2a$10$YourHashedPasswordHere', 'Admin User', 'admin', 1000.00, 'active');
+INSERT INTO users (email, username, password_hash, full_name, role, balance, status)
+SELECT 'admin@smmPanel.com', 'admin', '$2a$10$YourHashedPasswordHere', 'Admin User', 'admin', 1000.00, 'active'
+WHERE NOT EXISTS (
+    SELECT 1 FROM users WHERE email = 'admin@smmPanel.com'
+);
 
 -- Insert default settings
-INSERT INTO settings (key, value, category) VALUES
-('site_name', '"SMM Reseller Panel"', 'general'),
-('site_url', '"https://yoursite.com"', 'general'),
-('default_currency', '"USD"', 'general'),
-('maintenance_mode', 'false', 'system'),
-('signup_enabled', 'true', 'users'),
-('email_verification_required', 'false', 'users'),
-('signup_bonus_enabled', 'true', 'bonuses'),
-('signup_bonus_amount', '5.00', 'bonuses');
+INSERT INTO settings (key, value, category)
+SELECT 'site_name', '"SMM Reseller Panel"', 'general'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'site_name');
+
+INSERT INTO settings (key, value, category)
+SELECT 'site_url', '"https://yoursite.com"', 'general'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'site_url');
+
+INSERT INTO settings (key, value, category)
+SELECT 'default_currency', '"USD"', 'general'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'default_currency');
+
+INSERT INTO settings (key, value, category)
+SELECT 'maintenance_mode', 'false', 'system'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'maintenance_mode');
+
+INSERT INTO settings (key, value, category)
+SELECT 'signup_enabled', 'true', 'users'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'signup_enabled');
+
+INSERT INTO settings (key, value, category)
+SELECT 'email_verification_required', 'false', 'users'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'email_verification_required');
+
+INSERT INTO settings (key, value, category)
+SELECT 'signup_bonus_enabled', 'true', 'bonuses'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'signup_bonus_enabled');
+
+INSERT INTO settings (key, value, category)
+SELECT 'signup_bonus_amount', '5.00', 'bonuses'
+WHERE NOT EXISTS (SELECT 1 FROM settings WHERE key = 'signup_bonus_amount');

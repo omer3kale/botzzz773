@@ -1,7 +1,13 @@
 // API Keys Management - Generate, List, Delete API Keys
 const { supabaseAdmin } = require('./utils/supabase');
+const {
+  generateApiKey,
+  hashApiKey,
+  extractKeyPrefix,
+  extractKeyLastFour,
+  maskKey
+} = require('./utils/apiKeys');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -15,10 +21,6 @@ function getUserFromToken(authHeader) {
   } catch (error) {
     return null;
   }
-}
-
-function generateApiKey() {
-  return 'sk_' + crypto.randomBytes(32).toString('hex');
 }
 
 exports.handler = async (event) => {
@@ -83,7 +85,7 @@ async function handleGetKeys(user, headers) {
   try {
     const { data: keys, error } = await supabaseAdmin
       .from('api_keys')
-      .select('*')
+      .select('id, name, permissions, status, last_used, created_at, expires_at, key_prefix, key_last_four')
       .eq('user_id', user.userId)
       .eq('status', 'active')
       .order('created_at', { ascending: false });
@@ -99,8 +101,19 @@ async function handleGetKeys(user, headers) {
 
     // Mask keys in response (show first 20 chars only)
     const maskedKeys = keys.map(key => ({
-      ...key,
-      key: key.key.substring(0, 20) + '••••••••••••••••'
+      id: key.id,
+      name: key.name,
+      permissions: key.permissions,
+      status: key.status,
+      last_used: key.last_used,
+      lastUsed: key.last_used,
+      created_at: key.created_at,
+      created: key.created_at,
+      expires_at: key.expires_at,
+      key_prefix: key.key_prefix,
+      key_last_four: key.key_last_four,
+      requests: key.requests || 0,
+      key: maskKey(key.key_prefix, key.key_last_four)
     }));
 
     return {
@@ -132,13 +145,19 @@ async function handleCreateKey(user, data, headers) {
 
     // Generate new API key
     const apiKey = generateApiKey();
+    const keyHash = hashApiKey(apiKey);
+    const keyPrefix = extractKeyPrefix(apiKey);
+    const keyLastFour = extractKeyLastFour(apiKey);
 
     const { data: key, error } = await supabaseAdmin
       .from('api_keys')
       .insert({
         user_id: user.userId,
         name,
-        key: apiKey,
+        key: null,
+        key_hash: keyHash,
+        key_prefix: keyPrefix,
+        key_last_four: keyLastFour,
         permissions: permissions || ['read'],
         status: 'active',
         last_used: null
@@ -160,7 +179,17 @@ async function handleCreateKey(user, data, headers) {
       headers,
       body: JSON.stringify({
         success: true,
-        key: key // Return full key only on creation
+        key: apiKey,
+        keyDetails: {
+          id: key.id,
+          name: key.name,
+          permissions: key.permissions,
+          status: key.status,
+          created_at: key.created_at,
+          expires_at: key.expires_at,
+          key_prefix: keyPrefix,
+          key_last_four: keyLastFour
+        }
       })
     };
   } catch (error) {
