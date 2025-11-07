@@ -800,7 +800,7 @@ async function submitEditService(event, serviceId) {
         min_quantity: Number.isFinite(minQuantity) ? minQuantity : null,
         max_quantity: Number.isFinite(maxQuantity) ? maxQuantity : null,
         description: serviceData.description || '',
-        status: (serviceData.status || 'inactive').toLowerCase(),
+        status: (serviceData.status || 'active').toLowerCase(),
         providerId: serviceData.provider || null,
         providerServiceId: (serviceData.providerServiceId || '').trim() || null
     };

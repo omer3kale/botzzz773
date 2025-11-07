@@ -432,7 +432,7 @@ async function syncProvider(data, headers) {
             rate: service.rate,
             min_quantity: service.min,
             max_quantity: service.max,
-            status: 'inactive' // New services start as inactive
+            status: 'active' // New services are active by default
           });
         addedCount++;
       }
