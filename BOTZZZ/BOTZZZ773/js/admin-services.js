@@ -893,7 +893,7 @@ async function loadServices() {
                 const row = `
                     <tr>
                         <td><input type="checkbox" class="service-checkbox"></td>
-                        <td>${service.id}</td>
+                        <td>${service.provider_service_id || 'N/A'}</td>
                         <td>
                             <div class="service-name">
                                 <i class="${icon}"></i>
