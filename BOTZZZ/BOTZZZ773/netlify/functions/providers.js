@@ -247,7 +247,34 @@ async function handleAction(data, headers) {
 
 async function testProvider(data, headers) {
   try {
-    const { apiUrl, apiKey } = normalizeProviderPayload(data);
+    // Check if providerId is provided (testing existing provider)
+    const providerId = extractProviderId(data);
+    let apiUrl, apiKey;
+
+    if (providerId) {
+      // Fetch provider from database
+      const { data: provider, error: providerError } = await supabaseAdmin
+        .from('providers')
+        .select('*')
+        .eq('id', providerId)
+        .single();
+
+      if (providerError || !provider) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ error: 'Provider not found' })
+        };
+      }
+
+      apiUrl = provider.api_url;
+      apiKey = provider.api_key;
+    } else {
+      // Use provided credentials (testing before creating provider)
+      const normalized = normalizeProviderPayload(data);
+      apiUrl = normalized.apiUrl;
+      apiKey = normalized.apiKey;
+    }
 
     if (!apiUrl || !apiKey) {
       return {
@@ -262,12 +289,14 @@ async function testProvider(data, headers) {
     params.append('key', apiKey);
     params.append('action', 'balance');
     
+    const startTime = Date.now();
     const response = await axios.post(apiUrl, params, {
       timeout: 10000,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       }
     });
+    const responseTime = Date.now() - startTime;
 
     if (response.data.balance !== undefined) {
       return {
@@ -276,7 +305,8 @@ async function testProvider(data, headers) {
         body: JSON.stringify({
           success: true,
           balance: response.data.balance,
-          currency: response.data.currency || 'USD'
+          currency: response.data.currency || 'USD',
+          responseTime
         })
       };
     } else {
