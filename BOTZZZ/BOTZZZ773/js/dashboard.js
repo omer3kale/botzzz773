@@ -175,6 +175,7 @@
                     }
                     servicesData[category].push({
                         id: service.id.toString(),
+                        provider_service_id: service.provider_service_id || 'N/A',
                         name: service.name,
                         price: parseFloat(service.rate),
                         min: service.min_quantity || 100,
@@ -221,7 +222,7 @@
                 servicesData[category].forEach(service => {
                     const option = document.createElement('option');
                     option.value = service.id;
-                    option.textContent = service.name;
+                    option.textContent = `[ID: ${service.provider_service_id}] ${service.name}`;
                     option.dataset.price = service.price;
                     option.dataset.min = service.min;
                     option.dataset.max = service.max;
@@ -338,7 +339,8 @@
             Object.entries(servicesData).forEach(([category, services]) => {
                 services.forEach(service => {
                     if (service.name.toLowerCase().includes(searchTerm) || 
-                        service.id.includes(searchTerm)) {
+                        service.id.includes(searchTerm) ||
+                        service.provider_service_id.toString().includes(searchTerm)) {
                         results.push({ ...service, category });
                     }
                 });
@@ -349,7 +351,7 @@
             results.forEach(service => {
                 const option = document.createElement('option');
                 option.value = service.id;
-                option.textContent = `[${service.category.toUpperCase()}] ${service.name}`;
+                option.textContent = `[ID: ${service.provider_service_id}] [${service.category.toUpperCase()}] ${service.name}`;
                 option.dataset.price = service.price;
                 option.dataset.min = service.min;
                 option.dataset.max = service.max;
