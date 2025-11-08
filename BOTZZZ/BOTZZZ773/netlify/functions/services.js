@@ -25,6 +25,7 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json'
   };
 
+  // Add quick OPTIONS response to avoid CORS preflight hanging
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -37,12 +38,7 @@ exports.handler = async (event) => {
     switch (event.httpMethod) {
       case 'GET':
         return await handleGetServices(user, headers);
-      case 'POST':
-        return await handleCreateService(user, body, headers);
-      case 'PUT':
-        return await handleUpdateService(user, body, headers);
-      case 'DELETE':
-        return await handleDeleteService(user, body, headers);
+      // (optional) add other cases for admin actions later
       default:
         return {
           statusCode: 405,
