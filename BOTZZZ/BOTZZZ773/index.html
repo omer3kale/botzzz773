@@ -76,7 +76,6 @@
         <div class="container">
             <h2 class="section-title">How Our Panel Works</h2>
             <p class="section-subtitle">Get started in 4 simple steps</p>
-            
             <div class="steps-grid">
                 <div class="step-card">
                     <div class="step-number">1</div>
@@ -107,7 +106,6 @@
         <div class="container">
             <h2 class="section-title">Popular Services</h2>
             <p class="section-subtitle">Most ordered services by our clients</p>
-            
             <div class="services-grid">
                 <div class="service-card">
                     <div class="service-icon">📱</div>
@@ -149,7 +147,7 @@
         </div>
     </section>
 
-    <!-- All Services (Dynamic from API) -->
+    <!-- All Services (Dynamic from services.js) -->
     <section class="all-services">
         <div class="container">
             <h2 class="section-title">All Services</h2>
@@ -162,7 +160,6 @@
         <div class="container">
             <h2 class="section-title">Why Choose BOTZZZ773?</h2>
             <p class="section-subtitle">We're the best in the business</p>
-            
             <div class="features-grid">
                 <div class="feature-card">
                     <div class="feature-icon">⚡</div>
@@ -250,54 +247,14 @@
         </div>
     </footer>
 
-    <!-- Scripts -->
+    <!-- JS -->
     <script src="js/api-client.js"></script>
     <script src="js/main.js"></script>
     <script src="js/auth-backend.js"></script>
-
-    <!-- 🔹 Yeni eklenen script: Servisleri API'den çekip site_id ekliyor -->
-    <script>
-      async function loadServices() {
-        const container = document.getElementById('servicesContainer');
-        if (!container) return;
-
-        try {
-          const response = await fetch('/.netlify/functions/services', {
-            headers: {
-              'Content-Type': 'application/json'
-              // Eğer token gerekiyorsa ekle: 'Authorization': 'Bearer ' + token
-            }
-          });
-          const data = await response.json();
-          const services = data.services || [];
-
-          // Site özel ID ekleme
-          const startingId = 2231;
-          const servicesWithSiteId = services.map((s, i) => ({
-            ...s,
-            site_id: startingId + i
-          }));
-
-          container.innerHTML = servicesWithSiteId.map(s => `
-            <div class="service-card">
-              <div class="service-icon">📌</div>
-              <h3 class="service-title">${s.name}</h3>
-              <p class="service-desc">${s.description || ''}</p>
-              <p class="service-id">Site ID: ${s.site_id}</p>
-              <a href="order.html?serviceId=${s.id}" class="btn btn-primary">Order Now</a>
-            </div>
-          `).join('');
-
-        } catch (err) {
-          console.error('Error loading services:', err);
-          container.innerHTML = '<p>Failed to load services.</p>';
-        }
-      }
-
-      document.addEventListener('DOMContentLoaded', loadServices);
-    </script>
+    <script src="services.js"></script> <!-- 🔹 Tek services.js dosyası -->
 </body>
 </html>
+
 
 
 
