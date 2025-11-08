@@ -182,6 +182,8 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
+    console.log('CREATE ORDER INPUT:', { userId: user.userId, serviceId, quantity, link });
+
     // Get service details
     const { data: service, error: serviceError } = await supabase
       .from('services')
@@ -190,10 +192,11 @@ async function handleCreateOrder(user, data, headers) {
       .single();
 
     if (serviceError || !service) {
+      console.error('Service lookup failed:', serviceError);
       return {
         statusCode: 404,
         headers,
-        body: JSON.stringify({ error: 'Service not found' })
+        body: JSON.stringify({ error: 'Service not found', details: serviceError && serviceError.message })
       };
     }
 
@@ -209,11 +212,20 @@ async function handleCreateOrder(user, data, headers) {
     const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
 
     // Check user balance
-    const { data: userData } = await supabaseAdmin
+    const { data: userData, error: userDataErr } = await supabaseAdmin
       .from('users')
       .select('balance')
       .eq('id', user.userId)
       .single();
+
+    if (userDataErr) {
+      console.error('User lookup failed:', userDataErr);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch user data', details: userDataErr.message })
+      };
+    }
 
     if (parseFloat(userData.balance) < parseFloat(totalCost)) {
       return {
@@ -223,30 +235,36 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Create order in database
+    // Create order in database (wrap to capture DB errors)
+    const insertPayload = {
+      user_id: user.userId,
+      service_id: serviceId,
+      service_name: service.name,
+      link: link,
+      quantity: quantity,
+      charge: totalCost,
+      status: 'pending',
+      order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+    };
+
+    console.log('Inserting order:', insertPayload);
+
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .insert({
-        user_id: user.userId,
-        service_id: serviceId,
-        service_name: service.name,
-        link: link,
-        quantity: quantity,
-        charge: totalCost,
-        status: 'pending',
-        order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
     if (orderError) {
-      console.error('Create order error:', orderError);
+      console.error('Create order error (supabase):', orderError);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create order' })
+        body: JSON.stringify({ error: 'Failed to create order', details: orderError.message })
       };
     }
+
+    console.log('Order created:', order.id);
 
     // Deduct balance
     await supabaseAdmin
@@ -539,3 +557,4 @@ fetch('/.netlify/functions/orders', {
     link: 'https://...'    // string
   })
 });
+
