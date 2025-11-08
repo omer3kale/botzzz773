@@ -1,60 +1,188 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>BOTZZZ773 - #1 SMM Panel | Premium Social Media Services</title>
-  <link rel="stylesheet" href="css/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOTZZZ773 - #1 SMM Panel | Premium Social Media Services</title>
+    <meta name="description" content="Get the best SMM services at unbeatable prices. Instagram, TikTok, YouTube, Twitter followers, likes, views and more!">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 </head>
 <body>
-  <!-- Services Table -->
-  <section class="all-services">
-    <div class="container">
-      <h2 class="section-title">All Services</h2>
-      <table id="servicesTable">
-        <thead>
-          <tr>
-            <th>Service ID</th>
-            <th>Name</th>
-            <th>Rate</th>
-            <th>Per</th>
-            <th>Category</th>
-          </tr>
-        </thead>
-        <tbody id="servicesContainer"></tbody>
-      </table>
-    </div>
-  </section>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-wrapper">
+                <a href="index.html" class="logo">
+                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
+                </a>
+                <button class="mobile-toggle" id="mobileToggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link active">Home</a></li>
+                    <li><a href="services.html" class="nav-link">Services</a></li>
+                    <li><a href="dashboard.html" class="nav-link">Dashboard</a></li>
+                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                    <li><a href="api.html" class="nav-link">API</a></li>
+                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
+                    <li><a href="contact.html" class="nav-link">Contact</a></li>
+                    <li id="authNavItem">
+                        <a href="signin.html" class="nav-link btn-primary">Sign In</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
 
-  <script>
-    async function loadServices() {
-      try {
-        const res = await fetch('/.netlify/functions/services'); // API endpoint
-        const data = await res.json();
-        const container = document.getElementById('servicesContainer');
-        container.innerHTML = '';
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-gradient"></div>
+        <div class="container">
+            <div class="hero-content">
+                <h1 class="hero-title">
+                    #1 SMM PANEL<br>
+                    <span class="gradient-text">IN THE WORLD!</span>
+                </h1>
+                <p class="hero-subtitle">Cheap SMM services with lightning-fast delivery and premium quality</p>
+                <div class="hero-buttons">
+                    <a href="services.html" class="btn btn-primary btn-large">View Services</a>
+                    <a href="order.html" class="btn btn-secondary btn-large">Order Now</a>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat-item">
+                        <h3 class="stat-number">7M+</h3>
+                        <p class="stat-label">Orders Completed</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3 class="stat-number">24/7</h3>
+                        <p class="stat-label">Customer Support</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3 class="stat-number">1000+</h3>
+                        <p class="stat-label">Services Available</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-        data.services.forEach(service => {
-          const row = document.createElement('tr');
+    <!-- Popular Services -->
+    <section class="popular-services">
+        <div class="container">
+            <h2 class="section-title">Popular Services</h2>
+            <p class="section-subtitle">Most ordered services by our clients</p>
+            
+            <div class="services-grid">
+                <!-- Popüler servis kartları buraya aynı şekilde kalacak -->
+            </div>
+        </div>
+    </section>
 
-          row.innerHTML = `
-            <td>${service.site_id}</td>
-            <td>${service.name}</td>
-            <td>${service.rate}</td>
-            <td>${service.type}</td>
-            <td>${service.category}</td>
-          `;
-          container.appendChild(row);
-        });
-      } catch (error) {
-        console.error('Failed to load services:', error);
-      }
-    }
+    <!-- All Services Table -->
+    <section class="all-services">
+        <div class="container">
+            <h2 class="section-title">All Services</h2>
+            <table class="services-table" border="1" cellpadding="5" cellspacing="0" style="width:100%; border-collapse:collapse;">
+                <thead>
+                    <tr>
+                        <th>Service ID</th>
+                        <th>Name</th>
+                        <th>Rate / Price</th>
+                        <th>Min Qty</th>
+                        <th>Max Qty</th>
+                        <th>Category</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="servicesContainer">
+                    <!-- Servisler JS ile buraya eklenecek -->
+                </tbody>
+            </table>
+        </div>
+    </section>
 
-    loadServices();
-  </script>
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
+                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="index.html">Home</a></li>
+                        <li><a href="services.html">Services</a></li>
+                        <li><a href="order.html">Order Now</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Services</h4>
+                    <ul class="footer-links">
+                        <li><a href="services.html#instagram">Instagram</a></li>
+                        <li><a href="services.html#tiktok">TikTok</a></li>
+                        <li><a href="services.html#youtube">YouTube</a></li>
+                        <li><a href="services.html#twitter">Twitter</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Contact</h4>
+                    <ul class="footer-links">
+                        <li>📧 support@botzzz773.com</li>
+                        <li>💬 24/7 Live Chat</li>
+                        <li>🌐 Worldwide Service</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- JS -->
+    <script src="js/api-client.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/auth-backend.js"></script>
+    <script>
+        // 🔹 Site Özel ID ile servisleri çekme ve tabloya ekleme
+        async function loadServices() {
+            try {
+                const res = await fetch('/.netlify/functions/services');
+                const data = await res.json();
+                const tbody = document.getElementById('servicesContainer');
+                tbody.innerHTML = '';
+
+                data.services.forEach(service => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${service.site_id}</td>
+                        <td>${service.name}</td>
+                        <td>${service.rate || service.price}</td>
+                        <td>${service.min_quantity}</td>
+                        <td>${service.max_quantity}</td>
+                        <td>${service.category}</td>
+                        <td>${service.status}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                console.error('Error loading services:', err);
+            }
+        }
+
+        loadServices();
+    </script>
 </body>
 </html>
+
 
 
 
