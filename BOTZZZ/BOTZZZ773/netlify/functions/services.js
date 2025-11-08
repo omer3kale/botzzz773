@@ -1,428 +1,329 @@
-// Services API - Get, Create, Update, Delete Services
-const { supabase, supabaseAdmin } = require('./utils/supabase');
-const jwt = require('jsonwebtoken');
-const axios = require('axios');
+// ==========================================
+// Services Page JavaScript
+// ==========================================
 
-const JWT_SECRET = process.env.JWT_SECRET;
+document.addEventListener('DOMContentLoaded', function() {
+    // Load services from API
+    loadServicesFromAPI();
+    
+    // Service Filter
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    const searchInput = document.getElementById('serviceSearch');
+    
+    // Filter by category
+    filterButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const filter = this.dataset.filter;
+            const serviceCategories = document.querySelectorAll('.service-category');
+            
+            // Update active button
+            filterButtons.forEach(btn => btn.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Filter categories
+            serviceCategories.forEach(category => {
+                if (filter === 'all') {
+                    category.style.display = 'block';
+                } else {
+                    if (category.dataset.category === filter) {
+                        category.style.display = 'block';
+                    } else {
+                        category.style.display = 'none';
+                    }
+                }
+            });
+            
+            // Animate appearance
+            setTimeout(() => {
+                const visibleCategories = Array.from(serviceCategories)
+                    .filter(cat => cat.style.display !== 'none');
+                visibleCategories.forEach((cat, index) => {
+                    cat.style.animation = 'none';
+                    setTimeout(() => {
+                        cat.style.animation = 'fadeInUp 0.5s ease';
+                    }, index * 100);
+                });
+            }, 100);
+        });
+    });
+    
+    // Search functionality
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const serviceCategories = document.querySelectorAll('.service-category');
+            
+            serviceCategories.forEach(category => {
+                const categoryTitle = category.querySelector('.category-title').textContent.toLowerCase();
+                const subcategories = category.querySelectorAll('.service-subcategory');
+                let hasVisibleSubcategory = false;
+                
+                subcategories.forEach(subcategory => {
+                    const subcategoryTitle = subcategory.querySelector('.subcategory-title')?.textContent.toLowerCase() || '';
+                    const rows = subcategory.querySelectorAll('.service-row:not(.service-row-header)');
+                    let hasVisibleRow = false;
+                    
+                    rows.forEach(row => {
+                        const serviceName = row.querySelector('strong')?.textContent.toLowerCase() || '';
+                        const serviceDetails = row.querySelector('.service-details')?.textContent.toLowerCase() || '';
+                        
+                        if (serviceName.includes(searchTerm) || 
+                            serviceDetails.includes(searchTerm) ||
+                            categoryTitle.includes(searchTerm) ||
+                            subcategoryTitle.includes(searchTerm)) {
+                            row.style.display = 'grid';
+                            hasVisibleRow = true;
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                    
+                    if (hasVisibleRow || subcategoryTitle.includes(searchTerm)) {
+                        subcategory.style.display = 'block';
+                        hasVisibleSubcategory = true;
+                    } else {
+                        subcategory.style.display = 'none';
+                    }
+                });
+                
+                if (hasVisibleSubcategory || categoryTitle.includes(searchTerm)) {
+                    category.style.display = 'block';
+                } else {
+                    category.style.display = 'none';
+                }
+            });
+        });
+    }
+    
+    // Smooth scroll to category from hash
+    if (window.location.hash) {
+        setTimeout(() => {
+            const target = document.querySelector(window.location.hash);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }, 100);
+    }
+    
+    // Highlight matching text in search
+    function highlightText(text, search) {
+        if (!search) return text;
+        const regex = new RegExp(`(${search})`, 'gi');
+        return text.replace(regex, '<mark style="background: rgba(255,20,148,0.3); color: #FF1494;">$1</mark>');
+    }
+});
 
-function getUserFromToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  const token = authHeader.substring(7);
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
+// Add fade in & spin animations
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+`;
+document.head.appendChild(style);
 
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Content-Type': 'application/json'
-  };
+console.log('📱 Services page loaded!');
 
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
+// ==========================================
+// Load Services from API (with site-specific ID)
+// ==========================================
+async function loadServicesFromAPI() {
+    const container = document.getElementById('servicesContainer');
 
-  const user = getUserFromToken(event.headers.authorization);
-  
-  try {
-    const body = JSON.parse(event.body || '{}');
+    try {
+        // Loading spinner
+        container.innerHTML = '<div class="loading-spinner" style="text-align:center; padding:60px;"><div style="display:inline-block; width:50px; height:50px; border:4px solid rgba(255,20,148,0.2); border-top-color:#FF1494; border-radius:50%; animation:spin 1s linear infinite;"></div><p style="margin-top:20px; color:#94A3B8;">Loading services...</p></div>';
 
-    switch (event.httpMethod) {
-      case 'GET':
-        return await handleGetServices(user, headers);
-      case 'POST':
-        return await handleCreateService(user, body, headers);
-      case 'PUT':
-        return await handleUpdateService(user, body, headers);
-      case 'DELETE':
-        return await handleDeleteService(user, body, headers);
-      default:
-        return {
-          statusCode: 405,
-          headers,
-          body: JSON.stringify({ error: 'Method not allowed' })
+        // API çağrısı
+        const response = await fetch('/.netlify/functions/services', {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        const data = await response.json();
+        
+        if (!response.ok) throw new Error(data.error || 'Failed to load services');
+
+        const services = data.services || [];
+        console.log('[DEBUG] Loaded services:', services.length, services);
+
+        if (services.length === 0) {
+            container.innerHTML = '<p style="text-align:center; padding:80px;">No Services Available</p>';
+            return;
+        }
+
+        // 🔹 Global counter for site-specific ID
+        let globalServiceCounter = 0;
+        const START_SITE_ID = 2231;
+
+        // Group services by category
+        const grouped = {};
+        services.forEach(service => {
+            const category = (service.category || 'Other').toLowerCase();
+            if (!grouped[category]) grouped[category] = [];
+            grouped[category].push(service);
+        });
+
+        // Generate HTML
+        let html = '';
+        const categoryIcons = {
+            'instagram': '📱',
+            'tiktok': '🎵',
+            'youtube': '▶️',
+            'twitter': '🐦',
+            'facebook': '👥',
+            'telegram': '💬',
+            'spotify': '🎧',
+            'soundcloud': '🎶',
+            'other': '⭐'
         };
+
+        Object.keys(grouped).sort().forEach(category => {
+            const icon = categoryIcons[category] || '⭐';
+            const categoryServices = grouped[category];
+            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+
+            html += `<div class="service-category" data-category="${category}" id="${category}">
+                        <h2 class="category-title">${icon} ${categoryName} Services</h2>
+                        <div class="service-subcategory">
+                            <div class="services-table">
+                                <div class="service-row service-row-header">
+                                    <div class="service-col">Service Name</div>
+                                    <div class="service-col">Rate (per 1000)</div>
+                                    <div class="service-col">Min/Max</div>
+                                    <div class="service-col">Action</div>
+                                </div>`;
+
+            categoryServices.forEach(service => {
+                const rate = parseFloat(service.rate || 0).toFixed(2);
+                const minRaw = service.min_quantity ?? service.min_order;
+                const maxRaw = service.max_quantity ?? service.max_order;
+                const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
+                const max = (maxRaw == null) ? '∞' : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
+
+                // 🔹 Site-specific ID
+                const labelId = START_SITE_ID + globalServiceCounter;
+                globalServiceCounter++;
+
+                html += `<div class="service-row" data-service-id="${service.id}">
+                            <div class="service-col">
+                                <strong>${labelId} · ${escapeHtml(service.name)}</strong>
+                                <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
+                            </div>
+                            <div class="service-col price">$${rate}</div>
+                            <div class="service-col">${min} / ${max}</div>
+                            <div class="service-col">
+                                <button onclick="showServiceDescription('${service.id}', '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${rate}', '${min}', '${max}')" class="btn btn-primary btn-sm">Description</button>
+                            </div>
+                        </div>`;
+            });
+
+            html += `    </div>
+                        </div>
+                    </div>`;
+        });
+
+        container.innerHTML = html;
+        console.log('[SUCCESS] Services loaded and displayed');
+
+    } catch (error) {
+        console.error('[ERROR] Failed to load services:', error);
+        container.innerHTML = `<p style="text-align:center; padding:80px;">Failed to load services: ${error.message}</p>`;
     }
-  } catch (error) {
-    console.error('Services API error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-};
-
-async function handleGetServices(user, headers) {
-  try {
-    const isAdmin = user && user.role === 'admin';
-    const client = isAdmin ? supabaseAdmin : supabase;
-
-    let query = client
-      .from('services')
-      .select(`
-        *,
-        provider:providers(id, name, status, markup)
-      `);
-
-    if (!isAdmin) {
-      query = query.eq('status', 'active');
-    }
-
-    query = query.order('category', { ascending: true }).order('name', { ascending: true });
-
-    const { data: services, error } = await query;
-
-    if (error) {
-      console.error('Get services error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to fetch services' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ services })
-    };
-  } catch (error) {
-    console.error('Get services error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
 }
 
-async function handleCreateService(user, data, headers) {
-  try {
-    // Only admins can create services
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
-
-    const { action } = data;
-
-    // Handle different create actions
-    if (action === 'create-category') {
-      return await handleCreateCategory(data, headers);
-    }
-
-    if (action === 'duplicate') {
-      return await handleDuplicateService(data, headers);
-    }
-
-    const {
-      providerId,
-      providerServiceId,
-      name,
-      category,
-      description,
-      rate,
-      price,
-      min_quantity,
-      minOrder,
-      max_quantity,
-      maxOrder,
-      type,
-      status
-    } = data;
-
-    if (!name || !category) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Missing required fields' })
-      };
-    }
-
-    const servicePrice = rate || price || 0;
-    const minQty = min_quantity || minOrder || 10;
-    const maxQty = max_quantity || maxOrder || 100000;
-
-    const { data: service, error } = await supabaseAdmin
-      .from('services')
-      .insert({
-        provider_id: providerId || null,
-        provider_service_id: providerServiceId || null,
-        name,
-        category,
-        description: description || '',
-        rate: servicePrice,
-        min_quantity: minQty,
-        max_quantity: maxQty,
-        type: type || 'service',
-        status: status || 'active'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Create service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to create service' })
-      };
-    }
-
-    return {
-      statusCode: 201,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        service
-      })
-    };
-  } catch (error) {
-    console.error('Create service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
+// ==========================================
+// Helpers
+// ==========================================
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
-async function handleUpdateService(user, data, headers) {
-  try {
-    // Only admins can update services
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
-
-    const {
-      serviceId,
-      name,
-      category,
-      rate,
-      price,
-      min_quantity,
-      max_quantity,
-      description,
-      status,
-      providerId,
-      provider_id,
-      providerServiceId,
-      provider_service_id,
-      ...updateData
-    } = data;
-
-    if (!serviceId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Service ID is required' })
-      };
-    }
-
-    // Build update object with proper field names
-    const updates = {};
-    if (name !== undefined) updates.name = name;
-    if (category !== undefined) updates.category = category;
-    if (rate !== undefined) updates.rate = rate;
-    if (price !== undefined) updates.rate = price;
-    if (min_quantity !== undefined) updates.min_quantity = min_quantity;
-    if (max_quantity !== undefined) updates.max_quantity = max_quantity;
-    if (description !== undefined) updates.description = description;
-    if (status !== undefined) updates.status = status;
-
-    const resolvedProviderId = providerId !== undefined ? providerId : provider_id;
-    if (resolvedProviderId !== undefined) {
-      updates.provider_id = resolvedProviderId || null;
-    }
-
-    const resolvedProviderServiceId = providerServiceId !== undefined ? providerServiceId : provider_service_id;
-    if (resolvedProviderServiceId !== undefined) {
-      updates.provider_service_id = resolvedProviderServiceId || null;
-    }
-
-    const { data: service, error } = await supabaseAdmin
-      .from('services')
-      .update(updates)
-      .eq('id', serviceId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Update service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to update service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        service
-      })
-    };
-  } catch (error) {
-    console.error('Update service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
+function formatNumber(num) {
+    if (!isFinite(num)) return '∞';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+    return num.toString();
 }
 
-async function handleDeleteService(user, data, headers) {
-  try {
-    // Only admins can delete services
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
+// ==========================================
+// Show Service Description Modal
+// ==========================================
+function showServiceDescription(serviceId, serviceName, description, rate, min, max) {
+    const modalHTML = `
+        <div id="serviceDescriptionModal" class="modal" style="display:flex; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; backdrop-filter:blur(4px);">
+            <div class="modal-content" style="background:white; border-radius:16px; padding:32px; max-width:600px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation: modalSlideIn 0.3s ease;">
+                <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:24px;">
+                    <h2 style="color:#1E293B; margin:0; font-size:24px; font-weight:600;">${serviceName}</h2>
+                    <button onclick="closeServiceDescription()" style="background:none; border:none; font-size:28px; color:#64748B; cursor:pointer; padding:0; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; transition:all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
+                </div>
+                <div style="background:linear-gradient(135deg,#FF1494 0%,#FF6B35 100%); padding:20px; border-radius:12px; margin-bottom:24px;">
+                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px; text-align:center;">
+                        <div>
+                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Rate per 1000</div>
+                            <div style="color:white; font-size:24px; font-weight:700;">$${rate}</div>
+                        </div>
+                        <div>
+                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Minimum</div>
+                            <div style="color:white; font-size:24px; font-weight:700;">${min}</div>
+                        </div>
+                        <div>
+                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Maximum</div>
+                            <div style="color:white; font-size:24px; font-weight:700;">${max}</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-bottom:24px;">
+                    <h3 style="color:#1E293B; font-size:16px; font-weight:600; margin-bottom:12px;">Service Description</h3>
+                    <p style="color:#475569; line-height:1.6; margin:0; white-space:pre-wrap;">${description}</p>
+                </div>
+                <div style="display:flex; gap:12px;">
+                    <a href="order.html?service=${serviceId}" class="btn btn-primary" style="flex:1; text-align:center; padding:12px; font-size:16px; font-weight:600; text-decoration:none; display:block;">Order Now</a>
+                    <button onclick="closeServiceDescription()" class="btn btn-secondary" style="padding:12px 24px; font-size:16px; font-weight:600;">Close</button>
+                </div>
+            </div>
+        </div>
+        <style>
+            @keyframes modalSlideIn {
+                from { opacity:0; transform:translateY(-20px) scale(0.95); }
+                to { opacity:1; transform:translateY(0) scale(1); }
+            }
+            @keyframes modalSlideOut {
+                from { opacity:1; transform:translateY(0) scale(1); }
+                to { opacity:0; transform:translateY(-20px) scale(0.95); }
+            }
+        </style>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    document.body.style.overflow = 'hidden';
 
-    const { serviceId } = data;
+    document.getElementById('serviceDescriptionModal').addEventListener('click', function(e) {
+        if (e.target.id === 'serviceDescriptionModal') closeServiceDescription();
+    });
 
-    if (!serviceId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Service ID is required' })
-      };
-    }
-
-    const { error } = await supabaseAdmin
-      .from('services')
-      .delete()
-      .eq('id', serviceId);
-
-    if (error) {
-      console.error('Delete service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to delete service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ success: true })
-    };
-  } catch (error) {
-    console.error('Delete service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
+    document.addEventListener('keydown', function escapeHandler(e) {
+        if (e.key === 'Escape') {
+            closeServiceDescription();
+            document.removeEventListener('keydown', escapeHandler);
+        }
+    });
 }
 
-async function handleCreateCategory(data, headers) {
-  try {
-    const { name, description, icon } = data;
-
-    // For now, categories are just stored as metadata
-    // You can create a categories table later if needed
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ 
-        success: true,
-        message: `Category "${name}" created successfully`,
-        category: { name, description, icon }
-      })
-    };
-  } catch (error) {
-    console.error('Create category error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to create category' })
-    };
-  }
-}
-
-async function handleDuplicateService(data, headers) {
-  try {
-    const { serviceId } = data;
-
-    // Get the original service
-    const { data: originalService, error: fetchError } = await supabaseAdmin
-      .from('services')
-      .select('*')
-      .eq('id', serviceId)
-      .single();
-
-    if (fetchError || !originalService) {
-      return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({ error: 'Service not found' })
-      };
+function closeServiceDescription() {
+    const modal = document.getElementById('serviceDescriptionModal');
+    if (modal) {
+        modal.style.animation = 'modalSlideOut 0.2s ease';
+        setTimeout(() => {
+            modal.remove();
+            document.body.style.overflow = '';
+        }, 200);
     }
-
-    // Create duplicate with modified name
-    const { data: newService, error: insertError } = await supabaseAdmin
-      .from('services')
-      .insert({
-        provider_id: originalService.provider_id,
-        provider_service_id: originalService.provider_service_id,
-        name: `${originalService.name} (Copy)`,
-        category: originalService.category,
-        description: originalService.description,
-        rate: originalService.rate,
-        min_quantity: originalService.min_quantity,
-        max_quantity: originalService.max_quantity,
-        type: originalService.type,
-        status: 'inactive' // New duplicates start as inactive
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to duplicate service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ 
-        success: true,
-        service: newService
-      })
-    };
-  } catch (error) {
-    console.error('Duplicate service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to duplicate service' })
-    };
-  }
 }
