@@ -89,9 +89,8 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // --- Burada site_id ekliyoruz, kullanıcılar görebilir ---
-    // Use stable site_id so admin and public UI match.
-    // Prefer an existing public_id/publicId if present, otherwise use DB id.
+    // Ensure a stable site_id so public UI and admin UI match.
+    // Prefer public_id/publicId when present, otherwise fall back to DB id.
     const servicesWithSiteId = services.map(service => {
       const site_id = service.public_id ?? service.publicId ?? service.id;
       return { ...service, site_id };
@@ -468,31 +467,32 @@ if (typeof window !== 'undefined') {
           services.forEach(service => {
             const serviceSub = document.createElement('div');
             serviceSub.classList.add('service-subcategory');
-
             const subTitle = document.createElement('h3');
             subTitle.classList.add('subcategory-title');
             subTitle.textContent = service.name;
             serviceSub.appendChild(subTitle);
-
             const table = document.createElement('div');
             table.classList.add('services-table');
-
             const row = document.createElement('div');
             row.classList.add('service-row');
 
-            const displayId = service.site_id ?? service.public_id ?? service.id;
-            row.innerHTML = `
-              <div class="service-col">
-                <strong>${escapeHtml(service.name)} <span style="color:#94a3b8; font-weight:400;">#${escapeHtml(String(displayId))}</span></strong>
-                <span class="service-details">${escapeHtml(service.description || '')}</span>
-              </div>
-              <div class="service-col price">$${Number(service.rate || 0).toFixed(4)}</div>
-              <div class="service-col">${escapeHtml(String(service.min_quantity ?? '—'))} / ${escapeHtml(String(service.max_quantity ?? 'Unlimited'))}</div>
-              <div class="service-col">
-                <a href="order.html?service=${encodeURIComponent(String(displayId))}" class="btn btn-primary btn-sm">Order</a>
-              </div>
-            `;
+            // Use the stable site_id so public IDs match admin IDs.
+            // This only changes the ID value used in display and links — UI remains unchanged.
+            const displayId = service.site_id ?? service.public_id ?? service.publicId ?? service.id;
+            const desc = escapeHtml(service.description || '');
+            const rate = `$${Number(service.rate || 0).toFixed(4)}`;
+            const minQty = escapeHtml(String(service.min_quantity ?? '—'));
+            const maxQty = escapeHtml(String(service.max_quantity ?? 'Unlimited'));
 
+            row.innerHTML = `
+    <div class="service-main">
+        <div class="service-title">${escapeHtml(service.name)} <span class="service-id">#${escapeHtml(String(displayId))}</span></div>
+        <div class="service-desc">${desc}</div>
+    </div>
+    <div class="service-rate">${rate}</div>
+    <div class="service-qty">${minQty} / ${maxQty}</div>
+    <div class="service-action"><a href="order.html?service=${encodeURIComponent(String(displayId))}" class="btn btn-primary">Order</a></div>
+ `;
             table.appendChild(row);
             serviceSub.appendChild(table);
             categoryDiv.appendChild(serviceSub);
@@ -504,6 +504,4 @@ if (typeof window !== 'undefined') {
       .catch(err => console.error('Failed to load services:', err));
   });
 }
-
-
 
