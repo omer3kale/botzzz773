@@ -88,13 +88,43 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // Ensure deterministic site_id so public display matches admin.
-    // Prefer persisted public_id/publicId/site_id, otherwise fall back to DB id.
-    const servicesWithSiteId = services.map(service => {
-      const site_id = service.public_id ?? service.publicId ?? service.site_id ?? service.id;
-      // normalize to string so formatting is stable across client rendering
-      return { ...service, site_id: site_id !== undefined && site_id !== null ? String(site_id) : site_id };
-    });
+    // Ensure stable admin-matching site_id for every service.
+    // If a service lacks a persisted public/site id, generate a deterministic one
+    // (offset + DB id) and persist it using the admin client so admin & public match.
+    const ID_OFFSET = 2230;
+    const pendingUpdates = [];
+    const servicesWithSiteId = await Promise.all(services.map(async service => {
+      let site_id = service.public_id ?? service.publicId ?? service.site_id ?? null;
+      if (!site_id) {
+        const numericId = Number(service.id || 0);
+        // fallback: use offset + db id to produce a stable, readable id
+        site_id = String(ID_OFFSET + (Number.isFinite(numericId) ? numericId : Date.now()));
+        // persist the generated id so future responses (and admin UI) match
+        try {
+          // use admin client to persist; don't block return if update fails, but log
+          pendingUpdates.push(
+            supabaseAdmin
+              .from('services')
+              .update({ public_id: site_id })
+              .eq('id', service.id)
+          );
+        } catch (e) {
+          console.error('Schedule persist site_id failed for service', service.id, e);
+        }
+      } else {
+        site_id = String(site_id);
+      }
+      return { ...service, site_id };
+    }));
+
+    if (pendingUpdates.length) {
+      try {
+        const results = await Promise.all(pendingUpdates);
+        results.forEach(r => { if (r && r.error) console.error('Persist site_id error:', r.error); });
+      } catch (e) {
+        console.error('Persist site_id bulk error:', e);
+      }
+    }
     
     return {
       statusCode: 200,
@@ -508,8 +538,4 @@ if (typeof window !== 'undefined') {
       .catch(err => console.error('Sample fetch error:', err));
   });
 }
-
-
-
-
 
