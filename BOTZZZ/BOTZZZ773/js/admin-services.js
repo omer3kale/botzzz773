@@ -510,26 +510,41 @@ async function loadProviderServices(providerId) {
         if (response.ok) {
             const result = await response.json();
             const services = result.services || [];
-            
+
+            // get markup value from import form or provider fallback
+            const markupInput = document.querySelector('#importServicesForm input[name="markup"]');
+            const formMarkup = markupInput ? Number(markupInput.value) : null;
+            const providerObj = providersCache?.find(p => String(p.id) === String(providerId));
+            const providerMarkup = providerObj ? toNumeric(providerObj.markup) : null;
+            const markupToUse = Number.isFinite(formMarkup) ? formMarkup : (Number.isFinite(providerMarkup) ? providerMarkup : 0);
+
             if (services.length > 0) {
-                list.innerHTML = services.slice(0, 10).map(s => 
-                    `<div style="padding: 4px 0; color: #aaa;">• ${s.name}</div>`
-                ).join('');
-                if (services.length > 10) {
-                    list.innerHTML += `<div style="padding: 4px 0; color: #FF1494; font-weight: 600;">+ ${services.length - 10} more services</div>`;
-                }
-            } else {
-                list.innerHTML = '<div style="padding: 8px 0; color: #888;">No services found for this provider</div>';
-            }
-        } else {
-            list.innerHTML = '<div style="padding: 8px 0; color: #ff4444;">Error loading services</div>';
-        }
-    } catch (error) {
-        console.error('Error loading provider services:', error);
-        list.innerHTML = '<div style="padding: 8px 0; color: #ff4444;">Error loading services</div>';
-    }
-    
-    preview.style.display = 'block';
+                list.innerHTML = services.slice(0, 10).map(s => {
+                    const providerRate = toNumeric(s.rate ?? s.price ?? s.provider_price) ?? null;
+                    const retail = providerRate !== null ? (providerRate * (1 + markupToUse / 100)) : null;
+                    return `<div style="padding: 8px 0; color: #ddd;">
+                        <div style="display:flex; gap:12px; align-items:center;">
+                            <div style="flex:1; color:#fff;">• ${escapeHtml(s.name || 'Unnamed')}</div>
+                            <div style="color:#9ca3af;">Provider: ${providerRate !== null ? `$${providerRate.toFixed(4)}` : 'N/A'}</div>
+                            <div style="color:#FF1494; font-weight:600;">Retail: ${retail !== null ? `$${retail.toFixed(4)}` : '—'}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+                 if (services.length > 10) {
+                     list.innerHTML += `<div style="padding: 4px 0; color: #FF1494; font-weight: 600;">+ ${services.length - 10} more services</div>`;
+                 }
+             } else {
+                 list.innerHTML = '<div style="padding: 8px 0; color: #888;">No services found for this provider</div>';
+             }
+         } else {
+             list.innerHTML = '<div style="padding: 8px 0; color: #ff4444;">Error loading services</div>';
+         }
+     } catch (error) {
+         console.error('Error loading provider services:', error);
+         list.innerHTML = '<div style="padding: 8px 0; color: #ff4444;">Error loading services</div>';
+     }
+     
+     preview.style.display = 'block';
 }
 
 async function submitImportServices(event) {
@@ -1011,12 +1026,91 @@ async function confirmDeleteService(serviceId) {
     }
 }
 
+// Deactivate all active services (batch update)
+function deactivateAllServices() {
+    createModal('Deactivate All Services', `<div style="text-align:center; padding:20px;">
+        <i class="fas fa-ban" style="font-size:48px;color:#ef4444;margin-bottom:12px;"></i>
+        <p>This will mark all active services as <strong>inactive</strong>. Customers will no longer see them.</p>
+        <p style="color:#94a3b8;font-size:13px;">You can re-enable services individually later.</p>
+    </div>`, `<button class="btn-secondary" onclick="closeModal()">Cancel</button>
+       <button class="btn-danger" onclick="confirmDeactivateAllServices()"><i class="fas fa-ban"></i> Deactivate All</button>`);
+}
+
+async function confirmDeactivateAllServices() {
+    closeModal();
+    // show progress modal
+    createModal('Deactivating Services...', '<div style="text-align:center; padding:20px;"><i class="fas fa-spinner fa-spin" style="font-size:32px;color:#FF1494;"></i><p style="margin-top:12px;">Processing...</p></div>');
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        closeModal();
+        showNotification('No auth token found. Please login.', 'error');
+        return;
+    }
+
+    const activeServices = (servicesCache || []).filter(s => String(s.status || '').toLowerCase() === 'active');
+    if (activeServices.length === 0) {
+        closeModal();
+        showNotification('No active services to deactivate.', 'info');
+        return;
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Update sequentially to avoid overwhelming backend (can be changed to parallel)
+    for (const svc of activeServices) {
+        try {
+            const response = await fetch('/.netlify/functions/services', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ serviceId: svc.id, status: 'inactive' })
+            });
+            const result = await response.json();
+            if (response.ok && result.success) {
+                successCount++;
+            } else {
+                failCount++;
+                console.warn('Failed to deactivate', svc.id, result);
+            }
+        } catch (err) {
+            failCount++;
+            console.error('Error deactivating service', svc.id, err);
+        }
+    }
+
+    closeModal();
+    showNotification(`Deactivated ${successCount} services. Failed: ${failCount}`, failCount === 0 ? 'success' : 'warning');
+    await loadServices();
+}
+
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     if (typeof handleSearch === 'function') {
         handleSearch('serviceSearch', 'servicesTable');
     }
     await loadServices();
+
+    // Inject "Deactivate All Services" button into page actions if missing
+    try {
+        const pageActions = document.querySelector('.page-actions');
+        if (pageActions && !document.getElementById('deactivateAllBtn')) {
+            const btn = document.createElement('button');
+            btn.className = 'btn-danger';
+            btn.id = 'deactivateAllBtn';
+            btn.type = 'button';
+            btn.title = 'Mark all services as inactive';
+            btn.innerHTML = '<i class="fas fa-ban"></i> Deactivate All';
+            btn.style.marginLeft = '8px';
+            btn.addEventListener('click', deactivateAllServices);
+            pageActions.insertBefore(btn, pageActions.firstChild);
+        }
+    } catch (err) {
+        console.warn('Could not inject Deactivate All button', err);
+    }
 });
 
 // Load real services from database
@@ -1094,10 +1188,8 @@ async function loadServices() {
                         <td><input type="checkbox" class="service-checkbox"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
--                                <span class="cell-primary${isManualService && publicIdValue !== null ? '' : ' cell-muted'}">${ourIdLabel}</span>
--                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
-+                                <span class="cell-primary">${ourIdLabel}</span>
-+                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
+                                <span class="cell-primary">${ourIdLabel}</span>
+                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
                             </div>
                         </td>
                         <td>
@@ -1218,24 +1310,33 @@ async function showSyncedServices() {
                     <tbody>
         `;
         
-        services.forEach(service => {
-            const serviceId = service.service || service.id || 'N/A';
-            const serviceName = escapeHtml(service.name || 'Unnamed Service');
-            const rate = parseFloat(service.rate || 0).toFixed(2);
-            
-            tableHTML += `
-                <tr style="border-bottom: 1px solid #334155;">
-                    <td style="padding: 12px;">${escapeHtml(String(serviceId))}</td>
-                    <td style="padding: 12px;">${serviceName}</td>
-                    <td style="padding: 12px;">$${rate}/1k</td>
-                    <td style="padding: 12px; text-align: center;">
-                        <button onclick="selectSyncedService('${escapeHtml(String(serviceId))}', '${serviceName.replace(/'/g, "\\'")}', ${rate})" class="btn-primary btn-sm">
-                            Select
-                        </button>
-                    </td>
-                </tr>
-            `;
-        });
+services.forEach(service => {
+    const serviceId = service.service || service.id || 'N/A';
+    const serviceName = escapeHtml(service.name || 'Unnamed Service');
+    const providerRate = toNumeric(service.rate || service.price || 0);
+    // markup from provider record if present
+    const providerObj = providersCache?.find(p => p.id == providerId);
+    const providerMarkup = providerObj ? toNumeric(providerObj.markup) : 0;
+    const markupInput = document.querySelector('#importServicesForm input[name="markup"]');
+    const markupToUse = markupInput ? Number(markupInput.value) : (providerMarkup ?? 0);
+    const retail = providerRate !== null ? (providerRate * (1 + (markupToUse/100))) : null;
+
+    tableHTML += `
+        <tr style="border-bottom: 1px solid #334155;">
+            <td style="padding: 12px;">${escapeHtml(String(serviceId))}</td>
+            <td style="padding: 12px;">${serviceName}</td>
+            <td style="padding: 12px; white-space:nowrap;">
+                <span style="color:#9ca3af;">P: $${providerRate !== null ? providerRate.toFixed(4) : '—'}</span>
+                <span style="margin-left:8px; color:#FF1494; font-weight:600;">R: ${retail !== null ? `$${retail.toFixed(4)}` : '—'}</span>
+            </td>
+            <td style="padding: 12px; text-align: center;">
+                <button onclick="selectSyncedService('${escapeHtml(String(serviceId))}', '${serviceName.replace(/'/g, "\\'")}', ${providerRate !== null ? providerRate.toFixed(4) : 0})" class="btn-primary btn-sm">
+                    Select
+                </button>
+            </td>
+        </tr>
+    `;
+});
         
         tableHTML += `
                     </tbody>
@@ -1264,8 +1365,45 @@ function selectSyncedService(serviceId, serviceName, rate) {
     closeModal();
     showNotification('Service selected! Update other fields as needed.', 'success');
 }
+ 
+ function onProviderChange(providerId) {
+     // Optional: Could auto-clear or validate fields when provider changes
+     console.log('Provider changed to:', providerId);
+    // Update provider price/markup info in Add Service modal
+    try {
+        const infoBoxId = 'providerPriceInfo';
+        let infoBox = document.getElementById(infoBoxId);
+        if (!infoBox) {
+            const form = document.getElementById('addServiceForm');
+            if (form) {
+                infoBox = document.createElement('div');
+                infoBox.id = infoBoxId;
+                infoBox.style.fontSize = '13px';
+                infoBox.style.color = '#94a3b8';
+                infoBox.style.marginTop = '8px';
+                form.querySelector('.form-group')?.insertAdjacentElement('afterend', infoBox);
+            }
+        }
 
-function onProviderChange(providerId) {
-    // Optional: Could auto-clear or validate fields when provider changes
-    console.log('Provider changed to:', providerId);
-}
+        const provider = providersCache?.find(p => String(p.id) === String(providerId));
+        if (!infoBox) return;
+        if (!provider) {
+            infoBox.innerHTML = '<em>No provider selected</em>';
+            return;
+        }
+
+        const markup = toNumeric(provider.markup) ?? 0;
+        // Try to show provider sample price if provider contains sample_cost or last_rate
+        const sampleCost = toNumeric(provider.last_rate ?? provider.sample_cost ?? provider.default_cost ?? null);
+        const sampleRetail = sampleCost !== null ? (sampleCost * (1 + markup / 100)) : null;
+        infoBox.innerHTML = `
+            <div style="display:flex; gap:12px; align-items:center;">
+                <div>Provider markup: <strong>${markup}%</strong></div>
+                <div>Provider sample price: <strong>${sampleCost !== null ? `$${sampleCost.toFixed(4)}` : '—'}</strong></div>
+                <div style="color:#FF1494;">Retail sample: <strong>${sampleRetail !== null ? `$${sampleRetail.toFixed(4)}` : '—'}</strong></div>
+            </div>
+        `;
+    } catch (err) {
+        console.warn('onProviderChange update failed', err);
+    }
+ }
