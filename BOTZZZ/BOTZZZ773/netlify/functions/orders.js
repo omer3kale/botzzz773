@@ -52,7 +52,33 @@ exports.handler = async (event) => {
   }
 
   try {
-    const body = JSON.parse(event.body || '{}');
+    // robust body parsing: accept JSON and application/x-www-form-urlencoded
+    let body = {};
+    const contentType = ((event.headers && (event.headers['content-type'] || event.headers['Content-Type'])) || '').toLowerCase();
+    if (contentType.includes('application/json')) {
+      body = JSON.parse(event.body || '{}');
+    } else if (contentType.includes('application/x-www-form-urlencoded')) {
+      const params = new URLSearchParams(event.body || '');
+      for (const [k, v] of params.entries()) body[k] = v;
+    } else {
+      // fallback: try JSON then urlencoded
+      try {
+        body = JSON.parse(event.body || '{}');
+      } catch (e) {
+        const params = new URLSearchParams(event.body || '');
+        for (const [k, v] of params.entries()) body[k] = v;
+      }
+    }
+
+    // Normalize common alternative field names so handlers can rely on consistent keys
+    if (body.service_id && !body.serviceId) body.serviceId = body.service_id;
+    if (body.service && !body.serviceId) body.serviceId = body.service;
+    if (body.serviceID && !body.serviceId) body.serviceId = body.serviceID;
+
+    if ((body.qty || body.q) && !body.quantity) body.quantity = Number(body.qty || body.q);
+    if (body.quantity && typeof body.quantity === 'string') body.quantity = Number(body.quantity);
+
+    if ((body.url || body.target) && !body.link) body.link = body.url || body.target;
 
     switch (event.httpMethod) {
       case 'GET':
@@ -499,3 +525,17 @@ async function submitOrderToProvider(provider, orderData) {
     throw error;
   }
 }
+
+// Use JSON and exact keys
+fetch('/.netlify/functions/orders', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': 'Bearer YOUR_JWT'
+  },
+  body: JSON.stringify({
+    serviceId: 123,        // number or string
+    quantity: 1000,        // number
+    link: 'https://...'    // string
+  })
+});
