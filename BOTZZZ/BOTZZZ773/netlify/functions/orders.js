@@ -630,3 +630,35 @@ async function submitOrderToProvider(provider, orderData) {
 //   const displayId = svc.site_id;        // Generated site-specific display id
 //   console.log({ dbId, providerId, displayId });
 // }
+function populateServiceDropdown(services) {
+    const serviceSelect = document.getElementById('service');
+    if (!serviceSelect) return;
+
+    // Clear existing options except first
+    while (serviceSelect.options.length > 1) {
+        serviceSelect.remove(1);
+    }
+
+    services.forEach(service => {
+        const option = document.createElement('option');
+        // Use DB UUID as the option value (backend expects this by default)
+        option.value = service.id; 
+        option.textContent = `${service.name} ($${service.rate}/1000)`;
+        option.dataset.providerServiceId = service.provider_service_id ?? '';
+        option.dataset.siteId = service.site_id ?? '';
+        option.dataset.min = service.min_quantity ?? service.min_order ?? 0;
+        option.dataset.max = service.max_quantity ?? service.max_order ?? 0;
+        serviceSelect.appendChild(option);
+    });
+}
+
+// filepath: [dashboard.js](http://_vscodecontentref_/8)
+// ...existing code...
+const orderData = {
+    // prefer DB UUID
+    serviceId: selectedService.id || selectedService.provider_service_id || selectedService.site_id,
+    serviceLabel: selectedService.publicId ? `#${selectedService.publicId}` : selectedService.name,
+    link: orderLink,
+    quantity
+};
+
