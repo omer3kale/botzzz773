@@ -139,6 +139,15 @@
             return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
         }
 
+        // Format numeric id to 4 digits (left pad with zeros). Non-numeric ids are returned unchanged.
+        function formatFourDigitId(id) {
+            if (id === null || id === undefined) return String(id);
+            const s = String(id).trim();
+            // accept negative? treat as non-numeric
+            if (!/^\d+$/.test(s)) return s;
+            return s.length >= 4 ? s : s.padStart(4, '0');
+        }
+
         async function loadServices() {
             const container = document.getElementById('servicesContainer');
             if (!container) return;
@@ -290,20 +299,22 @@
                         }
 
                         // Finally pick admin id value from resolved admin record or fallback to explicit fields or internal id
-                        let adminIdValue = null;
+                        let adminIdValueRaw = null;
                         if (resolvedAdminRec) {
-                            adminIdValue = resolvedAdminRec.service_id ?? resolvedAdminRec.id ?? resolvedAdminRec.admin_service_id ?? resolvedAdminRec.public_id ?? resolvedAdminRec.external_id;
+                            adminIdValueRaw = resolvedAdminRec.service_id ?? resolvedAdminRec.id ?? resolvedAdminRec.admin_service_id ?? resolvedAdminRec.public_id ?? resolvedAdminRec.external_id;
                         }
-                        adminIdValue = adminIdValue ?? explicitAdminId ?? service.public_id ?? service.publicId ?? service.id ?? '(unknown)';
+                        adminIdValueRaw = adminIdValueRaw ?? explicitAdminId ?? service.public_id ?? service.publicId ?? service.id ?? '(unknown)';
 
-                        // set display label and order link param
-                        const displayIdLabel = adminIdValue ? `#${escapeHtml(String(adminIdValue))}` : '—';
+                        // Format display id to 4 digits when numeric, but keep raw value for order param
+                        const displayId = formatFourDigitId(adminIdValueRaw);
+                        const displayIdLabel = displayId ? `#${escapeHtml(String(displayId))}` : '—';
+
                         const rate = service.rate !== undefined ? escapeHtml(String(service.rate)) : '0';
                         const minQ = service.min_quantity ?? service.min_order ?? 'N/A';
                         const maxQ = service.max_quantity ?? service.max_order ?? 'Unlimited';
 
-                        // Optionally attach resolved admin id back onto service object for downstream pages
-                        service.admin_service_id = adminIdValue;
+                        // attach resolved admin id raw back onto service for downstream pages (raw value)
+                        service.admin_service_id = adminIdValueRaw;
 
                         const row = document.createElement('div');
                         row.classList.add('service-row');
@@ -316,7 +327,8 @@
                             <div class="service-col price">$${rate}</div>
                             <div class="service-col">${escapeHtml(String(minQ))} / ${escapeHtml(String(maxQ))}</div>
                             <div class="service-col">
-                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(adminIdValue))}" class="btn btn-primary btn-sm">Order</a>
+                                <!-- order param uses raw admin id value to avoid breaking backend -->
+                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(adminIdValueRaw))}" class="btn btn-primary btn-sm">Order</a>
                             </div>
                         `;
                         table.appendChild(row);
