@@ -3,6 +3,10 @@ const { supabase, supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
+// NEW: load starting id from repo config so backend and frontend stay in sync
+const siteConfig = require('../../site-config.json');
+const STARTING_SITE_ID = Number(siteConfig && siteConfig.startingId) || 2231;
+
 const JWT_SECRET = process.env.JWT_SECRET;
 
 function getUserFromToken(authHeader) {
@@ -79,6 +83,7 @@ async function handleGetServices(user, headers) {
     query = query.order('category', { ascending: true }).order('name', { ascending: true });
 
     const { data: services, error } = await query;
+
     if (error) {
       console.error('Get services error:', error);
       return {
@@ -88,48 +93,18 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // Ensure stable admin-matching site_id for every service.
-    // If a service lacks a persisted public/site id, generate a deterministic one
-    // (offset + DB id) and persist it using the admin client so admin & public match.
-    const ID_OFFSET = 2230;
-    const pendingUpdates = [];
-    const servicesWithSiteId = await Promise.all(services.map(async service => {
-      let site_id = service.public_id ?? service.publicId ?? service.site_id ?? null;
-      if (!site_id) {
-        const numericId = Number(service.id || 0);
-        // fallback: use offset + db id to produce a stable, readable id
-        site_id = String(ID_OFFSET + (Number.isFinite(numericId) ? numericId : Date.now()));
-        // persist the generated id so future responses (and admin UI) match
-        try {
-          // use admin client to persist; don't block return if update fails, but log
-          pendingUpdates.push(
-            supabaseAdmin
-              .from('services')
-              .update({ public_id: site_id })
-              .eq('id', service.id)
-          );
-        } catch (e) {
-          console.error('Schedule persist site_id failed for service', service.id, e);
-        }
-      } else {
-        site_id = String(site_id);
-      }
-      return { ...service, site_id };
+    // 🔹 Her servise siteye özel ID ekliyoruz (başlangıç değeri config'ten)
+    const startingId = STARTING_SITE_ID;
+
+    const servicesWithCustomId = services.map((service, index) => ({
+      ...service,
+      site_id: startingId + index
     }));
 
-    if (pendingUpdates.length) {
-      try {
-        const results = await Promise.all(pendingUpdates);
-        results.forEach(r => { if (r && r.error) console.error('Persist site_id error:', r.error); });
-      } catch (e) {
-        console.error('Persist site_id bulk error:', e);
-      }
-    }
-    
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: servicesWithSiteId })
+      body: JSON.stringify({ services: servicesWithCustomId })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -141,7 +116,6 @@ async function handleGetServices(user, headers) {
   }
 }
 
-// --- Diğer fonksiyonlar orijinal kodunla tamamen aynı kalıyor ---
 async function handleCreateService(user, data, headers) {
   try {
     if (!user || user.role !== 'admin') {
@@ -375,6 +349,7 @@ async function handleDeleteService(user, data, headers) {
 async function handleCreateCategory(data, headers) {
   try {
     const { name, description, icon } = data;
+
     return {
       statusCode: 200,
       headers,
@@ -455,87 +430,34 @@ async function handleDuplicateService(data, headers) {
   }
 }
 
-// --- FRONTEND ENTEGRASYONU: API’den servisleri çekip services.html’de listeleme ---
-if (typeof window !== 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    const servicesContainer = document.getElementById('servicesContainer');
-    if (!servicesContainer) return;
+// Provider utilities for form dropdowns
+let providersCache = null;
+let servicesCache = [];
 
-    fetch('/.netlify/functions/services', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-        // Token gerekiyorsa: 'Authorization': 'Bearer ' + localStorage.getItem('token')
-      }
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.services) return;
-
-        // Mevcut HTML’yi temizle
-        servicesContainer.innerHTML = '';
-
-        // Kategorilere göre grupla
-        const categories = {};
-        data.services.forEach(service => {
-          const cat = service.category || 'Uncategorized';
-          if (!categories[cat]) categories[cat] = [];
-          categories[cat].push(service);
-        });
-
-        // HTML oluştur
-        for (const [category, services] of Object.entries(categories)) {
-          const categoryDiv = document.createElement('div');
-          categoryDiv.classList.add('service-category');
-          categoryDiv.dataset.category = category.toLowerCase();
-
-          const categoryTitle = document.createElement('h2');
-          categoryTitle.classList.add('category-title');
-          categoryTitle.textContent = category;
-          categoryDiv.appendChild(categoryTitle);
-
-          services.forEach(service => {
-            const serviceSub = document.createElement('div');
-            serviceSub.classList.add('service-subcategory');
-
-            const subTitle = document.createElement('h3');
-            subTitle.classList.add('subcategory-title');
-            subTitle.textContent = service.name;
-            serviceSub.appendChild(subTitle);
-
-            const table = document.createElement('div');
-            table.classList.add('services-table');
-
-            const row = document.createElement('div');
-            row.classList.add('service-row');
-
-            row.innerHTML = `
-              <div class="service-col">
-                <strong>${service.name}</strong>
-                <span class="service-details">${service.description || ''}</span>
-              </div>
-              <div class="service-col price">$${service.rate}</div>
-              <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
-              <div class="service-col">
-                <a href="order.html?service=${encodeURIComponent(service.name)}" class="btn btn-primary btn-sm">Order</a>
-              </div>
-            `;
-
-            table.appendChild(row);
-            serviceSub.appendChild(table);
-            categoryDiv.appendChild(serviceSub);
-          });
-
-          servicesContainer.appendChild(categoryDiv);
-        }
-      })
-      .catch(err => console.error('Failed to load services:', err));
-
-    // Sample fetch for services API
-    fetch('/.netlify/functions/services')
-      .then(r => r.json())
-      .then(d => console.log('services api sample', d.services && d.services.slice(0,5)))
-      .catch(err => console.error('Sample fetch error:', err));
-  });
+// NEW: load site config so frontend uses the same starting ID
+async function loadSiteConfig() {
+    try {
+        const res = await fetch('/site-config.json', { cache: 'no-cache' });
+        if (!res.ok) return;
+        const cfg = await res.json();
+        window.STARTING_SITE_ID = Number(cfg.startingId) || 2231;
+        console.log('[DEBUG] STARTING_SITE_ID', window.STARTING_SITE_ID);
+    } catch (err) {
+        console.warn('Failed to load site-config.json', err);
+        window.STARTING_SITE_ID = window.STARTING_SITE_ID || 2231;
+    }
 }
 
+// Initialize
+document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof handleSearch === 'function') {
+        handleSearch('serviceSearch', 'servicesTable');
+    }
+
+    // Ensure frontend loads site config before fetching services
+    await loadSiteConfig();
+
+    await loadServices();
+
+    // ...existing code...
+});
