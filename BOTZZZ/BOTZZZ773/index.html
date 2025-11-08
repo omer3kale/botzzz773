@@ -1,82 +1,49 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOTZZZ773 - #1 SMM Panel | Premium Social Media Services</title>
-    <meta name="description" content="Get the best SMM services at unbeatable prices. Instagram, TikTok, YouTube, Twitter followers, likes, views and more!">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-</head>
-<body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
-                <a href="index.html" class="logo">
-                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
-                </a>
-                <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="index.html" class="nav-link active">Home</a></li>
-                    <li><a href="services.html" class="nav-link">Services</a></li>
-                    <li><a href="dashboard.html" class="nav-link">Dashboard</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
-                    <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
-                    <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li id="authNavItem">
-                        <a href="signin.html" class="nav-link btn-primary">Sign In</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+<script>
+// Servisleri API'den çek ve ekrana bas
+async function loadServices() {
+    const container = document.getElementById('servicesContainer');
+    container.innerHTML = 'Loading...';
 
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="hero-gradient"></div>
-        <div class="container">
-            <div class="hero-content">
-                <h1 class="hero-title">
-                    #1 SMM PANEL<br>
-                    <span class="gradient-text">IN THE WORLD!</span>
-                </h1>
-                <p class="hero-subtitle">Cheap SMM services with lightning-fast delivery and premium quality</p>
-                <div class="hero-buttons">
-                    <a href="services.html" class="btn btn-primary btn-large">View Services</a>
-                    <a href="order.html" class="btn btn-secondary btn-large">Order Now</a>
-                </div>
-            </div>
-        </div>
-    </section>
+    try {
+        const response = await fetch('/.netlify/functions/services', {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token') || ''}`
+            }
+        });
 
-    <!-- All Services (Dynamic from services.js) -->
-    <section class="all-services">
-        <div class="container">
-            <h2 class="section-title">All Services</h2>
-            <div id="servicesContainer"></div>
-        </div>
-    </section>
+        const result = await response.json();
+        const services = result.services || [];
 
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
-        </div>
-    </footer>
+        if (!services.length) {
+            container.innerHTML = '<p>No services found.</p>';
+            return;
+        }
 
-    <!-- Scripts -->
-    <script src="js/api-client.js"></script>
-    <script src="js/auth-backend.js"></script>
-    <script src="js/services.js"></script> <!-- Services frontend -->
-</body>
-</html>
+        container.innerHTML = ''; // Temizle
+        services.forEach(service => {
+            const card = document.createElement('div');
+            card.className = 'service-card';
+
+            card.innerHTML = `
+                <h3 class="service-title">${service.name}</h3>
+                <p class="service-desc">${service.description || ''}</p>
+                <p class="service-category">Category: ${service.category}</p>
+                <p class="service-id">Site ID: <strong>${service.site_id}</strong></p>
+                <p class="service-rate">Price: $${service.rate}</p>
+            `;
+
+            container.appendChild(card);
+        });
+    } catch (err) {
+        console.error('Error loading services:', err);
+        container.innerHTML = '<p>Error loading services.</p>';
+    }
+}
+
+// Sayfa yüklendiğinde servisleri çek
+document.addEventListener('DOMContentLoaded', loadServices);
+</script>
+
 
 
