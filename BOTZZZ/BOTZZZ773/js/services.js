@@ -89,17 +89,16 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // 🔹 Site özel ID ekleme
-    const startingId = 2231;
-    const servicesWithCustomId = services.map((service, index) => ({
-      ...service,
-      site_id: startingId + index
-    }));
+    // --- Burada site_id ekliyoruz, kullanıcılar görebilir ---
+    let siteIdCounter = 2231; // 2231'den başlatıyoruz
+    const servicesWithSiteId = services.map(service => {
+      return { ...service, site_id: siteIdCounter++ };
+    });
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: servicesWithCustomId })
+      body: JSON.stringify({ services: servicesWithSiteId })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -111,6 +110,7 @@ async function handleGetServices(user, headers) {
   }
 }
 
+// --- Diğer fonksiyonlar orijinal kodunla tamamen aynı kalıyor ---
 async function handleCreateService(user, data, headers) {
   try {
     if (!user || user.role !== 'admin') {
@@ -344,7 +344,6 @@ async function handleDeleteService(user, data, headers) {
 async function handleCreateCategory(data, headers) {
   try {
     const { name, description, icon } = data;
-
     return {
       statusCode: 200,
       headers,
@@ -424,4 +423,3 @@ async function handleDuplicateService(data, headers) {
     };
   }
 }
-
