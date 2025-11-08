@@ -476,8 +476,7 @@ if (typeof window !== 'undefined') {
             const row = document.createElement('div');
             row.classList.add('service-row');
 
-            // Use the stable site_id so public IDs match admin IDs.
-            // This only changes the ID value used in display and links — UI remains unchanged.
+            // Only sync the displayed ID with admin (site_id). Keep ordering link using service.name so users can still order as before.
             const displayId = service.site_id ?? service.public_id ?? service.publicId ?? service.id;
             const desc = escapeHtml(service.description || '');
             const rate = `$${Number(service.rate || 0).toFixed(4)}`;
@@ -485,18 +484,21 @@ if (typeof window !== 'undefined') {
             const maxQty = escapeHtml(String(service.max_quantity ?? 'Unlimited'));
 
             row.innerHTML = `
-    <div class="service-main">
-        <div class="service-title">${escapeHtml(service.name)} <span class="service-id">#${escapeHtml(String(displayId))}</span></div>
-        <div class="service-desc">${desc}</div>
-    </div>
-    <div class="service-rate">${rate}</div>
-    <div class="service-qty">${minQty} / ${maxQty}</div>
-    <div class="service-action"><a href="order.html?service=${encodeURIComponent(String(displayId))}" class="btn btn-primary">Order</a></div>
- `;
-            table.appendChild(row);
-            serviceSub.appendChild(table);
-            categoryDiv.appendChild(serviceSub);
-          });
+                <div class="service-main">
+                    <div class="service-title">${escapeHtml(service.name)} <span class="service-id">#${escapeHtml(String(displayId))}</span></div>
+                    <div class="service-desc">${desc}</div>
+                </div>
+                <div class="service-rate">${rate}</div>
+                <div class="service-qty">${minQty} / ${maxQty}</div>
+                <div class="service-action">
+                    <!-- keep order link using service.name to preserve existing user flow -->
+                    <a href="order.html?service=${encodeURIComponent(String(service.name))}" class="btn btn-primary">Order</a>
+                </div>
+            `;
+             table.appendChild(row);
+             serviceSub.appendChild(table);
+             categoryDiv.appendChild(serviceSub);
+         });
 
           servicesContainer.appendChild(categoryDiv);
         }
