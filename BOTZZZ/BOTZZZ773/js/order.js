@@ -29,11 +29,6 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  // Public services endpoint (no JWT required) -> GET ?type=services_public
-  if (event.httpMethod === 'GET' && event.queryStringParameters && event.queryStringParameters.type === 'services_public') {
-    return await handleGetPublicServices(headers);
-  }
-
   const user = getUserFromToken(event.headers.authorization);
   if (!user) {
     return {
@@ -161,15 +156,14 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Get service details (use admin client so provider fields like api_key are available)
-    const { data: service, error: serviceError } = await supabaseAdmin
+    // Get service details
+    const { data: service, error: serviceError } = await supabase
       .from('services')
       .select('*, provider:providers(*)')
       .eq('id', serviceId)
       .single();
 
     if (serviceError || !service) {
-      console.error('Service fetch error:', serviceError);
       return {
         statusCode: 404,
         headers,
@@ -189,20 +183,11 @@ async function handleCreateOrder(user, data, headers) {
     const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
 
     // Check user balance
-    const { data: userData, error: userDataError } = await supabaseAdmin
+    const { data: userData } = await supabaseAdmin
       .from('users')
       .select('balance')
       .eq('id', user.userId)
       .single();
-
-    if (userDataError || !userData) {
-      console.error('User fetch error:', userDataError);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to verify user balance' })
-      };
-    }
 
     if (parseFloat(userData.balance) < parseFloat(totalCost)) {
       return {
@@ -213,36 +198,27 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // Create order in database
-    const orderPayload = {
-      user_id: user.userId,
-      service_id: serviceId,
-      service_name: service.name,
-      link: link,
-      quantity: quantity,
-      charge: totalCost,
-      status: 'pending',
-      order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-    };
-
-    // Detailed insert & logging to diagnose failures
-    console.log('Creating order with payload:', orderPayload);
-    const insertResult = await supabaseAdmin
+    const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .insert(orderPayload)
-      .select(); // return inserted rows
+      .insert({
+        user_id: user.userId,
+        service_id: serviceId,
+        service_name: service.name,
+        link: link,
+        quantity: quantity,
+        charge: totalCost,
+        status: 'pending',
+        order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+      })
+      .select()
+      .single();
 
-    console.log('Supabase insert result:', insertResult);
-
-    // normalize response (data may be array)
-    const order = Array.isArray(insertResult.data) ? insertResult.data[0] : insertResult.data;
-    const orderError = insertResult.error;
-
-    if (orderError || !order) {
-      console.error('Create order insert error:', orderError);
+    if (orderError) {
+      console.error('Create order error:', orderError);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create order', details: orderError || 'no-order-returned' })
+        body: JSON.stringify({ error: 'Failed to create order' })
       };
     }
 
@@ -523,4 +499,5 @@ async function submitOrderToProvider(provider, orderData) {
     throw error;
   }
 }
+
 
