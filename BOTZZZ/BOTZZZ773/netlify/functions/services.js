@@ -1,166 +1,32 @@
 // ==========================================
-// Services Page JavaScript
-// ==========================================
-
-document.addEventListener('DOMContentLoaded', function() {
-    // Load services from API
-    loadServicesFromAPI();
-    
-    // Service Filter
-    const filterButtons = document.querySelectorAll('.filter-btn');
-    const searchInput = document.getElementById('serviceSearch');
-    
-    // Filter by category
-    filterButtons.forEach(button => {
-        button.addEventListener('click', function() {
-            const filter = this.dataset.filter;
-            const serviceCategories = document.querySelectorAll('.service-category');
-            
-            // Update active button
-            filterButtons.forEach(btn => btn.classList.remove('active'));
-            this.classList.add('active');
-            
-            // Filter categories
-            serviceCategories.forEach(category => {
-                if (filter === 'all') {
-                    category.style.display = 'block';
-                } else {
-                    if (category.dataset.category === filter) {
-                        category.style.display = 'block';
-                    } else {
-                        category.style.display = 'none';
-                    }
-                }
-            });
-            
-            // Animate appearance
-            setTimeout(() => {
-                const visibleCategories = Array.from(serviceCategories)
-                    .filter(cat => cat.style.display !== 'none');
-                visibleCategories.forEach((cat, index) => {
-                    cat.style.animation = 'none';
-                    setTimeout(() => {
-                        cat.style.animation = 'fadeInUp 0.5s ease';
-                    }, index * 100);
-                });
-            }, 100);
-        });
-    });
-    
-    // Search functionality
-    if (searchInput) {
-        searchInput.addEventListener('input', function() {
-            const searchTerm = this.value.toLowerCase();
-            const serviceCategories = document.querySelectorAll('.service-category');
-            
-            serviceCategories.forEach(category => {
-                const categoryTitle = category.querySelector('.category-title').textContent.toLowerCase();
-                const subcategories = category.querySelectorAll('.service-subcategory');
-                let hasVisibleSubcategory = false;
-                
-                subcategories.forEach(subcategory => {
-                    const subcategoryTitle = subcategory.querySelector('.subcategory-title')?.textContent.toLowerCase() || '';
-                    const rows = subcategory.querySelectorAll('.service-row:not(.service-row-header)');
-                    let hasVisibleRow = false;
-                    
-                    rows.forEach(row => {
-                        const serviceName = row.querySelector('strong')?.textContent.toLowerCase() || '';
-                        const serviceDetails = row.querySelector('.service-details')?.textContent.toLowerCase() || '';
-                        
-                        if (serviceName.includes(searchTerm) || 
-                            serviceDetails.includes(searchTerm) ||
-                            categoryTitle.includes(searchTerm) ||
-                            subcategoryTitle.includes(searchTerm)) {
-                            row.style.display = 'grid';
-                            hasVisibleRow = true;
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
-                    
-                    if (hasVisibleRow || subcategoryTitle.includes(searchTerm)) {
-                        subcategory.style.display = 'block';
-                        hasVisibleSubcategory = true;
-                    } else {
-                        subcategory.style.display = 'none';
-                    }
-                });
-                
-                if (hasVisibleSubcategory || categoryTitle.includes(searchTerm)) {
-                    category.style.display = 'block';
-                } else {
-                    category.style.display = 'none';
-                }
-            });
-        });
-    }
-    
-    // Smooth scroll to category from hash
-    if (window.location.hash) {
-        setTimeout(() => {
-            const target = document.querySelector(window.location.hash);
-            if (target) {
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-        }, 100);
-    }
-    
-    // Highlight matching text in search
-    function highlightText(text, search) {
-        if (!search) return text;
-        const regex = new RegExp(`(${search})`, 'gi');
-        return text.replace(regex, '<mark style="background: rgba(255,20,148,0.3); color: #FF1494;">$1</mark>');
-    }
-});
-
-// Add fade in & spin animations
-const style = document.createElement('style');
-style.textContent = `
-    @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-`;
-document.head.appendChild(style);
-
-console.log('📱 Services page loaded!');
-
-// ==========================================
-// Load Services from API (with site-specific ID)
+// Load Services from API (compatible with api-client.js)
 // ==========================================
 async function loadServicesFromAPI() {
     const container = document.getElementById('servicesContainer');
 
     try {
         // Loading spinner
-        container.innerHTML = '<div class="loading-spinner" style="text-align:center; padding:60px;"><div style="display:inline-block; width:50px; height:50px; border:4px solid rgba(255,20,148,0.2); border-top-color:#FF1494; border-radius:50%; animation:spin 1s linear infinite;"></div><p style="margin-top:20px; color:#94A3B8;">Loading services...</p></div>';
+        container.innerHTML = `
+            <div class="loading-spinner" style="text-align:center; padding:60px;">
+                <div style="display:inline-block; width:50px; height:50px; border:4px solid rgba(255,20,148,0.2); border-top-color:#FF1494; border-radius:50%; animation:spin 1s linear infinite;"></div>
+                <p style="margin-top:20px; color:#94A3B8;">Loading services...</p>
+            </div>
+        `;
 
-        // API çağrısı
-        const response = await fetch('/.netlify/functions/services', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-        const data = await response.json();
-        
-        if (!response.ok) throw new Error(data.error || 'Failed to load services');
+        // ✅ Senin sistemdeki çağrı — api-client.js'den geliyor
+        const data = await fetchServices();
+        const services = data?.services || [];
 
-        const services = data.services || [];
-        console.log('[DEBUG] Loaded services:', services.length, services);
-
-        if (services.length === 0) {
-            container.innerHTML = '<p style="text-align:center; padding:80px;">No Services Available</p>';
+        if (!Array.isArray(services) || services.length === 0) {
+            container.innerHTML = '<p style="text-align:center; padding:80px;">No services available</p>';
             return;
         }
 
-        // 🔹 Global counter for site-specific ID
+        // 🔢 Özel site ID sayacı
         let globalServiceCounter = 0;
         const START_SITE_ID = 2231;
 
-        // Group services by category
+        // Gruplama
         const grouped = {};
         services.forEach(service => {
             const category = (service.category || 'Other').toLowerCase();
@@ -168,18 +34,17 @@ async function loadServicesFromAPI() {
             grouped[category].push(service);
         });
 
-        // Generate HTML
         let html = '';
         const categoryIcons = {
-            'instagram': '📱',
-            'tiktok': '🎵',
-            'youtube': '▶️',
-            'twitter': '🐦',
-            'facebook': '👥',
-            'telegram': '💬',
-            'spotify': '🎧',
-            'soundcloud': '🎶',
-            'other': '⭐'
+            instagram: '📱',
+            tiktok: '🎵',
+            youtube: '▶️',
+            twitter: '🐦',
+            facebook: '👥',
+            telegram: '💬',
+            spotify: '🎧',
+            soundcloud: '🎶',
+            other: '⭐'
         };
 
         Object.keys(grouped).sort().forEach(category => {
@@ -187,48 +52,61 @@ async function loadServicesFromAPI() {
             const categoryServices = grouped[category];
             const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
 
-            html += `<div class="service-category" data-category="${category}" id="${category}">
-                        <h2 class="category-title">${icon} ${categoryName} Services</h2>
-                        <div class="service-subcategory">
-                            <div class="services-table">
-                                <div class="service-row service-row-header">
-                                    <div class="service-col">Service Name</div>
-                                    <div class="service-col">Rate (per 1000)</div>
-                                    <div class="service-col">Min/Max</div>
-                                    <div class="service-col">Action</div>
-                                </div>`;
+            html += `
+                <div class="service-category" data-category="${category}" id="${category}">
+                    <h2 class="category-title">${icon} ${categoryName} Services</h2>
+                    <div class="service-subcategory">
+                        <div class="services-table">
+                            <div class="service-row service-row-header">
+                                <div class="service-col">Service Name</div>
+                                <div class="service-col">Rate (per 1000)</div>
+                                <div class="service-col">Min/Max</div>
+                                <div class="service-col">Action</div>
+                            </div>
+            `;
 
             categoryServices.forEach(service => {
                 const rate = parseFloat(service.rate || 0).toFixed(2);
                 const minRaw = service.min_quantity ?? service.min_order;
                 const maxRaw = service.max_quantity ?? service.max_order;
                 const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
-                const max = (maxRaw == null) ? '∞' : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
+                const max = maxRaw == null ? '∞' : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
 
-                // 🔹 Site-specific ID
+                // 🔒 Gerçek public_id'yi kullanmıyoruz, sadece site ID
                 const labelId = START_SITE_ID + globalServiceCounter;
                 globalServiceCounter++;
 
-                html += `<div class="service-row" data-service-id="${service.id}">
-                            <div class="service-col">
-                                <strong>${labelId} · ${escapeHtml(service.name)}</strong>
-                                <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
-                            </div>
-                            <div class="service-col price">$${rate}</div>
-                            <div class="service-col">${min} / ${max}</div>
-                            <div class="service-col">
-                                <button onclick="showServiceDescription('${service.id}', '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${rate}', '${min}', '${max}')" class="btn btn-primary btn-sm">Description</button>
-                            </div>
-                        </div>`;
+                html += `
+                    <div class="service-row" data-service-id="${service.id}">
+                        <div class="service-col">
+                            <strong>${labelId} · ${escapeHtml(service.name)}</strong>
+                            <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
+                        </div>
+                        <div class="service-col price">$${rate}</div>
+                        <div class="service-col">${min} / ${max}</div>
+                        <div class="service-col">
+                            <button onclick="showServiceDescription(
+                                '${service.id}',
+                                '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}',
+                                '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}',
+                                '${rate}',
+                                '${min}',
+                                '${max}'
+                            )" class="btn btn-primary btn-sm">Description</button>
+                        </div>
+                    </div>
+                `;
             });
 
-            html += `    </div>
+            html += `
                         </div>
-                    </div>`;
+                    </div>
+                </div>
+            `;
         });
 
         container.innerHTML = html;
-        console.log('[SUCCESS] Services loaded and displayed');
+        console.log('[SUCCESS] Services loaded (via api-client.js)');
 
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
@@ -236,95 +114,4 @@ async function loadServicesFromAPI() {
     }
 }
 
-// ==========================================
-// Helpers
-// ==========================================
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function formatNumber(num) {
-    if (!isFinite(num)) return '∞';
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-    if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
-    return num.toString();
-}
-
-// ==========================================
-// Show Service Description Modal
-// ==========================================
-function showServiceDescription(serviceId, serviceName, description, rate, min, max) {
-    const modalHTML = `
-        <div id="serviceDescriptionModal" class="modal" style="display:flex; align-items:center; justify-content:center; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10000; backdrop-filter:blur(4px);">
-            <div class="modal-content" style="background:white; border-radius:16px; padding:32px; max-width:600px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); animation: modalSlideIn 0.3s ease;">
-                <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:24px;">
-                    <h2 style="color:#1E293B; margin:0; font-size:24px; font-weight:600;">${serviceName}</h2>
-                    <button onclick="closeServiceDescription()" style="background:none; border:none; font-size:28px; color:#64748B; cursor:pointer; padding:0; width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:8px; transition:all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
-                </div>
-                <div style="background:linear-gradient(135deg,#FF1494 0%,#FF6B35 100%); padding:20px; border-radius:12px; margin-bottom:24px;">
-                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px; text-align:center;">
-                        <div>
-                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Rate per 1000</div>
-                            <div style="color:white; font-size:24px; font-weight:700;">$${rate}</div>
-                        </div>
-                        <div>
-                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Minimum</div>
-                            <div style="color:white; font-size:24px; font-weight:700;">${min}</div>
-                        </div>
-                        <div>
-                            <div style="color:rgba(255,255,255,0.9); font-size:14px; margin-bottom:4px;">Maximum</div>
-                            <div style="color:white; font-size:24px; font-weight:700;">${max}</div>
-                        </div>
-                    </div>
-                </div>
-                <div style="margin-bottom:24px;">
-                    <h3 style="color:#1E293B; font-size:16px; font-weight:600; margin-bottom:12px;">Service Description</h3>
-                    <p style="color:#475569; line-height:1.6; margin:0; white-space:pre-wrap;">${description}</p>
-                </div>
-                <div style="display:flex; gap:12px;">
-                    <a href="order.html?service=${serviceId}" class="btn btn-primary" style="flex:1; text-align:center; padding:12px; font-size:16px; font-weight:600; text-decoration:none; display:block;">Order Now</a>
-                    <button onclick="closeServiceDescription()" class="btn btn-secondary" style="padding:12px 24px; font-size:16px; font-weight:600;">Close</button>
-                </div>
-            </div>
-        </div>
-        <style>
-            @keyframes modalSlideIn {
-                from { opacity:0; transform:translateY(-20px) scale(0.95); }
-                to { opacity:1; transform:translateY(0) scale(1); }
-            }
-            @keyframes modalSlideOut {
-                from { opacity:1; transform:translateY(0) scale(1); }
-                to { opacity:0; transform:translateY(-20px) scale(0.95); }
-            }
-        </style>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-    document.body.style.overflow = 'hidden';
-
-    document.getElementById('serviceDescriptionModal').addEventListener('click', function(e) {
-        if (e.target.id === 'serviceDescriptionModal') closeServiceDescription();
-    });
-
-    document.addEventListener('keydown', function escapeHandler(e) {
-        if (e.key === 'Escape') {
-            closeServiceDescription();
-            document.removeEventListener('keydown', escapeHandler);
-        }
-    });
-}
-
-function closeServiceDescription() {
-    const modal = document.getElementById('serviceDescriptionModal');
-    if (modal) {
-        modal.style.animation = 'modalSlideOut 0.2s ease';
-        setTimeout(() => {
-            modal.remove();
-            document.body.style.overflow = '';
-        }, 200);
-    }
-}
 
