@@ -147,10 +147,11 @@
             return s.length >= 4 ? s : s.padStart(4, '0');
         }
 
+        // Provider utilities for form dropdowns
         let providersCache = null;
         let servicesCache = [];
 
-        // NEW: load site config so frontend uses the same starting ID as backend
+        // NEW: load site config so admin UI uses the same starting ID as backend
         async function loadSiteConfig() {
             try {
                 const res = await fetch('/site-config.json', { cache: 'no-cache' });
