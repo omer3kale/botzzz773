@@ -134,13 +134,29 @@
         
                 async function loadServices() {
                     try {
-                        const res = await fetch('/.netlify/functions/services');
-                        const data = await res.json();
-                        console.log('services API (first 10):', Array.isArray(data.services) ? data.services.slice(0,10) : data.services);
+                        // fetch both public services and admin-services (adjust admin path if different)
+                        const [resPublic, resAdmin] = await Promise.all([
+                            fetch('/.netlify/functions/services'),
+                            fetch('/.netlify/functions/admin-services').catch(() => null)
+                        ]);
+        
+                        const data = await resPublic.json();
+                        const adminData = resAdmin ? await resAdmin.json() : null;
+        
                         const services = Array.isArray(data.services) ? data.services : [];
+                        const adminServices = adminData && Array.isArray(adminData.services) ? adminData.services : (Array.isArray(adminData) ? adminData : []);
+        
+                        // build quick lookup maps from admin-services
+                        const adminById = {};       // map by admin id/service_id
+                        const adminByName = {};     // map by normalized name
+                        adminServices.forEach(a => {
+                            const aid = a.service_id ?? a.id ?? a.admin_service_id;
+                            if (aid) adminById[String(aid)] = a;
+                            if (a.name) adminByName[a.name.trim().toLowerCase()] = a;
+                        });
+        
                         const container = document.getElementById('servicesContainer');
                         if (!container) return;
-        
                         container.innerHTML = '';
         
                         // Only show active services to customers
@@ -179,8 +195,28 @@
                             const table = categoryDiv.querySelector('.services-table');
         
                             servicesList.forEach(service => {
-                                // Prefer admin-panel service id (common field names), fall back to other ids
-                                const adminId = service.service_id ?? service.admin_service_id ?? service.adminId ?? service.site_id ?? service.siteId ?? service.public_id ?? service.publicId ?? service.id;
+                                // Try to resolve admin id in this order:
+                                // 1) explicit admin fields on service
+                                // 2) match against admin-services by name
+                                // 3) match against admin-services by public/external id
+                                // 4) fallback to internal id
+                                const explicitAdmin = service.service_id ?? service.admin_service_id ?? service.adminId ?? service.site_id ?? service.siteId ?? service.public_id ?? service.publicId;
+        
+                                let resolvedAdmin = explicitAdmin ? String(explicitAdmin) : null;
+        
+                                if (!resolvedAdmin && service.name) {
+                                    const a = adminByName[service.name.trim().toLowerCase()];
+                                    if (a) resolvedAdmin = String(a.service_id ?? a.id ?? a.admin_service_id);
+                                }
+        
+                                // if still not resolved, try by matching internal id to admin list keys
+                                if (!resolvedAdmin && service.id && adminById[String(service.id)]) {
+                                    const a = adminById[String(service.id)];
+                                    resolvedAdmin = String(a.service_id ?? a.id ?? a.admin_service_id);
+                                }
+        
+                                // final fallback to any id we have
+                                const adminId = resolvedAdmin ?? String(service.id ?? '(unknown)');
                                 const displayIdLabel = adminId ? `#${escapeHtml(String(adminId))}` : '—';
         
                                 const rate = service.rate !== undefined ? escapeHtml(String(service.rate)) : '0';
@@ -210,6 +246,7 @@
                         if (publicServices.length === 0) {
                             container.innerHTML = '<div style="padding:2rem; color:#666; text-align:center;">No services available</div>';
                         }
+        
                     } catch (err) {
                         console.error('Failed to load services', err);
                         const container = document.getElementById('servicesContainer');
