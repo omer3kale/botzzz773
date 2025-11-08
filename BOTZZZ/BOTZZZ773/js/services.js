@@ -88,11 +88,12 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // --- Replace ephemeral counter with deterministic site_id (use public_id if present, otherwise DB id) ---
+    // Ensure deterministic site_id so public display matches admin.
+    // Prefer persisted public_id/publicId/site_id, otherwise fall back to DB id.
     const servicesWithSiteId = services.map(service => {
-      // prefer persisted public_id/publicId/site_id; fall back to DB id so value is stable across requests
       const site_id = service.public_id ?? service.publicId ?? service.site_id ?? service.id;
-      return { ...service, site_id };
+      // normalize to string so formatting is stable across client rendering
+      return { ...service, site_id: site_id !== undefined && site_id !== null ? String(site_id) : site_id };
     });
     
     return {
@@ -499,8 +500,16 @@ if (typeof window !== 'undefined') {
         }
       })
       .catch(err => console.error('Failed to load services:', err));
+
+    // Sample fetch for services API
+    fetch('/.netlify/functions/services')
+      .then(r => r.json())
+      .then(d => console.log('services api sample', d.services && d.services.slice(0,5)))
+      .catch(err => console.error('Sample fetch error:', err));
   });
 }
+
+
 
 
 
