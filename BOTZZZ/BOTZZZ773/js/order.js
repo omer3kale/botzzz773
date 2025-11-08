@@ -1,384 +1,514 @@
-// ==========================================
-// Order Page JavaScript
-// ==========================================
+// Orders API - Create, Get, Update, Cancel Orders
+const { supabase, supabaseAdmin } = require('./utils/supabase');
+const jwt = require('jsonwebtoken');
+const axios = require('axios');
 
-let servicesData = [];
+const JWT_SECRET = process.env.JWT_SECRET;
 
-document.addEventListener('DOMContentLoaded', function() {
-    // Load services first
-    loadServices();
-    
-    const orderForm = document.getElementById('orderForm');
-    const serviceSelect = document.getElementById('service');
-    const quantityInput = document.getElementById('quantity');
-    const estimatedPriceEl = document.getElementById('estimatedPrice');
-    
-    // Update estimated price on input change
-    function updatePrice() {
-        const serviceId = serviceSelect?.value;
-        const selectedOption = serviceSelect?.selectedOptions?.[0] || null;
-        const min = selectedOption ? Number(selectedOption.dataset.min) : 10;
-    const max = selectedOption ? (selectedOption.dataset.max === 'Infinity' ? Infinity : Number(selectedOption.dataset.max)) : 1000000;
+function getUserFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
+}
 
-        if (quantityInput) {
-            quantityInput.min = Number.isFinite(min) ? min : 1;
-            quantityInput.max = Number.isFinite(max) ? max : '';
+exports.handler = async (event) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Content-Type': 'application/json'
+  };
 
-            const hint = quantityInput.nextElementSibling;
-            if (hint) {
-                const minLabel = Number.isFinite(min) ? formatNumber(min) : '0';
-                const maxLabel = Number.isFinite(max) ? formatNumber(max) : '∞';
-                hint.textContent = `Minimum: ${minLabel} • Maximum: ${maxLabel}`;
-                hint.style.color = '#64748B';
-            }
-        }
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
 
-        const quantity = Number(quantityInput?.value) || 0;
-        const service = servicesData.find(s => String(s.id) === String(serviceId));
+  const user = getUserFromToken(event.headers.authorization);
+  if (!user) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Unauthorized - You must be signed in to place orders. Please sign in or create an account.' 
+      })
+    };
+  }
 
-        if (service && quantity > 0) {
-            const rate = Number(service.rate || 0);
-            const price = (quantity / 1000) * rate;
-            estimatedPriceEl.textContent = '$' + price.toFixed(2);
-            estimatedPriceEl.style.animation = 'pulse 0.5s ease';
-        } else {
-            estimatedPriceEl.textContent = '$0.00';
-        }
+  // Verify user has valid userId and email
+  if (!user.userId || !user.email) {
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Access denied - Invalid user credentials. Please sign in again.' 
+      })
+    };
+  }
+
+  try {
+    const body = JSON.parse(event.body || '{}');
+
+    switch (event.httpMethod) {
+      case 'GET':
+        return await handleGetOrders(user, headers);
+      case 'POST':
+        return await handleCreateOrder(user, body, headers);
+      case 'PUT':
+        return await handleUpdateOrder(user, body, headers);
+      case 'DELETE':
+        return await handleCancelOrder(user, body, headers);
+      default:
+        return {
+          statusCode: 405,
+          headers,
+          body: JSON.stringify({ error: 'Method not allowed' })
+        };
     }
+  } catch (error) {
+    console.error('Orders API error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+};
+
+async function handleGetOrders(user, headers) {
+  try {
+    // Get pagination params
+    const limit = 100; // Default limit
+    const offset = 0;  // Can be made dynamic from query params
     
-    // Add pulse animation
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.1); }
-        }
-    `;
-    document.head.appendChild(style);
-    
-    serviceSelect?.addEventListener('change', updatePrice);
-    quantityInput?.addEventListener('input', updatePrice);
-    
-    // Handle form submission
-    if (orderForm) {
-        orderForm.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            // Get form data
-            const formData = new FormData(orderForm);
-            const data = {
-                platform: formData.get('platform'),
-                serviceType: formData.get('serviceType'),
-                link: formData.get('link'),
-                quantity: formData.get('quantity'),
-                email: formData.get('email'),
-                notes: formData.get('notes')
-            };
-            
-            // Validate
-            if (!validateEmail(data.email)) {
-                showMessage('Please enter a valid email address', 'error');
-                return;
-            }
-            
-            if (!validateURL(data.link)) {
-                showMessage('Please enter a valid URL', 'error');
-                return;
-            }
-            
-            const serviceId = serviceSelect?.value;
-            if (!serviceId) {
-                showMessage('Please select a service', 'error');
-                return;
-            }
+    let query = supabaseAdmin
+      .from('orders')
+      .select(`
+        *,
+        user:users(id, email, username),
+        service:services(id, name, category, rate)
+      `)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
 
-            const service = servicesData.find(s => String(s.id) === String(serviceId));
-            if (!service) {
-                showMessage('Selected service is no longer available. Please refresh.', 'error');
-                return;
-            }
-
-            const quantityValue = Number(data.quantity);
-            const minQuantity = Number.isFinite(service.min_quantity) && service.min_quantity > 0
-                ? service.min_quantity
-                : 10;
-            const maxQuantity = service.max_quantity === Infinity
-                ? Infinity
-                : (Number.isFinite(service.max_quantity) && service.max_quantity > 0
-                    ? service.max_quantity
-                    : 1000000);
-
-            if (!Number.isFinite(quantityValue) || quantityValue < minQuantity || quantityValue > maxQuantity) {
-                showMessage(`Quantity must be between ${formatNumber(minQuantity)} and ${formatNumber(maxQuantity)}.`, 'error');
-                return;
-            }
-            
-            // Show loading
-            const submitBtn = orderForm.querySelector('button[type="submit"]');
-            const originalBtnText = submitBtn.textContent;
-            submitBtn.disabled = true;
-            submitBtn.innerHTML = '<span>Processing...</span>';
-            
-            try {
-                // Call Orders API
-                const response = await fetch('/.netlify/functions/orders', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('token')}`
-                    },
-                    body: JSON.stringify({
-                        serviceId: String(serviceId),
-                        link: data.link,
-                        quantity: quantityValue,
-                        notes: data.notes || ''
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    showMessage(`Order #${result.order.id} created successfully!`, 'success');
-                    orderForm.reset();
-                    updatePrice();
-                    
-                    // Scroll to top
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                    
-                    // Redirect to dashboard after 2 seconds
-                    setTimeout(() => {
-                        window.location.href = 'dashboard.html';
-                    }, 2000);
-                } else {
-                    throw new Error(result.error || 'Order creation failed');
-                }
-            } catch (error) {
-                console.error('Order error:', error);
-                showMessage(error.message || 'Failed to create order. Please try again.', 'error');
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalBtnText;
-            }
-        });
+    // Non-admins can only see their own orders
+    if (user.role !== 'admin') {
+      query = query.eq('user_id', user.userId);
     }
-    
-    // Pre-fill service from URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const serviceParam = urlParams.get('service');
-    
-    if (serviceParam && serviceSelect) {
-        // Wait for services to load then select
-        const checkInterval = setInterval(() => {
-            if (servicesData.length > 0) {
-                clearInterval(checkInterval);
-                serviceSelect.value = serviceParam;
-                updatePrice();
-            }
-        }, 100);
+
+    const { data: orders, error } = await query;
+
+    if (error) {
+      console.error('Get orders error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch orders' })
+      };
     }
-    
-    // Real-time link validation
-    const linkInput = document.getElementById('link');
-    if (linkInput) {
-        linkInput.addEventListener('blur', function() {
-            if (this.value && !validateURL(this.value)) {
-                this.style.borderColor = '#ef4444';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '❌ Please enter a valid URL';
-                    hint.style.color = '#ef4444';
-                }
-            } else if (this.value) {
-                this.style.borderColor = '#10b981';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '✅ Valid URL';
-                    hint.style.color = '#10b981';
-                }
-            }
-        });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ orders })
+    };
+  } catch (error) {
+    console.error('Get orders error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleCreateOrder(user, data, headers) {
+  try {
+    const { serviceId, quantity, link } = data;
+
+    if (!serviceId || !quantity || !link) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service ID, quantity, and link are required' })
+      };
     }
-    
-    // Real-time email validation
-    const emailInput = document.getElementById('email');
-    if (emailInput) {
-        emailInput.addEventListener('blur', function() {
-            if (this.value && !validateEmail(this.value)) {
-                this.style.borderColor = '#ef4444';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '❌ Please enter a valid email';
-                    hint.style.color = '#ef4444';
-                }
-            } else if (this.value) {
-                this.style.borderColor = '#10b981';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '✅ Valid email';
-                    hint.style.color = '#10b981';
-                }
-            }
-        });
+
+    // Validate quantity
+    if (quantity <= 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Quantity must be greater than 0' })
+      };
     }
-    
-    // Quantity validation
-    if (quantityInput) {
-        quantityInput.addEventListener('input', function() {
-            const value = Number(this.value);
-            const selectedOption = serviceSelect?.selectedOptions?.[0] || null;
-            const min = selectedOption ? Number(selectedOption.dataset.min) : 10;
-            const max = selectedOption ? (selectedOption.dataset.max === 'Infinity' ? Infinity : Number(selectedOption.dataset.max)) : 1000000;
-            const hint = this.nextElementSibling;
 
-            if (!value) {
-                this.style.borderColor = '';
-                if (hint) {
-                    const minLabel = Number.isFinite(min) ? formatNumber(min) : '0';
-                    const maxLabel = Number.isFinite(max) ? formatNumber(max) : '∞';
-                    hint.textContent = `Minimum: ${minLabel} • Maximum: ${maxLabel}`;
-                    hint.style.color = '#64748B';
-                }
-                return;
-            }
-
-            if (value < min || !Number.isFinite(value)) {
-                this.style.borderColor = '#ef4444';
-                if (hint) {
-                    hint.textContent = `❌ Minimum quantity is ${formatNumber(min)}`;
-                    hint.style.color = '#ef4444';
-                }
-                return;
-            }
-
-            if (Number.isFinite(max) && value > max) {
-                this.style.borderColor = '#ef4444';
-                if (hint) {
-                    hint.textContent = `❌ Maximum quantity is ${formatNumber(max)}`;
-                    hint.style.color = '#ef4444';
-                }
-                return;
-            }
-
-            this.style.borderColor = '#10b981';
-            if (hint) {
-                hint.textContent = '✅ Quantity looks good';
-                hint.style.color = '#10b981';
-            }
-        });
+    if (quantity > 1000000) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Quantity exceeds maximum limit' })
+      };
     }
-});
 
-console.log('💰 Order page loaded!');
+    // Get service details (use admin client so provider fields like api_key are available)
+    const { data: service, error: serviceError } = await supabaseAdmin
+      .from('services')
+      .select('*, provider:providers(*)')
+      .eq('id', serviceId)
+      .single();
 
-// ==========================================
-// Load Services from API
-// ==========================================
+    if (serviceError || !service) {
+      console.error('Service fetch error:', serviceError);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Service not found' })
+      };
+    }
 
-async function loadServices() {
-    const serviceSelect = document.getElementById('service');
-    
-    if (!serviceSelect) return;
-    
+    if (service.status !== 'active') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service is not available' })
+      };
+    }
+
+    // Calculate total cost (rate is per 1000 units)
+    const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
+
+    // Check user balance
+    const { data: userData, error: userDataError } = await supabaseAdmin
+      .from('users')
+      .select('balance')
+      .eq('id', user.userId)
+      .single();
+
+    if (userDataError || !userData) {
+      console.error('User fetch error:', userDataError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to verify user balance' })
+      };
+    }
+
+    if (parseFloat(userData.balance) < parseFloat(totalCost)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Insufficient balance' })
+      };
+    }
+
+    // Create order in database
+    const orderPayload = {
+      user_id: user.userId,
+      service_id: serviceId,
+      service_name: service.name,
+      link: link,
+      quantity: quantity,
+      charge: totalCost,
+      status: 'pending',
+      order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+    };
+
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .insert(orderPayload)
+      .select()
+      .single();
+
+    if (orderError) {
+      console.error('Create order insert error:', orderError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to create order' })
+      };
+    }
+
+    // Deduct balance
+    await supabaseAdmin
+      .from('users')
+      .update({ 
+        balance: (parseFloat(userData.balance) - parseFloat(totalCost)).toFixed(2)
+      })
+      .eq('id', user.userId);
+
+    // Submit order to provider
     try {
-        const response = await fetch('/.netlify/functions/services', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+      const providerResponse = await submitOrderToProvider(service.provider, {
+        service: service.provider_service_id,
+        link: link,
+        quantity: quantity
+      });
+
+      // Update order with provider order ID
+      await supabaseAdmin
+        .from('orders')
+        .update({ 
+          provider_order_id: providerResponse.order,
+          status: 'processing'
+        })
+        .eq('id', order.id);
+
+      order.provider_order_id = providerResponse.order;
+      order.status = 'processing';
+    } catch (providerError) {
+      console.error('Provider submission error:', providerError);
+      // Refund user if provider submission fails
+      await supabaseAdmin
+        .from('users')
+        .update({ 
+          balance: (parseFloat(userData.balance)).toFixed(2)
+        })
+        .eq('id', user.userId);
+
+      await supabaseAdmin
+        .from('orders')
+        .update({ status: 'failed' })
+        .eq('id', order.id);
+
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to submit order to provider' })
+      };
+    }
+
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        order
+      })
+    };
+  } catch (error) {
+    console.error('Create order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleUpdateOrder(user, data, headers) {
+  try {
+    const { orderId, action } = data;
+
+    if (!orderId || !action) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order ID and action are required' })
+      };
+    }
+
+    // Get order
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select('*, service:services(*, provider:providers(*))')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    // Check permissions
+    if (order.user_id !== user.userId && user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    if (action === 'refill') {
+      // Submit refill request to provider
+      try {
+        const provider = order.service.provider;
+        const refillResponse = await axios.post(provider.api_url, {
+          key: provider.api_key,
+          action: 'refill',
+          order: order.provider_order_id
         });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-            throw new Error(data.error || 'Failed to load services');
+
+        if (refillResponse.data.refill) {
+          await supabaseAdmin
+            .from('orders')
+            .update({ 
+              status: 'refilling',
+              refill_id: refillResponse.data.refill
+            })
+            .eq('id', orderId);
+
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              message: 'Refill request submitted'
+            })
+          };
         }
-        
-        servicesData = (data.services || []).map(service => {
-            const rawMin = service.min_quantity ?? service.min_order;
-            const minCandidate = rawMin === null || rawMin === undefined ? NaN : Number(rawMin);
-            const minValue = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
+      } catch (error) {
+        console.error('Refill error:', error);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to submit refill request' })
+        };
+      }
+    }
 
-            const rawMax = service.max_quantity ?? service.max_order;
-            let maxValue;
-            if (rawMax === null || rawMax === undefined) {
-                maxValue = Infinity;
-            } else {
-                const maxCandidate = Number(rawMax);
-                maxValue = Number.isFinite(maxCandidate) && maxCandidate > 0 ? maxCandidate : 1000000;
-            }
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: 'Invalid action' })
+    };
+  } catch (error) {
+    console.error('Update order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
 
-            const rateCandidate = Number(service.rate || 0);
-            const publicIdCandidate = Number(service.public_id ?? service.publicId);
+async function handleCancelOrder(user, data, headers) {
+  try {
+    const { orderId } = data;
 
-            return {
-                ...service,
-                id: String(service.id),
-                rate: Number.isFinite(rateCandidate) ? rateCandidate : 0,
-                min_quantity: minValue,
-                max_quantity: maxValue,
-                publicId: Number.isFinite(publicIdCandidate) ? publicIdCandidate : null
-            };
-        });
-        console.log('[DEBUG] Loaded services for order form:', servicesData.length);
-        
-        if (servicesData.length === 0) {
-            serviceSelect.innerHTML = '<option value="">No services available</option>';
-            return;
-        }
-        
-        // Group services by category
-        const grouped = {};
-        servicesData.forEach(service => {
-            const category = (service.category || 'Other').toLowerCase();
-            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
-            if (!grouped[categoryName]) {
-                grouped[categoryName] = [];
-            }
-            grouped[categoryName].push(service);
-        });
-        
-        // Build select options with optgroups
-        let html = '<option value="">Select a service</option>';
-        
-        Object.keys(grouped).sort().forEach(categoryName => {
-            html += `<optgroup label="${escapeHtml(categoryName)}">`;
-            grouped[categoryName].forEach(service => {
-                const rate = Number(service.rate || 0).toFixed(2);
-                const min = service.min_quantity;
-                const max = service.max_quantity;
-                const datasetMax = max === Infinity ? 'Infinity' : max;
-                const labelId = service.publicId ? `#${service.publicId}` : (service.provider_service_id ? `PID ${service.provider_service_id}` : 'ID');
-                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${service.publicId ?? ''}">
-                    ${labelId} · ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
-                </option>`;
-            });
-            html += '</optgroup>';
-        });
-        
-        serviceSelect.innerHTML = html;
-        console.log('[SUCCESS] Services populated in order form');
-        
+    if (!orderId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order ID is required' })
+      };
+    }
+
+    // Get order
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select('*, service:services(*, provider:providers(*))')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    // Check permissions
+    if (order.user_id !== user.userId && user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    // Can only cancel pending orders
+    if (order.status !== 'pending' && order.status !== 'processing') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order cannot be cancelled' })
+      };
+    }
+
+    // Try to cancel with provider
+    try {
+      const provider = order.service.provider;
+      await axios.post(provider.api_url, {
+        key: provider.api_key,
+        action: 'cancel',
+        order: order.provider_order_id
+      });
     } catch (error) {
-        console.error('[ERROR] Failed to load services:', error);
-        serviceSelect.innerHTML = '<option value="">Error loading services</option>';
-    }
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function formatNumber(num) {
-    if (!isFinite(num)) {
-        return '∞';
+      console.error('Provider cancel error:', error);
+      // Continue even if provider cancel fails
     }
 
-    if (num >= 1000000) {
-        return (num / 1000000).toFixed(1) + 'M';
-    } else if (num >= 1000) {
-        return (num / 1000).toFixed(0) + 'K';
-    }
-    return num.toString();
+    // Refund user
+    const { data: userData } = await supabaseAdmin
+      .from('users')
+      .select('balance')
+      .eq('id', order.user_id)
+      .single();
+
+    await supabaseAdmin
+      .from('users')
+      .update({ 
+        balance: (parseFloat(userData.balance) + parseFloat(order.charge)).toFixed(2)
+      })
+      .eq('id', order.user_id);
+
+    // Update order status
+    await supabaseAdmin
+      .from('orders')
+      .update({ status: 'cancelled' })
+      .eq('id', orderId);
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: 'Order cancelled and refunded'
+      })
+    };
+  } catch (error) {
+    console.error('Cancel order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
 }
+
+async function submitOrderToProvider(provider, orderData) {
+  try {
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'add');
+    params.append('service', orderData.service);
+    params.append('link', orderData.link);
+    params.append('quantity', orderData.quantity);
+    
+    const response = await axios.post(provider.api_url, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    if (response.data.order) {
+      return response.data;
+    } else {
+      throw new Error(response.data.error || 'Provider returned no order ID');
+    }
+  } catch (error) {
+    console.error('Provider API error:', error);
+    throw error;
+  }
+}
+
