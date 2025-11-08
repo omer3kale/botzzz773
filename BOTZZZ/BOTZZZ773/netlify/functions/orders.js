@@ -185,12 +185,26 @@ async function handleCreateOrder(user, data, headers) {
     console.log('CREATE ORDER INPUT:', { userId: user.userId, serviceId, quantity, link });
 
     // Get service details
-    const { data: service, error: serviceError } = await supabase
-      .from('services')
-      .select('*, provider:providers(*)')
-      .eq('id', serviceId)
-      .single();
-
+    let service, serviceError;
+    const sid = String(serviceId || '').trim();
+    const isNumeric = /^\d+$/.test(sid);
+    if (isNumeric) {
+      // services table uses a numeric provider_service_id (client sends numeric id)
+      ({ data: service, error: serviceError } = await supabase
+        .from('services')
+        .select('*, provider:providers(*)')
+        .eq('provider_service_id', Number(sid))
+        .single());
+    } else {
+      // assume UUID
+      ({ data: service, error: serviceError } = await supabase
+        .from('services')
+        .select('*, provider:providers(*)')
+        .eq('id', sid)
+        .single());
+    }
+    console.log('Service lookup result:', { serviceId: sid, isNumeric, serviceError });
+ 
     if (serviceError || !service) {
       console.error('Service lookup failed:', serviceError);
       return {
@@ -559,5 +573,3 @@ async function submitOrderToProvider(provider, orderData) {
 //     link: 'https://...'    // string
 //   })
 // });
-
-
