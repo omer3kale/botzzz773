@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Our Services - BOTZZZ773 SMM Panel</title>
-    <meta name="description" content="Browse our complete catalog of SMM services for Instagram, TikTok, YouTube, Twitter and more!">
     <link rel="stylesheet" href="css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,9 +18,7 @@
                     <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
                 </a>
                 <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <span></span><span></span><span></span>
                 </button>
                 <ul class="nav-menu" id="navMenu">
                     <li><a href="index.html" class="nav-link">Home</a></li>
@@ -65,10 +62,8 @@
 
     <!-- Services List -->
     <section class="services-list">
-        <div class="container">
-            <div id="servicesContainer">
-                <!-- Mevcut statik servis kategorileri buradaki gibi kalacak -->
-            </div>
+        <div class="container" id="servicesContainer">
+            <!-- Tüm kategoriler burada JS ile yüklenecek -->
         </div>
     </section>
 
@@ -124,56 +119,78 @@
         </div>
     </footer>
 
+    <!-- Scripts -->
     <script src="js/main.js"></script>
-    <script src="js/services.js"></script>
-
-    <!-- --- API Entegrasyon JS --- -->
     <script>
-    document.addEventListener("DOMContentLoaded", async () => {
-        const container = document.getElementById("servicesContainer");
-        if (!container) return;
+        async function loadServices() {
+            try {
+                const res = await fetch('/.netlify/functions/services'); // API URL
+                const data = await res.json();
+                const services = data.services;
+                const container = document.getElementById('servicesContainer');
 
-        try {
-            const response = await fetch("/.netlify/functions/services");
-            const result = await response.json();
-            const services = result.services || [];
+                const categories = {};
 
-            services.forEach(service => {
-                const categoryId = service.category.toLowerCase(); // örn: instagram, tiktok
-                const categoryEl = document.querySelector(`.service-category[data-category="${categoryId}"]`);
+                // Kategorilere ayır
+                services.forEach(service => {
+                    if (!categories[service.category]) {
+                        categories[service.category] = [];
+                    }
+                    categories[service.category].push(service);
+                });
 
-                if (!categoryEl) return;
+                // Her kategori için HTML oluştur
+                for (const [category, servicesList] of Object.entries(categories)) {
+                    const categoryDiv = document.createElement('div');
+                    categoryDiv.classList.add('service-category');
+                    categoryDiv.dataset.category = category;
 
-                const serviceRow = document.createElement("div");
-                serviceRow.classList.add("service-row");
+                    categoryDiv.innerHTML = `
+                        <h2 class="category-title">${category.charAt(0).toUpperCase() + category.slice(1)} Services</h2>
+                        <div class="service-subcategory">
+                            <div class="services-table">
+                                <div class="service-row service-row-header">
+                                    <div class="service-col">Service ID</div>
+                                    <div class="service-col">Service Name</div>
+                                    <div class="service-col">Rate (per 1000)</div>
+                                    <div class="service-col">Min/Max</div>
+                                    <div class="service-col">Action</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(categoryDiv);
 
-                serviceRow.innerHTML = `
-                    <div class="service-col">
-                        <strong>${service.site_id || service.id}</strong>
-                        <span class="service-details">${service.name || ""}</span>
-                    </div>
-                    <div class="service-col price">$${service.rate?.toFixed(2) || 0}</div>
-                    <div class="service-col">${service.min_quantity || 10} / ${service.max_quantity || 100000}</div>
-                    <div class="service-col">
-                        <a href="order.html?service=${service.id}" class="btn btn-primary btn-sm">Order</a>
-                    </div>
-                `;
+                    const table = categoryDiv.querySelector('.services-table');
 
-                const firstSubcategory = categoryEl.querySelector(".service-subcategory .services-table");
-                if (firstSubcategory) {
-                    firstSubcategory.appendChild(serviceRow);
-                } else {
-                    categoryEl.appendChild(serviceRow);
+                    servicesList.forEach(service => {
+                        const row = document.createElement('div');
+                        row.classList.add('service-row');
+                        row.innerHTML = `
+                            <div class="service-col">${service.site_id || service.id}</div>
+                            <div class="service-col">
+                                <strong>${service.name}</strong>
+                                ${service.description ? `<span class="service-details">${service.description}</span>` : ''}
+                            </div>
+                            <div class="service-col price">$${service.rate}</div>
+                            <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
+                            <div class="service-col">
+                                <a href="order.html?service=${service.id}" class="btn btn-primary btn-sm">Order</a>
+                            </div>
+                        `;
+                        table.appendChild(row);
+                    });
                 }
-            });
-
-        } catch (err) {
-            console.error("Services fetch error:", err);
+            } catch (err) {
+                console.error('Failed to load services', err);
+            }
         }
-    });
+
+        loadServices();
     </script>
 </body>
 </html>
+
 
 
 
