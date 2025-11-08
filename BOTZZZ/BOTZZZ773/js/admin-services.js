@@ -288,7 +288,46 @@ async function submitAddService(event) {
 }
 
 async function editService(serviceId) {
-    const service = servicesCache.find(item => String(item.id) === String(serviceId));
+    // Try to find in local cache first
+    let service = servicesCache.find(item => String(item.id) === String(serviceId));
+
+    // If not found in cache, request single service from backend by DB id
+    if (!service) {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/.netlify/functions/services?id=${encodeURIComponent(serviceId)}`, {
+                method: 'GET',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+                const json = await res.json();
+                service = json.service || (Array.isArray(json.services) ? json.services.find(s => String(s.id) === String(serviceId)) : null);
+            } else {
+                // attempt to parse body for error/debugging
+                try { console.warn('Fetch service failed', await res.text()); } catch {}
+            }
+        } catch (err) {
+            console.error('Fetch service error:', err);
+        }
+    }
+
+    // If still not found, try treating the provided id as a site_id (custom site id)
+    if (!service) {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`/.netlify/functions/services?site_id=${encodeURIComponent(serviceId)}`, {
+                method: 'GET',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+                const json = await res.json();
+                service = json.service || (Array.isArray(json.services) ? json.services.find(s => String(s.site_id) === String(serviceId)) : null);
+            }
+        } catch (err) {
+            console.error('Fetch service by site_id error:', err);
+        }
+    }
+
     if (!service) {
         showNotification('Service not found for editing', 'error');
         return;
@@ -326,7 +365,7 @@ async function editService(serviceId) {
     const maxValue = toNumeric(service.max_quantity);
 
     const content = `
-        <form id="editServiceForm" onsubmit="submitEditService(event, '${serviceId}')" class="admin-form">
+        <form id="editServiceForm" onsubmit="submitEditService(event, '${service.id}')" class="admin-form">
             <div class="form-group" style="display: flex; gap: 16px; font-size: 13px; color: #94a3b8;">
                 <span><strong>Our ID:</strong> ${publicIdDisplay}</span>
                 <span><strong>Provider ID:</strong> ${providerIdDisplay}</span>
