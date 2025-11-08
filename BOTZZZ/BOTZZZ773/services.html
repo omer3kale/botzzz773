@@ -143,7 +143,6 @@
         function formatFourDigitId(id) {
             if (id === null || id === undefined) return String(id);
             const s = String(id).trim();
-            // accept negative? treat as non-numeric
             if (!/^\d+$/.test(s)) return s;
             return s.length >= 4 ? s : s.padStart(4, '0');
         }
@@ -153,7 +152,6 @@
             if (!container) return;
 
             try {
-                // fetch both endpoints, tolerate admin-services failure
                 const [publicResult, adminResult] = await Promise.allSettled([
                     fetch('/.netlify/functions/services'),
                     fetch('/.netlify/functions/admin-services')
@@ -189,31 +187,25 @@
                     console.warn('admin-services fetch failed:', adminResult.reason);
                 }
 
-                // Build multiple lookup maps from admin-services for best matching
-                const adminByAnyId = {};      // map any id value -> admin record
-                const adminByName = {};       // exact normalized name -> admin record
-                const adminBySlug = {};       // slugified name -> admin record
-                const adminByExternal = {};   // external/public id -> admin record
+                // Build lookup maps
+                const adminByAnyId = {};
+                const adminByName = {};
+                const adminBySlug = {};
+                const adminByExternal = {};
 
                 adminServices.forEach(a => {
-                    // collect possible id fields on admin record
                     const candidates = [
                         a.service_id, a.id, a.admin_service_id,
-                        a.public_id, a.external_id, a.externalId, a.source_id
+                        a.public_id, a.external_id, a.externalId, a.site_id, a.siteId
                     ].filter(Boolean);
-
-                    candidates.forEach(c => {
-                        adminByAnyId[String(c)] = a;
-                    });
-
+                    candidates.forEach(c => adminByAnyId[String(c)] = a);
                     if (a.name) {
                         adminByName[normalizeName(a.name)] = a;
                         adminBySlug[slugify(a.name)] = a;
                     }
-
-                    // if admin has a public/external id field, map it
                     if (a.public_id) adminByExternal[String(a.public_id)] = a;
                     if (a.external_id) adminByExternal[String(a.external_id)] = a;
+                    if (a.site_id) adminByExternal[String(a.site_id)] = a;
                 });
 
                 container.innerHTML = '';
@@ -226,7 +218,7 @@
                     return;
                 }
 
-                // Group by category and render
+                // Group by category
                 const categories = {};
                 publicServices.forEach(service => {
                     const cat = service.category || 'Uncategorized';
@@ -257,64 +249,58 @@
 
                     const table = categoryDiv.querySelector('.services-table');
 
-                    servicesList.forEach(service => {
-                        // 1) prefer explicit admin id on public service if provided
+                    servicesList.forEach((service, index) => {
+                        // Resolve admin record if possible
                         let resolvedAdminRec = null;
                         const explicitAdminId = service.admin_service_id ?? service.service_id ?? service.adminId ?? service.external_admin_id;
                         if (explicitAdminId && adminByAnyId[String(explicitAdminId)]) {
                             resolvedAdminRec = adminByAnyId[String(explicitAdminId)];
                         }
-
-                        // 2) try exact name match
                         if (!resolvedAdminRec && service.name) {
                             const n = normalizeName(service.name);
                             if (adminByName[n]) resolvedAdminRec = adminByName[n];
+                            else if (adminBySlug[slugify(service.name)]) resolvedAdminRec = adminBySlug[slugify(service.name)];
                         }
-
-                        // 3) try external/public id fields on public service
                         if (!resolvedAdminRec) {
                             const pubIds = [service.public_id, service.publicId, service.external_id, service.externalId, service.site_id, service.siteId].filter(Boolean);
                             for (const pid of pubIds) {
-                                if (adminByExternal[String(pid)]) {
-                                    resolvedAdminRec = adminByExternal[String(pid)];
-                                    break;
-                                }
-                                if (adminByAnyId[String(pid)]) {
-                                    resolvedAdminRec = adminByAnyId[String(pid)];
-                                    break;
-                                }
+                                if (adminByExternal[String(pid)]) { resolvedAdminRec = adminByExternal[String(pid)]; break; }
+                                if (adminByAnyId[String(pid)]) { resolvedAdminRec = adminByAnyId[String(pid)]; break; }
                             }
                         }
-
-                        // 4) try matching by internal id (service.id) to any admin id
-                        if (!resolvedAdminRec && service.id) {
-                            const a = adminByAnyId[String(service.id)];
-                            if (a) resolvedAdminRec = a;
+                        if (!resolvedAdminRec && service.id && adminByAnyId[String(service.id)]) {
+                            resolvedAdminRec = adminByAnyId[String(service.id)];
                         }
 
-                        // 5) try slug name match (removes punctuation/space differences)
-                        if (!resolvedAdminRec && service.name) {
-                            const s = slugify(service.name);
-                            if (adminBySlug[s]) resolvedAdminRec = adminBySlug[s];
-                        }
+                        // Determine raw admin id param (used by backend/order)
+                        const rawAdminParam = resolvedAdminRec
+                            ? (resolvedAdminRec.service_id ?? resolvedAdminRec.id ?? resolvedAdminRec.admin_service_id ?? resolvedAdminRec.external_id ?? resolvedAdminRec.public_id ?? null)
+                            : (explicitAdminId ?? service.admin_service_id ?? service.service_id ?? service.id ?? null);
 
-                        // Finally pick admin id value from resolved admin record or fallback to explicit fields or internal id
-                        let adminIdValueRaw = null;
+                        // Determine numeric site id for display (prefer admin.site_id, then service.site_id, then try numeric raw id)
+                        let siteIdForDisplay = null;
                         if (resolvedAdminRec) {
-                            adminIdValueRaw = resolvedAdminRec.service_id ?? resolvedAdminRec.id ?? resolvedAdminRec.admin_service_id ?? resolvedAdminRec.public_id ?? resolvedAdminRec.external_id;
+                            siteIdForDisplay = resolvedAdminRec.site_id ?? resolvedAdminRec.siteId ?? resolvedAdminRec.custom_id ?? resolvedAdminRec.public_id ?? null;
                         }
-                        adminIdValueRaw = adminIdValueRaw ?? explicitAdminId ?? service.public_id ?? service.publicId ?? service.id ?? '(unknown)';
+                        siteIdForDisplay = siteIdForDisplay ?? service.site_id ?? service.siteId ?? null;
 
-                        // Format display id to 4 digits when numeric, but keep raw value for order param
-                        const displayId = formatFourDigitId(adminIdValueRaw);
+                        // If still no numeric candidate, but rawAdminParam is numeric, use it
+                        if (!siteIdForDisplay && rawAdminParam && /^\d+$/.test(String(rawAdminParam))) {
+                            siteIdForDisplay = String(rawAdminParam);
+                        }
+
+                        // If still missing, as last resort use generated site id from backend ordering (service.site_id should exist because backend sets it)
+                        // Format for display to 4 digits when numeric
+                        const displayId = siteIdForDisplay ? formatFourDigitId(siteIdForDisplay) : formatFourDigitId(service.site_id ?? service.id ?? '(unknown)');
+
                         const displayIdLabel = displayId ? `#${escapeHtml(String(displayId))}` : '—';
 
                         const rate = service.rate !== undefined ? escapeHtml(String(service.rate)) : '0';
                         const minQ = service.min_quantity ?? service.min_order ?? 'N/A';
                         const maxQ = service.max_quantity ?? service.max_order ?? 'Unlimited';
 
-                        // attach resolved admin id raw back onto service for downstream pages (raw value)
-                        service.admin_service_id = adminIdValueRaw;
+                        // attach resolved raw admin id back onto service for downstream pages
+                        service.admin_service_id = rawAdminParam ?? service.admin_service_id ?? service.service_id ?? service.id;
 
                         const row = document.createElement('div');
                         row.classList.add('service-row');
@@ -327,8 +313,7 @@
                             <div class="service-col price">$${rate}</div>
                             <div class="service-col">${escapeHtml(String(minQ))} / ${escapeHtml(String(maxQ))}</div>
                             <div class="service-col">
-                                <!-- order param uses raw admin id value to avoid breaking backend -->
-                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(adminIdValueRaw))}" class="btn btn-primary btn-sm">Order</a>
+                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(service.admin_service_id))}" class="btn btn-primary btn-sm">Order</a>
                             </div>
                         `;
                         table.appendChild(row);
@@ -345,6 +330,17 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
 
 
 
