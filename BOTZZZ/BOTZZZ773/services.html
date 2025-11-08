@@ -147,6 +147,23 @@
             return s.length >= 4 ? s : s.padStart(4, '0');
         }
 
+        let providersCache = null;
+        let servicesCache = [];
+
+        // NEW: load site config so frontend uses the same starting ID as backend
+        async function loadSiteConfig() {
+            try {
+                const res = await fetch('/site-config.json', { cache: 'no-cache' });
+                if (!res.ok) return;
+                const cfg = await res.json();
+                window.STARTING_SITE_ID = Number(cfg.startingId) || 2231;
+                console.log('[DEBUG] STARTING_SITE_ID', window.STARTING_SITE_ID);
+            } catch (err) {
+                console.warn('Failed to load site-config.json', err);
+                window.STARTING_SITE_ID = window.STARTING_SITE_ID || 2231;
+            }
+        }
+
         async function loadServices() {
             const container = document.getElementById('servicesContainer');
             if (!container) return;
@@ -325,22 +342,37 @@
             }
         }
 
-        // initialize
-        loadServices();
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            if (typeof handleSearch === 'function') {
+                handleSearch('serviceSearch', 'servicesTable');
+            }
+
+            // Ensure frontend loads site config before fetching services
+            await loadSiteConfig();
+            await loadServices();
+
+            // Inject "Deactivate All Services" button into page actions if missing
+            try {
+                const pageActions = document.querySelector('.page-actions');
+                if (pageActions && !document.getElementById('deactivateAllBtn')) {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn-danger';
+                    btn.id = 'deactivateAllBtn';
+                    btn.type = 'button';
+                    btn.title = 'Mark all services as inactive';
+                    btn.innerHTML = '<i class="fas fa-ban"></i> Deactivate All';
+                    btn.style.marginLeft = '8px';
+                    btn.addEventListener('click', deactivateAllServices);
+                    pageActions.insertBefore(btn, pageActions.firstChild);
+                }
+            } catch (err) {
+                /*...*/
+            }
+        });
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
 
 
 
