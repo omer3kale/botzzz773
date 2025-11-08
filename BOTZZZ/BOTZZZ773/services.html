@@ -31,7 +31,6 @@
                     <li><a href="api.html" class="nav-link">API</a></li>
                     <li><a href="tickets.html" class="nav-link">Tickets</a></li>
                     <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <!-- Auth navigation dynamically updated by main.js -->
                     <li id="authNavItem"><a href="signin.html" class="nav-link btn-primary">Sign In</a></li>
                 </ul>
             </div>
@@ -68,7 +67,7 @@
     <section class="services-list">
         <div class="container">
             <div id="servicesContainer">
-                <!-- Tüm servisler buraya JS ile eklenecek -->
+                <!-- API’den çekilen servisler buraya eklenecek -->
             </div>
         </div>
     </section>
@@ -126,94 +125,77 @@
     </footer>
 
     <!-- JS -->
+    <script src="js/main.js"></script>
     <script>
-        const services = [
-            {
-                category: "instagram",
-                subcategory: "Instagram Followers",
-                name: "Instagram Followers [HQ Mix]",
-                rate: "$1.81",
-                minMax: "10 / 1,000,000",
-                link: "order.html?service=ig-followers-hq"
-            },
-            {
-                category: "instagram",
-                subcategory: "Instagram Followers",
-                name: "Instagram Followers [Real Mix]",
-                rate: "$2.50",
-                minMax: "10 / 1,000,000",
-                link: "order.html?service=ig-followers-real"
-            },
-            {
-                category: "instagram",
-                subcategory: "Instagram Followers",
-                name: "Instagram Followers [USA Real]",
-                rate: "$25.00",
-                minMax: "50 / 10,000",
-                link: "order.html?service=ig-followers-usa"
-            },
-            // Buraya tüm servisleri aynı formatta ekle
-        ];
-
+        const apiUrl = 'https://example.com/api/services'; // Buraya gerçek API endpoint’in
         let siteIdCounter = 2231;
 
-        function renderServices() {
-            const container = document.getElementById('servicesContainer');
-            const categories = {};
+        async function fetchAndRenderServices() {
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error('API request failed');
 
-            services.forEach(service => {
-                // Site ID ekle
-                service.siteId = siteIdCounter++;
-                
-                // Category container oluştur
-                if (!categories[service.category]) {
-                    const catDiv = document.createElement('div');
-                    catDiv.classList.add('service-category');
-                    catDiv.setAttribute('data-category', service.category);
-                    catDiv.innerHTML = `<h2 class="category-title">📱 ${service.category.charAt(0).toUpperCase() + service.category.slice(1)} Services</h2>`;
-                    container.appendChild(catDiv);
-                    categories[service.category] = catDiv;
-                }
+                const services = await response.json();
+                const container = document.getElementById('servicesContainer');
+                container.innerHTML = ''; // Temizle
 
-                // Subcategory container oluştur
-                let subCatDiv = categories[service.category].querySelector(`[data-subcategory="${service.subcategory}"]`);
-                if (!subCatDiv) {
-                    subCatDiv = document.createElement('div');
-                    subCatDiv.classList.add('service-subcategory');
-                    subCatDiv.setAttribute('data-subcategory', service.subcategory);
-                    subCatDiv.innerHTML = `<h3 class="subcategory-title">${service.subcategory}</h3>
-                    <div class="services-table">
-                        <div class="service-row service-row-header">
-                            <div class="service-col">Service ID</div>
-                            <div class="service-col">Service Name</div>
-                            <div class="service-col">Rate (per 1000)</div>
-                            <div class="service-col">Min/Max</div>
-                            <div class="service-col">Action</div>
+                const categories = {};
+
+                services.forEach(service => {
+                    service.siteId = siteIdCounter++;
+
+                    // Category container
+                    if (!categories[service.category]) {
+                        const catDiv = document.createElement('div');
+                        catDiv.classList.add('service-category');
+                        catDiv.setAttribute('data-category', service.category);
+                        catDiv.innerHTML = `<h2 class="category-title">📱 ${service.category.charAt(0).toUpperCase() + service.category.slice(1)} Services</h2>`;
+                        container.appendChild(catDiv);
+                        categories[service.category] = catDiv;
+                    }
+
+                    // Subcategory container
+                    let subCatDiv = categories[service.category].querySelector(`[data-subcategory="${service.subcategory}"]`);
+                    if (!subCatDiv) {
+                        subCatDiv = document.createElement('div');
+                        subCatDiv.classList.add('service-subcategory');
+                        subCatDiv.setAttribute('data-subcategory', service.subcategory);
+                        subCatDiv.innerHTML = `<h3 class="subcategory-title">${service.subcategory}</h3>
+                        <div class="services-table">
+                            <div class="service-row service-row-header">
+                                <div class="service-col">Service ID</div>
+                                <div class="service-col">Service Name</div>
+                                <div class="service-col">Rate (per 1000)</div>
+                                <div class="service-col">Min/Max</div>
+                                <div class="service-col">Action</div>
+                            </div>
+                        </div>`;
+                        categories[service.category].appendChild(subCatDiv);
+                    }
+
+                    const table = subCatDiv.querySelector('.services-table');
+                    const row = document.createElement('div');
+                    row.classList.add('service-row');
+                    row.innerHTML = `
+                        <div class="service-col">${service.siteId}</div>
+                        <div class="service-col"><strong>${service.name}</strong></div>
+                        <div class="service-col price">${service.rate}</div>
+                        <div class="service-col">${service.minMax}</div>
+                        <div class="service-col">
+                            <a href="order.html?service=${service.link}" class="btn btn-primary btn-sm">Order</a>
                         </div>
-                    </div>`;
-                    categories[service.category].appendChild(subCatDiv);
-                }
-
-                const table = subCatDiv.querySelector('.services-table');
-                const row = document.createElement('div');
-                row.classList.add('service-row');
-                row.innerHTML = `
-                    <div class="service-col">${service.siteId}</div>
-                    <div class="service-col">
-                        <strong>${service.name}</strong>
-                    </div>
-                    <div class="service-col price">${service.rate}</div>
-                    <div class="service-col">${service.minMax}</div>
-                    <div class="service-col">
-                        <a href="${service.link}" class="btn btn-primary btn-sm">Order</a>
-                    </div>
-                `;
-                table.appendChild(row);
-            });
+                    `;
+                    table.appendChild(row);
+                });
+            } catch (err) {
+                console.error('Error fetching services:', err);
+                document.getElementById('servicesContainer').innerHTML = '<p style="color:red;">Failed to load services.</p>';
+            }
         }
 
-        document.addEventListener('DOMContentLoaded', renderServices);
+        document.addEventListener('DOMContentLoaded', fetchAndRenderServices);
     </script>
 </body>
 </html>
+
 
