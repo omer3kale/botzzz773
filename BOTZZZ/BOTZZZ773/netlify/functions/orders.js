@@ -52,33 +52,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    // robust body parsing: accept JSON and application/x-www-form-urlencoded
-    let body = {};
-    const contentType = ((event.headers && (event.headers['content-type'] || event.headers['Content-Type'])) || '').toLowerCase();
-    if (contentType.includes('application/json')) {
-      body = JSON.parse(event.body || '{}');
-    } else if (contentType.includes('application/x-www-form-urlencoded')) {
-      const params = new URLSearchParams(event.body || '');
-      for (const [k, v] of params.entries()) body[k] = v;
-    } else {
-      // fallback: try JSON then urlencoded
-      try {
-        body = JSON.parse(event.body || '{}');
-      } catch (e) {
-        const params = new URLSearchParams(event.body || '');
-        for (const [k, v] of params.entries()) body[k] = v;
-      }
-    }
-
-    // Normalize common alternative field names so handlers can rely on consistent keys
-    if (body.service_id && !body.serviceId) body.serviceId = body.service_id;
-    if (body.service && !body.serviceId) body.serviceId = body.service;
-    if (body.serviceID && !body.serviceId) body.serviceId = body.serviceID;
-
-    if ((body.qty || body.q) && !body.quantity) body.quantity = Number(body.qty || body.q);
-    if (body.quantity && typeof body.quantity === 'string') body.quantity = Number(body.quantity);
-
-    if ((body.url || body.target) && !body.link) body.link = body.url || body.target;
+    const body = JSON.parse(event.body || '{}');
 
     switch (event.httpMethod) {
       case 'GET':
@@ -182,77 +156,18 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    console.log('CREATE ORDER INPUT:', { userId: user.userId, serviceId, quantity, link });
-
     // Get service details
-    let service, serviceError;
-    const sid = String(serviceId || '').trim();
-    const isNumeric = /^\d+$/.test(sid);
-
-    if (isNumeric) {
-      // Debug: fetch raw rows for numeric provider_service_id and log them
-      const { data: rawRows, error: rawErr } = await supabaseAdmin
-        .from('services')
-        .select('*, provider:providers(*)')
-        .eq('provider_service_id', Number(sid))
-        .limit(10);
-      console.log('DEBUG service rawRows (provider_service_id):', { sid, rawRows, rawErr });
-
-      // Then use maybeSingle to keep existing behavior
-      ({ data: service, error: serviceError } = await supabaseAdmin
-        .from('services')
-        .select('*, provider:providers(*)')
-        .eq('provider_service_id', Number(sid))
-        .maybeSingle());
-
-      // FALLBACK: if nothing found, attempt to match frontend-generated site_id (startingId + index)
-      if (!service) {
-        const { data: allServices, error: allErr } = await supabaseAdmin
-          .from('services')
-          .select('*, provider:providers(*)')
-          .order('category', { ascending: true })
-          .order('name', { ascending: true });
-        console.log('DEBUG allServices count:', { sid, count: allServices && allServices.length, allErr });
-
-        if (Array.isArray(allServices)) {
-          const startingId = 2231;
-          const match = allServices
-            .map((s, i) => ({ ...s, site_id: startingId + i }))
-            .find(s => String(s.site_id) === sid);
-          if (match) {
-            service = match;
-            serviceError = null;
-            console.log('DEBUG matched service by site_id fallback:', { sid, matchedId: service.id });
-          }
-        }
-      }
-    } else {
-      // Debug: fetch raw rows for UUID id and log them
-      const { data: rawRows, error: rawErr } = await supabaseAdmin
-        .from('services')
-        .select('*, provider:providers(*)')
-        .eq('id', sid)
-        .limit(10);
-      console.log('DEBUG service rawRows (id):', { sid, rawRows, rawErr });
-
-      ({ data: service, error: serviceError } = await supabaseAdmin
-        .from('services')
-        .select('*, provider:providers(*)')
-        .eq('id', sid)
-        .maybeSingle());
-    }
-
-    console.log('Service lookup result:', { serviceId: sid, isNumeric, serviceError, found: !!service });
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('*, provider:providers(*)')
+      .eq('id', serviceId)
+      .single();
 
     if (serviceError || !service) {
-      console.error('Service lookup failed:', serviceError || 'no service');
       return {
         statusCode: 404,
         headers,
-        body: JSON.stringify({ 
-          error: 'Service not found', 
-          details: serviceError ? serviceError.message : 'No service matched the provided id' 
-        })
+        body: JSON.stringify({ error: 'Service not found' })
       };
     }
 
@@ -264,25 +179,15 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Ensure numeric quantity
-    const qty = Number(quantity);
-    const totalCost = ((service.rate * qty) / 1000).toFixed(2);
+    // Calculate total cost (rate is per 1000 units)
+    const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
 
     // Check user balance
-    const { data: userData, error: userDataErr } = await supabaseAdmin
+    const { data: userData } = await supabaseAdmin
       .from('users')
       .select('balance')
       .eq('id', user.userId)
       .single();
-
-    if (userDataErr) {
-      console.error('User lookup failed:', userDataErr);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to fetch user data', details: userDataErr.message })
-      };
-    }
 
     if (parseFloat(userData.balance) < parseFloat(totalCost)) {
       return {
@@ -292,37 +197,30 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Create order in database - use resolved service.id (UUID) for foreign key
-    const insertPayload = {
-      user_id: user.userId,
-      service_id: service.id,           // use DB service UUID
-      provider_service_id: service.provider_service_id || null,
-      service_name: service.name,
-      link: link,
-      quantity: qty,
-      charge: totalCost,
-      status: 'pending',
-      order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-    };
-
-    console.log('Inserting order:', insertPayload);
-
+    // Create order in database
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .insert(insertPayload)
+      .insert({
+        user_id: user.userId,
+        service_id: serviceId,
+        service_name: service.name,
+        link: link,
+        quantity: quantity,
+        charge: totalCost,
+        status: 'pending',
+        order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+      })
       .select()
       .single();
 
     if (orderError) {
-      console.error('Create order error (supabase):', orderError);
+      console.error('Create order error:', orderError);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create order', details: orderError.message })
+        body: JSON.stringify({ error: 'Failed to create order' })
       };
     }
-
-    console.log('Order created:', order.id);
 
     // Deduct balance
     await supabaseAdmin
@@ -602,63 +500,36 @@ async function submitOrderToProvider(provider, orderData) {
   }
 }
 
-// Client example — DO NOT RUN IN LAMBDA (browser only)
-// Use this in your frontend, not in this server file:
-//
-// fetch('/.netlify/functions/orders', {
-//   method: 'POST',
-//   headers: {
-//     'Content-Type': 'application/json',
-//     'Authorization': 'Bearer YOUR_JWT'
-//   },
-//   body: JSON.stringify({
-//     serviceId: 123,        // number or string
-//     quantity: 1000,        // number
-//     link: 'https://...'    // string
-//   })
-// });
-//
-// Additional client-side code to fetch services (not for Lambda):
-//
-// const res = await fetch('/.netlify/functions/services');
-// const json = await res.json();
-// const svc = Array.isArray(json.services) ? json.services[0] : null;
-//
-// if (svc) {
-//   const dbId = svc.id;                  // DB UUID (use this for orders)
-//   const providerId = svc.provider_service_id; // Provider numeric id (if any)
-//   const displayId = svc.site_id;        // Generated site-specific display id
-//   console.log({ dbId, providerId, displayId });
-// }
-function populateServiceDropdown(services) {
-    const serviceSelect = document.getElementById('service');
-    if (!serviceSelect) return;
+document.addEventListener('DOMContentLoaded', async () => {
+  const serviceSelect = document.getElementById('service');
+  const loadingIndicator = document.getElementById('services-loading'); // optional element
 
-    // Clear existing options except first
-    while (serviceSelect.options.length > 1) {
-        serviceSelect.remove(1);
-    }
+  try {
+    if (loadingIndicator) loadingIndicator.style.display = 'block';
 
-    services.forEach(service => {
-        const option = document.createElement('option');
-        // Use DB UUID as the option value (backend expects this by default)
-        option.value = service.id; 
-        option.textContent = `${service.name} ($${service.rate}/1000)`;
-        option.dataset.providerServiceId = service.provider_service_id ?? '';
-        option.dataset.siteId = service.site_id ?? '';
-        option.dataset.min = service.min_quantity ?? service.min_order ?? 0;
-        option.dataset.max = service.max_quantity ?? service.max_order ?? 0;
-        serviceSelect.appendChild(option);
+    const res = await fetch('/.netlify/functions/services');
+    if (!res.ok) throw new Error(`Services request failed: ${res.status}`);
+
+    const json = await res.json();
+    const services = Array.isArray(json.services) ? json.services : (json.services || []);
+
+    // clear existing options (keep first placeholder)
+    while (serviceSelect && serviceSelect.options.length > 1) serviceSelect.remove(1);
+
+    services.forEach(svc => {
+      const opt = document.createElement('option');
+      opt.value = svc.id || ''; // use DB UUID (backend expects this)
+      opt.textContent = `${svc.name} ${svc.rate ? `(${svc.rate}/1000)` : ''}`;
+      opt.dataset.providerServiceId = svc.provider_service_id ?? '';
+      opt.dataset.siteId = svc.site_id ?? '';
+      serviceSelect.appendChild(opt);
     });
-}
 
-// filepath: [dashboard.js](http://_vscodecontentref_/8)
-// ...existing code...
-const orderData = {
-    // prefer DB UUID
-    serviceId: selectedService.id || selectedService.provider_service_id || selectedService.site_id,
-    serviceLabel: selectedService.publicId ? `#${selectedService.publicId}` : selectedService.name,
-    link: orderLink,
-    quantity
-};
+    if (loadingIndicator) loadingIndicator.style.display = 'none';
+  } catch (err) {
+    console.error('Failed to load services:', err);
+    if (loadingIndicator) loadingIndicator.textContent = 'Failed to load services';
+  }
+});
+
 
