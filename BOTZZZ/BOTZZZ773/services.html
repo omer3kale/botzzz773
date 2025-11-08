@@ -1,510 +1,160 @@
-// Services API - Get, Create, Update, Delete Services
-const { supabase, supabaseAdmin } = require('./utils/supabase');
-const jwt = require('jsonwebtoken');
-const axios = require('axios');
-
-const JWT_SECRET = process.env.JWT_SECRET;
-
-function getUserFromToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return null;
-  }
-  const token = authHeader.substring(7);
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
-
-exports.handler = async (event) => {
-  const headers = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Content-Type': 'application/json'
-  };
-
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
-  }
-
-  const user = getUserFromToken(event.headers.authorization);
-  
-  try {
-    const body = JSON.parse(event.body || '{}');
-
-    switch (event.httpMethod) {
-      case 'GET':
-        return await handleGetServices(user, headers);
-      case 'POST':
-        return await handleCreateService(user, body, headers);
-      case 'PUT':
-        return await handleUpdateService(user, body, headers);
-      case 'DELETE':
-        return await handleDeleteService(user, body, headers);
-      default:
-        return {
-          statusCode: 405,
-          headers,
-          body: JSON.stringify({ error: 'Method not allowed' })
-        };
-    }
-  } catch (error) {
-    console.error('Services API error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-};
-
-async function handleGetServices(user, headers) {
-  try {
-    const isAdmin = user && user.role === 'admin';
-    const client = isAdmin ? supabaseAdmin : supabase;
-
-    let query = client
-      .from('services')
-      .select(`
-        *,
-        provider:providers(id, name, status, markup)
-      `);
-
-    if (!isAdmin) {
-      query = query.eq('status', 'active');
-    }
-
-    query = query.order('category', { ascending: true }).order('name', { ascending: true });
-
-    const { data: services, error } = await query;
-
-    if (error) {
-      console.error('Get services error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to fetch services' })
-      };
-    }
-
-    // Ensure a stable site_id so public UI and admin UI match.
-    // Prefer public_id/publicId when present, otherwise fall back to DB id.
-    const servicesWithSiteId = services.map(service => {
-      const site_id = service.public_id ?? service.publicId ?? service.id;
-      return { ...service, site_id };
-    });
- 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ services: servicesWithSiteId })
-    };
-  } catch (error) {
-    console.error('Get services error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-}
-
-// --- Diğer fonksiyonlar orijinal kodunla tamamen aynı kalıyor ---
-async function handleCreateService(user, data, headers) {
-  try {
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
-
-    const { action } = data;
-
-    if (action === 'create-category') {
-      return await handleCreateCategory(data, headers);
-    }
-
-    if (action === 'duplicate') {
-      return await handleDuplicateService(data, headers);
-    }
-
-    const {
-      providerId,
-      providerServiceId,
-      name,
-      category,
-      description,
-      rate,
-      price,
-      min_quantity,
-      minOrder,
-      max_quantity,
-      maxOrder,
-      type,
-      status
-    } = data;
-
-    if (!name || !category) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Missing required fields' })
-      };
-    }
-
-    const servicePrice = rate || price || 0;
-    const minQty = min_quantity || minOrder || 10;
-    const maxQty = max_quantity || maxOrder || 100000;
-
-    const { data: service, error } = await supabaseAdmin
-      .from('services')
-      .insert({
-        provider_id: providerId || null,
-        provider_service_id: providerServiceId || null,
-        name,
-        category,
-        description: description || '',
-        rate: servicePrice,
-        min_quantity: minQty,
-        max_quantity: maxQty,
-        type: type || 'service',
-        status: status || 'active'
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Create service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to create service' })
-      };
-    }
-
-    return {
-      statusCode: 201,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        service
-      })
-    };
-  } catch (error) {
-    console.error('Create service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-}
-
-async function handleUpdateService(user, data, headers) {
-  try {
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
-
-    const {
-      serviceId,
-      name,
-      category,
-      rate,
-      price,
-      min_quantity,
-      max_quantity,
-      description,
-      status,
-      providerId,
-      provider_id,
-      providerServiceId,
-      provider_service_id,
-      ...updateData
-    } = data;
-
-    if (!serviceId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Service ID is required' })
-      };
-    }
-
-    const updates = {};
-    if (name !== undefined) updates.name = name;
-    if (category !== undefined) updates.category = category;
-    if (rate !== undefined) updates.rate = rate;
-    if (price !== undefined) updates.rate = price;
-    if (min_quantity !== undefined) updates.min_quantity = min_quantity;
-    if (max_quantity !== undefined) updates.max_quantity = max_quantity;
-    if (description !== undefined) updates.description = description;
-    if (status !== undefined) updates.status = status;
-
-    const resolvedProviderId = providerId !== undefined ? providerId : provider_id;
-    if (resolvedProviderId !== undefined) {
-      updates.provider_id = resolvedProviderId || null;
-    }
-
-    const resolvedProviderServiceId = providerServiceId !== undefined ? providerServiceId : provider_service_id;
-    if (resolvedProviderServiceId !== undefined) {
-      updates.provider_service_id = resolvedProviderServiceId || null;
-    }
-
-    const { data: service, error } = await supabaseAdmin
-      .from('services')
-      .update(updates)
-      .eq('id', serviceId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Update service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to update service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        success: true,
-        service
-      })
-    };
-  } catch (error) {
-    console.error('Update service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-}
-
-async function handleDeleteService(user, data, headers) {
-  try {
-    if (!user || user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Admin access required' })
-      };
-    }
-
-    const { serviceId } = data;
-
-    if (!serviceId) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Service ID is required' })
-      };
-    }
-
-    const { error } = await supabaseAdmin
-      .from('services')
-      .delete()
-      .eq('id', serviceId);
-
-    if (error) {
-      console.error('Delete service error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to delete service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ success: true })
-    };
-  } catch (error) {
-    console.error('Delete service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Internal server error' })
-    };
-  }
-}
-
-async function handleCreateCategory(data, headers) {
-  try {
-    const { name, description, icon } = data;
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ 
-        success: true,
-        message: `Category "${name}" created successfully`,
-        category: { name, description, icon }
-      })
-    };
-  } catch (error) {
-    console.error('Create category error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to create category' })
-    };
-  }
-}
-
-async function handleDuplicateService(data, headers) {
-  try {
-    const { serviceId } = data;
-
-    const { data: originalService, error: fetchError } = await supabaseAdmin
-      .from('services')
-      .select('*')
-      .eq('id', serviceId)
-      .single();
-
-    if (fetchError || !originalService) {
-      return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({ error: 'Service not found' })
-      };
-    }
-
-    const { data: newService, error: insertError } = await supabaseAdmin
-      .from('services')
-      .insert({
-        provider_id: originalService.provider_id,
-        provider_service_id: originalService.provider_service_id,
-        name: `${originalService.name} (Copy)`,
-        category: originalService.category,
-        description: originalService.description,
-        rate: originalService.rate,
-        min_quantity: originalService.min_quantity,
-        max_quantity: originalService.max_quantity,
-        type: originalService.type,
-        status: 'inactive'
-      })
-      .select()
-      .single();
-
-    if (insertError) {
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to duplicate service' })
-      };
-    }
-
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ 
-        success: true,
-        service: newService
-      })
-    };
-  } catch (error) {
-    console.error('Duplicate service error:', error);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: 'Failed to duplicate service' })
-    };
-  }
-}
-
-// --- FRONTEND ENTEGRASYONU: API’den servisleri çekip services.html’de listeleme ---
-if (typeof window !== 'undefined') {
-  document.addEventListener('DOMContentLoaded', () => {
-    const servicesContainer = document.getElementById('servicesContainer');
-    if (!servicesContainer) return;
-
-    fetch('/.netlify/functions/services', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json'
-        // Token gerekiyorsa: 'Authorization': 'Bearer ' + localStorage.getItem('token')
-      }
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (!data.services) return;
-
-        // Mevcut HTML’yi temizle
-        servicesContainer.innerHTML = '';
-
-        // Kategorilere göre grupla
-        const categories = {};
-        data.services.forEach(service => {
-          const cat = service.category || 'Uncategorized';
-          if (!categories[cat]) categories[cat] = [];
-          categories[cat].push(service);
-        });
-
-        // HTML oluştur
-        for (const [category, services] of Object.entries(categories)) {
-          const categoryDiv = document.createElement('div');
-          categoryDiv.classList.add('service-category');
-          categoryDiv.dataset.category = category.toLowerCase();
-
-          const categoryTitle = document.createElement('h2');
-          categoryTitle.classList.add('category-title');
-          categoryTitle.textContent = category;
-          categoryDiv.appendChild(categoryTitle);
-
-          services.forEach(service => {
-            const serviceSub = document.createElement('div');
-            serviceSub.classList.add('service-subcategory');
-
-            const subTitle = document.createElement('h3');
-            subTitle.classList.add('subcategory-title');
-            subTitle.textContent = service.name;
-            serviceSub.appendChild(subTitle);
-
-            const table = document.createElement('div');
-            table.classList.add('services-table');
-
-            const row = document.createElement('div');
-            row.classList.add('service-row');
-
-            // Use stable site_id so public view matches admin IDs
-            const displayId = service.site_id ?? service.public_id ?? service.publicId ?? service.id;
-            const desc = escapeHtml(service.description || '');
-            const rate = `$${Number(service.rate || 0).toFixed(4)}`;
-            const minQty = escapeHtml(String(service.min_quantity ?? '—'));
-            const maxQty = escapeHtml(String(service.max_quantity ?? 'Unlimited'));
-
-            row.innerHTML = `
-            <div class="service-main">
-                <div class="service-title">${escapeHtml(service.name)} <span class="service-id">#${escapeHtml(String(displayId))}</span></div>
-                <div class="service-desc">${desc}</div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Services - BOTZZZ773 Admin</title>
+    <link rel="stylesheet" href="../css/admin-styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Admin Authentication Protection - MUST BE FIRST -->
+    <script src="../js/admin-auth.js"></script>
+</head>
+<body class="admin-body">
+    <!-- Admin Header -->
+    <header class="admin-header">
+        <button class="sidebar-toggle" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="admin-logo">BOTZZZ773</div>
+        <div class="admin-header-right">
+            <div class="admin-search">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search services..." id="serviceSearch">
             </div>
-            <div class="service-rate">${rate}</div>
-            <div class="service-qty">${minQty} / ${maxQty}</div>
-            <div class="service-action"><a href="order.html?service=${encodeURIComponent(String(displayId))}" class="btn btn-primary">Order</a></div>
-        `;
+            <div class="admin-notifications">
+                <i class="fas fa-bell"></i>
+                <span class="notification-badge">10</span>
+            </div>
+            <div class="admin-user">
+                <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+            </div>
+        </div>
+    </header>
 
-            table.appendChild(row);
-            serviceSub.appendChild(table);
-            categoryDiv.appendChild(serviceSub);
-          });
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar" id="adminSidebar">
+        <nav class="admin-nav">
+            <a href="index.html" class="admin-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="users.html" class="admin-nav-item">
+                <i class="fas fa-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="orders.html" class="admin-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Orders</span>
+            </a>
+            <a href="services.html" class="admin-nav-item active">
+                <i class="fas fa-box"></i>
+                <span>Services</span>
+            </a>
+            <a href="payments.html" class="admin-nav-item">
+                <i class="fas fa-credit-card"></i>
+                <span>Payments</span>
+            </a>
+            <a href="tickets.html" class="admin-nav-item">
+                <i class="fas fa-ticket-alt"></i>
+                <span>Tickets</span>
+                <span class="nav-badge">10</span>
+            </a>
+            <a href="reports.html" class="admin-nav-item">
+                <i class="fas fa-chart-bar"></i>
+                <span>Reports</span>
+            </a>
+            <a href="settings.html" class="admin-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </aside>
 
-          servicesContainer.appendChild(categoryDiv);
-        }
-      })
-      .catch(err => console.error('Failed to load services:', err));
-  });
-}
+    <!-- Main Content -->
+    <main class="admin-main">
+        <div class="admin-page-header">
+            <h1>Services</h1>
+            <div class="page-actions">
+                <button class="btn-secondary" onclick="importServices()">
+                    <i class="fas fa-download"></i> Import Services
+                </button>
+                <button class="btn-secondary" onclick="createCategory()">
+                    <i class="fas fa-folder-plus"></i> Create Category
+                </button>
+                <button class="btn-secondary" onclick="addSubscription()">
+                    <i class="fas fa-sync"></i> Add Subscription
+                </button>
+                <button class="btn-primary" onclick="addService()">
+                    <i class="fas fa-plus"></i> Add Service
+                </button>
+            </div>
+        </div>
+
+        <!-- Services Table -->
+        <div class="table-container">
+            <table class="admin-table" id="servicesTable">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" onclick="toggleAll(this, 'service-checkbox')"></th>
+                        <th onclick="sortTable('id')">Service IDs <i class="fas fa-sort"></i></th>
+                        <th>Service</th>
+                        <th>Category</th>
+                        <th>Provider</th>
+                        <th onclick="sortTable('rate')">Rates / 1k <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('min')">Min <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('max')">Max <i class="fas fa-sort"></i></th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="servicesTableBody">
+                    <!-- Services are loaded dynamically -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid" style="margin-top: 30px;">
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                    <i class="fas fa-box"></i>
+                </div>
+                <div class="stat-details">
+                    <div class="stat-value" id="totalServices">Loading...</div>
+                    <div class="stat-label">Total Services</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-details">
+                    <div class="stat-value" id="activeServices">Loading...</div>
+                    <div class="stat-label">Active Services</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
+                    <i class="fas fa-sync"></i>
+                </div>
+                <div class="stat-details">
+                    <div class="stat-label">Last Sync</div>
+                    <div class="update-time" id="lastSync">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination">
+            <button class="btn-secondary" id="prevPage" disabled>Previous</button>
+            <span class="pagination-info" id="paginationInfo">Loading...</span>
+            <button class="btn-secondary" id="nextPage">Next</button>
+        </div>
+    </main>
+
+    <script src="../js/admin.js"></script>
+    <script src="../js/admin-services.js"></script>
+</body>
+</html>
+
 
