@@ -194,23 +194,26 @@ async function handleCreateOrder(user, data, headers) {
         .from('services')
         .select('*, provider:providers(*)')
         .eq('provider_service_id', Number(sid))
-        .single());
+        .maybeSingle()); // use maybeSingle to avoid coercion error when 0 rows
     } else {
       // assume UUID
       ({ data: service, error: serviceError } = await supabase
         .from('services')
         .select('*, provider:providers(*)')
         .eq('id', sid)
-        .single());
+        .maybeSingle());
     }
-    console.log('Service lookup result:', { serviceId: sid, isNumeric, serviceError });
- 
+    console.log('Service lookup result:', { serviceId: sid, isNumeric, serviceError, found: !!service });
+
     if (serviceError || !service) {
-      console.error('Service lookup failed:', serviceError);
+      console.error('Service lookup failed:', serviceError || 'no service');
       return {
         statusCode: 404,
         headers,
-        body: JSON.stringify({ error: 'Service not found', details: serviceError && serviceError.message })
+        body: JSON.stringify({ 
+          error: 'Service not found', 
+          details: serviceError ? serviceError.message : 'No service matched the provided id' 
+        })
       };
     }
 
@@ -222,8 +225,9 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Calculate total cost (rate is per 1000 units)
-    const totalCost = ((service.rate * quantity) / 1000).toFixed(2);
+    // Ensure numeric quantity
+    const qty = Number(quantity);
+    const totalCost = ((service.rate * qty) / 1000).toFixed(2);
 
     // Check user balance
     const { data: userData, error: userDataErr } = await supabaseAdmin
@@ -249,13 +253,14 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Create order in database (wrap to capture DB errors)
+    // Create order in database - use resolved service.id (UUID) for foreign key
     const insertPayload = {
       user_id: user.userId,
-      service_id: serviceId,
+      service_id: service.id,           // use DB service UUID
+      provider_service_id: service.provider_service_id || null,
       service_name: service.name,
       link: link,
-      quantity: quantity,
+      quantity: qty,
       charge: totalCost,
       status: 'pending',
       order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
