@@ -423,3 +423,82 @@ async function handleDuplicateService(data, headers) {
     };
   }
 }
+
+// --- FRONTEND ENTEGRASYONU: API’den servisleri çekip services.html’de listeleme ---
+if (typeof window !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const servicesContainer = document.getElementById('servicesContainer');
+    if (!servicesContainer) return;
+
+    fetch('/.netlify/functions/services', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+        // Token gerekiyorsa: 'Authorization': 'Bearer ' + localStorage.getItem('token')
+      }
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (!data.services) return;
+
+        // Mevcut HTML’yi temizle
+        servicesContainer.innerHTML = '';
+
+        // Kategorilere göre grupla
+        const categories = {};
+        data.services.forEach(service => {
+          const cat = service.category || 'Uncategorized';
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(service);
+        });
+
+        // HTML oluştur
+        for (const [category, services] of Object.entries(categories)) {
+          const categoryDiv = document.createElement('div');
+          categoryDiv.classList.add('service-category');
+          categoryDiv.dataset.category = category.toLowerCase();
+
+          const categoryTitle = document.createElement('h2');
+          categoryTitle.classList.add('category-title');
+          categoryTitle.textContent = category;
+          categoryDiv.appendChild(categoryTitle);
+
+          services.forEach(service => {
+            const serviceSub = document.createElement('div');
+            serviceSub.classList.add('service-subcategory');
+
+            const subTitle = document.createElement('h3');
+            subTitle.classList.add('subcategory-title');
+            subTitle.textContent = service.name;
+            serviceSub.appendChild(subTitle);
+
+            const table = document.createElement('div');
+            table.classList.add('services-table');
+
+            const row = document.createElement('div');
+            row.classList.add('service-row');
+
+            row.innerHTML = `
+              <div class="service-col">
+                <strong>${service.name}</strong>
+                <span class="service-details">${service.description || ''}</span>
+              </div>
+              <div class="service-col price">$${service.rate}</div>
+              <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
+              <div class="service-col">
+                <a href="order.html?service=${encodeURIComponent(service.name)}" class="btn btn-primary btn-sm">Order</a>
+              </div>
+            `;
+
+            table.appendChild(row);
+            serviceSub.appendChild(table);
+            categoryDiv.appendChild(serviceSub);
+          });
+
+          servicesContainer.appendChild(categoryDiv);
+        }
+      })
+      .catch(err => console.error('Failed to load services:', err));
+  });
+}
+
