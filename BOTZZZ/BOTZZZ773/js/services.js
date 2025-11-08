@@ -90,11 +90,13 @@ async function handleGetServices(user, headers) {
     }
 
     // --- Burada site_id ekliyoruz, kullanıcılar görebilir ---
-    let siteIdCounter = 2231; // 2231'den başlatıyoruz
+    // Use stable site_id so admin and public UI match.
+    // Prefer an existing public_id/publicId if present, otherwise use DB id.
     const servicesWithSiteId = services.map(service => {
-      return { ...service, site_id: siteIdCounter++ };
+      const site_id = service.public_id ?? service.publicId ?? service.id;
+      return { ...service, site_id };
     });
-
+ 
     return {
       statusCode: 200,
       headers,
@@ -478,15 +480,16 @@ if (typeof window !== 'undefined') {
             const row = document.createElement('div');
             row.classList.add('service-row');
 
+            const displayId = service.site_id ?? service.public_id ?? service.id;
             row.innerHTML = `
               <div class="service-col">
-                <strong>${service.name}</strong>
-                <span class="service-details">${service.description || ''}</span>
+                <strong>${escapeHtml(service.name)} <span style="color:#94a3b8; font-weight:400;">#${escapeHtml(String(displayId))}</span></strong>
+                <span class="service-details">${escapeHtml(service.description || '')}</span>
               </div>
-              <div class="service-col price">$${service.rate}</div>
-              <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
+              <div class="service-col price">$${Number(service.rate || 0).toFixed(4)}</div>
+              <div class="service-col">${escapeHtml(String(service.min_quantity ?? '—'))} / ${escapeHtml(String(service.max_quantity ?? 'Unlimited'))}</div>
               <div class="service-col">
-                <a href="order.html?service=${encodeURIComponent(service.name)}" class="btn btn-primary btn-sm">Order</a>
+                <a href="order.html?service=${encodeURIComponent(String(displayId))}" class="btn btn-primary btn-sm">Order</a>
               </div>
             `;
 
@@ -501,4 +504,6 @@ if (typeof window !== 'undefined') {
       .catch(err => console.error('Failed to load services:', err));
   });
 }
+
+
 
