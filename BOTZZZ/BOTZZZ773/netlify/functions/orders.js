@@ -204,6 +204,28 @@ async function handleCreateOrder(user, data, headers) {
         .select('*, provider:providers(*)')
         .eq('provider_service_id', Number(sid))
         .maybeSingle());
+
+      // FALLBACK: if nothing found, attempt to match frontend-generated site_id (startingId + index)
+      if (!service) {
+        const { data: allServices, error: allErr } = await supabaseAdmin
+          .from('services')
+          .select('*, provider:providers(*)')
+          .order('category', { ascending: true })
+          .order('name', { ascending: true });
+        console.log('DEBUG allServices count:', { sid, count: allServices && allServices.length, allErr });
+
+        if (Array.isArray(allServices)) {
+          const startingId = 2231;
+          const match = allServices
+            .map((s, i) => ({ ...s, site_id: startingId + i }))
+            .find(s => String(s.site_id) === sid);
+          if (match) {
+            service = match;
+            serviceError = null;
+            console.log('DEBUG matched service by site_id fallback:', { sid, matchedId: service.id });
+          }
+        }
+      }
     } else {
       // Debug: fetch raw rows for UUID id and log them
       const { data: rawRows, error: rawErr } = await supabaseAdmin
