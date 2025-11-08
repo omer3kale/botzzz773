@@ -156,3 +156,40 @@
     <script src="../js/admin-services.js"></script>
 </body>
 </html>
+<script>
+    {
+        // inside loadServices() where servicesCache.forEach(service => { ... })
+        const siteIdValue = service.site_id ?? service.siteId ?? service.public_id ?? service.publicId ?? service.id;
+        const ourIdLabel = siteIdValue ? `#${escapeHtml(String(siteIdValue))}` : '—';
+
+        const providerId = service.provider_service_id ? escapeHtml(service.provider_service_id) : null;
+        const providerLabel = providerId ? `Provider ${providerId}` : 'Manual';
+
+        const minQuantity = formatQuantityValue(service.min_quantity);
+        const maxQuantity = (service.max_quantity === null || service.max_quantity === undefined)
+            ? 'Unlimited'
+            : formatQuantityValue(service.max_quantity);
+        const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
+
+        const row = `
+            <tr>
+                <td><input type="checkbox" class="service-checkbox"></td>
+                <td>
+                    <div class="cell-stack cell-stack-ids">
+                        <span class="cell-primary">${ourIdLabel}</span>
+                        <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
+                    </div>
+                </td>
+                <td>
+                    <div class="service-name">
+                        <i class="${icon}"></i>
+                        ${escapeHtml(service.name)}
+                    </div>
+                </td>
+                /* ...rest of row... */
+            </tr>
+        `;
+        // ...existing code...
+    }
+</script>
+
