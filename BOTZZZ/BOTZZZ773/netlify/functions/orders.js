@@ -578,3 +578,17 @@ async function submitOrderToProvider(provider, orderData) {
 //     link: 'https://...'    // string
 //   })
 // });
+//
+// Additional client-side code to fetch services (not for Lambda):
+//
+// const res = await fetch('/.netlify/functions/services');
+// const json = await res.json();
+// const svc = Array.isArray(json.services) ? json.services[0] : null;
+//
+// if (svc) {
+//   const dbId = svc.id;                  // DB UUID (use this for orders)
+//   const providerId = svc.provider_service_id; // Provider numeric id (if any)
+//   const displayId = svc.site_id;        // Generated site-specific display id
+//   console.log({ dbId, providerId, displayId });
+// }
+
