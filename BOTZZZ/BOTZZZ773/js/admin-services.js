@@ -1055,10 +1055,9 @@ async function loadServices() {
                            'fas fa-box';
 
                 const isManualService = isAdminCreatedService(service);
-                const publicIdValue = toNumeric(service.public_id);
-                const ourIdLabel = isManualService && publicIdValue !== null
-                    ? `#${publicIdValue}`
-                    : (isManualService ? 'Pending ID' : 'Imported');
+                // Prefer site-specific ID injected server-side (site_id). Fallback to other id fields.
+                const siteIdValue = service.site_id ?? service.siteId ?? service.public_id ?? service.publicId ?? service.id ?? null;
+                const ourIdLabel = siteIdValue ? `#${escapeHtml(String(siteIdValue))}` : (isManualService ? 'Pending ID' : '—');
                 const providerId = service.provider_service_id ? escapeHtml(service.provider_service_id) : null;
                 const providerLabel = providerId ? `Provider ${providerId}` : 'No provider';
 
@@ -1095,8 +1094,10 @@ async function loadServices() {
                         <td><input type="checkbox" class="service-checkbox"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
-                                <span class="cell-primary${isManualService && publicIdValue !== null ? '' : ' cell-muted'}">${ourIdLabel}</span>
-                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
+-                                <span class="cell-primary${isManualService && publicIdValue !== null ? '' : ' cell-muted'}">${ourIdLabel}</span>
+-                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
++                                <span class="cell-primary">${ourIdLabel}</span>
++                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
                             </div>
                         </td>
                         <td>
