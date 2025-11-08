@@ -188,21 +188,38 @@ async function handleCreateOrder(user, data, headers) {
     let service, serviceError;
     const sid = String(serviceId || '').trim();
     const isNumeric = /^\d+$/.test(sid);
+
     if (isNumeric) {
-      // use admin client to avoid RLS/permission issues on server
+      // Debug: fetch raw rows for numeric provider_service_id and log them
+      const { data: rawRows, error: rawErr } = await supabaseAdmin
+        .from('services')
+        .select('*, provider:providers(*)')
+        .eq('provider_service_id', Number(sid))
+        .limit(10);
+      console.log('DEBUG service rawRows (provider_service_id):', { sid, rawRows, rawErr });
+
+      // Then use maybeSingle to keep existing behavior
       ({ data: service, error: serviceError } = await supabaseAdmin
         .from('services')
         .select('*, provider:providers(*)')
         .eq('provider_service_id', Number(sid))
-        .maybeSingle()); // use maybeSingle to avoid coercion error when 0 rows
+        .maybeSingle());
     } else {
-      // assume UUID
+      // Debug: fetch raw rows for UUID id and log them
+      const { data: rawRows, error: rawErr } = await supabaseAdmin
+        .from('services')
+        .select('*, provider:providers(*)')
+        .eq('id', sid)
+        .limit(10);
+      console.log('DEBUG service rawRows (id):', { sid, rawRows, rawErr });
+
       ({ data: service, error: serviceError } = await supabaseAdmin
         .from('services')
         .select('*, provider:providers(*)')
         .eq('id', sid)
         .maybeSingle());
     }
+
     console.log('Service lookup result:', { serviceId: sid, isNumeric, serviceError, found: !!service });
 
     if (serviceError || !service) {
@@ -591,5 +608,3 @@ async function submitOrderToProvider(provider, orderData) {
 //   const displayId = svc.site_id;        // Generated site-specific display id
 //   console.log({ dbId, providerId, displayId });
 // }
-
-
