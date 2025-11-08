@@ -189,15 +189,15 @@ async function handleCreateOrder(user, data, headers) {
     const sid = String(serviceId || '').trim();
     const isNumeric = /^\d+$/.test(sid);
     if (isNumeric) {
-      // services table uses a numeric provider_service_id (client sends numeric id)
-      ({ data: service, error: serviceError } = await supabase
+      // use admin client to avoid RLS/permission issues on server
+      ({ data: service, error: serviceError } = await supabaseAdmin
         .from('services')
         .select('*, provider:providers(*)')
         .eq('provider_service_id', Number(sid))
         .maybeSingle()); // use maybeSingle to avoid coercion error when 0 rows
     } else {
       // assume UUID
-      ({ data: service, error: serviceError } = await supabase
+      ({ data: service, error: serviceError } = await supabaseAdmin
         .from('services')
         .select('*, provider:providers(*)')
         .eq('id', sid)
@@ -591,4 +591,5 @@ async function submitOrderToProvider(provider, orderData) {
 //   const displayId = svc.site_id;        // Generated site-specific display id
 //   console.log({ dbId, providerId, displayId });
 // }
+
 
