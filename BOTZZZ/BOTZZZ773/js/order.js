@@ -29,6 +29,11 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
+  // Public services endpoint (no JWT required) -> GET ?type=services_public
+  if (event.httpMethod === 'GET' && event.queryStringParameters && event.queryStringParameters.type === 'services_public') {
+    return await handleGetPublicServices(headers);
+  }
+
   const user = getUserFromToken(event.headers.authorization);
   if (!user) {
     return {
@@ -518,3 +523,4 @@ async function submitOrderToProvider(provider, orderData) {
     throw error;
   }
 }
+
