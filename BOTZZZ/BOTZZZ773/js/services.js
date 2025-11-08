@@ -89,13 +89,12 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // Ensure a stable site_id so public UI and admin UI match.
-    // Prefer public_id/publicId when present, otherwise fall back to DB id.
+    // --- Burada site_id ekliyoruz, kullanıcılar görebilir ---
+    let siteIdCounter = 2231; // 2231'den başlatıyoruz
     const servicesWithSiteId = services.map(service => {
-      const site_id = service.public_id ?? service.publicId ?? service.id;
-      return { ...service, site_id };
+      return { ...service, site_id: siteIdCounter++ };
     });
- 
+
     return {
       statusCode: 200,
       headers,
@@ -467,38 +466,34 @@ if (typeof window !== 'undefined') {
           services.forEach(service => {
             const serviceSub = document.createElement('div');
             serviceSub.classList.add('service-subcategory');
+
             const subTitle = document.createElement('h3');
             subTitle.classList.add('subcategory-title');
             subTitle.textContent = service.name;
             serviceSub.appendChild(subTitle);
+
             const table = document.createElement('div');
             table.classList.add('services-table');
+
             const row = document.createElement('div');
             row.classList.add('service-row');
 
-            // Only sync the displayed ID with admin (site_id). Keep ordering link using service.name so users can still order as before.
-            const displayId = service.site_id ?? service.public_id ?? service.publicId ?? service.id;
-            const desc = escapeHtml(service.description || '');
-            const rate = `$${Number(service.rate || 0).toFixed(4)}`;
-            const minQty = escapeHtml(String(service.min_quantity ?? '—'));
-            const maxQty = escapeHtml(String(service.max_quantity ?? 'Unlimited'));
-
             row.innerHTML = `
-                <div class="service-main">
-                    <div class="service-title">${escapeHtml(service.name)} <span class="service-id">#${escapeHtml(String(displayId))}</span></div>
-                    <div class="service-desc">${desc}</div>
-                </div>
-                <div class="service-rate">${rate}</div>
-                <div class="service-qty">${minQty} / ${maxQty}</div>
-                <div class="service-action">
-                    <!-- keep order link using service.name to preserve existing user flow -->
-                    <a href="order.html?service=${encodeURIComponent(String(service.name))}" class="btn btn-primary">Order</a>
-                </div>
+              <div class="service-col">
+                <strong>${service.name}</strong>
+                <span class="service-details">${service.description || ''}</span>
+              </div>
+              <div class="service-col price">$${service.rate}</div>
+              <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
+              <div class="service-col">
+                <a href="order.html?service=${encodeURIComponent(service.name)}" class="btn btn-primary btn-sm">Order</a>
+              </div>
             `;
-             table.appendChild(row);
-             serviceSub.appendChild(table);
-             categoryDiv.appendChild(serviceSub);
-         });
+
+            table.appendChild(row);
+            serviceSub.appendChild(table);
+            categoryDiv.appendChild(serviceSub);
+          });
 
           servicesContainer.appendChild(categoryDiv);
         }
