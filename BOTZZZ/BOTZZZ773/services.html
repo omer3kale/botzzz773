@@ -136,6 +136,7 @@
             try {
                 const res = await fetch('/.netlify/functions/services');
                 const data = await res.json();
+                console.log('services API (first 10):', Array.isArray(data.services) ? data.services.slice(0,10) : data.services);
                 const services = Array.isArray(data.services) ? data.services : [];
                 const container = document.getElementById('servicesContainer');
                 if (!container) return;
@@ -220,6 +221,11 @@
     </script>
 </body>
 </html>
+
+
+
+
+
 
 
 
