@@ -132,18 +132,24 @@
                 .replace(/'/g, '&#039;');
         }
 
+        function normalizeName(name = '') {
+            return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+        function slugify(name = '') {
+            return String(name || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+        }
+
         async function loadServices() {
             const container = document.getElementById('servicesContainer');
             if (!container) return;
 
             try {
-                // Fetch both endpoints but tolerate admin-services failure
+                // fetch both endpoints, tolerate admin-services failure
                 const [publicResult, adminResult] = await Promise.allSettled([
                     fetch('/.netlify/functions/services'),
                     fetch('/.netlify/functions/admin-services')
                 ]);
 
-                // Validate public/services response
                 if (publicResult.status !== 'fulfilled') {
                     throw new Error('Failed to fetch services: ' + String(publicResult.reason));
                 }
@@ -153,15 +159,9 @@
                     throw new Error('Services endpoint error ' + resPublic.status + ': ' + body);
                 }
 
-                // Parse public services JSON
-                let data;
-                try {
-                    data = await resPublic.json();
-                } catch (e) {
-                    throw new Error('Invalid JSON from services endpoint: ' + e.message);
-                }
+                const data = await resPublic.json();
 
-                // Parse admin-services if available (non-fatal)
+                // parse admin list (optional)
                 let adminServices = [];
                 if (adminResult && adminResult.status === 'fulfilled') {
                     const resAdmin = adminResult.value;
@@ -180,26 +180,44 @@
                     console.warn('admin-services fetch failed:', adminResult.reason);
                 }
 
-                // Build quick lookup maps
-                const adminById = {};
-                const adminByName = {};
+                // Build multiple lookup maps from admin-services for best matching
+                const adminByAnyId = {};      // map any id value -> admin record
+                const adminByName = {};       // exact normalized name -> admin record
+                const adminBySlug = {};       // slugified name -> admin record
+                const adminByExternal = {};   // external/public id -> admin record
+
                 adminServices.forEach(a => {
-                    const aid = a.service_id ?? a.id ?? a.admin_service_id;
-                    if (aid) adminById[String(aid)] = a;
-                    if (a.name) adminByName[a.name.trim().toLowerCase()] = a;
+                    // collect possible id fields on admin record
+                    const candidates = [
+                        a.service_id, a.id, a.admin_service_id,
+                        a.public_id, a.external_id, a.externalId, a.source_id
+                    ].filter(Boolean);
+
+                    candidates.forEach(c => {
+                        adminByAnyId[String(c)] = a;
+                    });
+
+                    if (a.name) {
+                        adminByName[normalizeName(a.name)] = a;
+                        adminBySlug[slugify(a.name)] = a;
+                    }
+
+                    // if admin has a public/external id field, map it
+                    if (a.public_id) adminByExternal[String(a.public_id)] = a;
+                    if (a.external_id) adminByExternal[String(a.external_id)] = a;
                 });
 
                 container.innerHTML = '';
 
                 const services = Array.isArray(data.services) ? data.services : (Array.isArray(data) ? data : []);
-                const publicServices = services.filter(s => String(s.status || 'active').toLowerCase() === 'active');
+                const publicServices = services.filter(s => String(s.status ?? 'active').toLowerCase() === 'active');
 
                 if (publicServices.length === 0) {
                     container.innerHTML = '<div style="padding:2rem; color:#666; text-align:center;">No services available</div>';
                     return;
                 }
 
-                // Group by category and render (same logic as before)
+                // Group by category and render
                 const categories = {};
                 publicServices.forEach(service => {
                     const cat = service.category || 'Uncategorized';
@@ -231,26 +249,61 @@
                     const table = categoryDiv.querySelector('.services-table');
 
                     servicesList.forEach(service => {
-                        // Resolve admin id: explicit -> match by name -> match by public id -> fallback to internal id
-                        const explicitAdmin = service.service_id ?? service.admin_service_id ?? service.adminId ?? service.site_id ?? service.siteId ?? service.public_id ?? service.publicId;
-                        let resolvedAdmin = explicitAdmin ? String(explicitAdmin) : null;
-
-                        if (!resolvedAdmin && service.name) {
-                            const a = adminByName[service.name.trim().toLowerCase()];
-                            if (a) resolvedAdmin = String(a.service_id ?? a.id ?? a.admin_service_id);
+                        // 1) prefer explicit admin id on public service if provided
+                        let resolvedAdminRec = null;
+                        const explicitAdminId = service.admin_service_id ?? service.service_id ?? service.adminId ?? service.external_admin_id;
+                        if (explicitAdminId && adminByAnyId[String(explicitAdminId)]) {
+                            resolvedAdminRec = adminByAnyId[String(explicitAdminId)];
                         }
 
-                        if (!resolvedAdmin && service.id && adminById[String(service.id)]) {
-                            const a = adminById[String(service.id)];
-                            resolvedAdmin = String(a.service_id ?? a.id ?? a.admin_service_id);
+                        // 2) try exact name match
+                        if (!resolvedAdminRec && service.name) {
+                            const n = normalizeName(service.name);
+                            if (adminByName[n]) resolvedAdminRec = adminByName[n];
                         }
 
-                        const adminId = resolvedAdmin ?? String(service.id ?? '(unknown)');
-                        const displayIdLabel = adminId ? `#${escapeHtml(String(adminId))}` : '—';
+                        // 3) try external/public id fields on public service
+                        if (!resolvedAdminRec) {
+                            const pubIds = [service.public_id, service.publicId, service.external_id, service.externalId, service.site_id, service.siteId].filter(Boolean);
+                            for (const pid of pubIds) {
+                                if (adminByExternal[String(pid)]) {
+                                    resolvedAdminRec = adminByExternal[String(pid)];
+                                    break;
+                                }
+                                if (adminByAnyId[String(pid)]) {
+                                    resolvedAdminRec = adminByAnyId[String(pid)];
+                                    break;
+                                }
+                            }
+                        }
 
+                        // 4) try matching by internal id (service.id) to any admin id
+                        if (!resolvedAdminRec && service.id) {
+                            const a = adminByAnyId[String(service.id)];
+                            if (a) resolvedAdminRec = a;
+                        }
+
+                        // 5) try slug name match (removes punctuation/space differences)
+                        if (!resolvedAdminRec && service.name) {
+                            const s = slugify(service.name);
+                            if (adminBySlug[s]) resolvedAdminRec = adminBySlug[s];
+                        }
+
+                        // Finally pick admin id value from resolved admin record or fallback to explicit fields or internal id
+                        let adminIdValue = null;
+                        if (resolvedAdminRec) {
+                            adminIdValue = resolvedAdminRec.service_id ?? resolvedAdminRec.id ?? resolvedAdminRec.admin_service_id ?? resolvedAdminRec.public_id ?? resolvedAdminRec.external_id;
+                        }
+                        adminIdValue = adminIdValue ?? explicitAdminId ?? service.public_id ?? service.publicId ?? service.id ?? '(unknown)';
+
+                        // set display label and order link param
+                        const displayIdLabel = adminIdValue ? `#${escapeHtml(String(adminIdValue))}` : '—';
                         const rate = service.rate !== undefined ? escapeHtml(String(service.rate)) : '0';
                         const minQ = service.min_quantity ?? service.min_order ?? 'N/A';
                         const maxQ = service.max_quantity ?? service.max_order ?? 'Unlimited';
+
+                        // Optionally attach resolved admin id back onto service object for downstream pages
+                        service.admin_service_id = adminIdValue;
 
                         const row = document.createElement('div');
                         row.classList.add('service-row');
@@ -263,16 +316,15 @@
                             <div class="service-col price">$${rate}</div>
                             <div class="service-col">${escapeHtml(String(minQ))} / ${escapeHtml(String(maxQ))}</div>
                             <div class="service-col">
-                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(adminId))}" class="btn btn-primary btn-sm">Order</a>
+                                <a href="order.html?service=${encodeURIComponent(String(service.id))}&admin_service_id=${encodeURIComponent(String(adminIdValue))}" class="btn btn-primary btn-sm">Order</a>
                             </div>
                         `;
                         table.appendChild(row);
                     });
                 }
-
             } catch (err) {
                 console.error('Failed to load services', err);
-                container.innerHTML = '<div style="padding:2rem; color:#c00; text-align:center;">Failed to load services. ' + escapeHtml(String(err.message)) + '</div>';
+                container.innerHTML = '<div style="padding:2rem; color:#c00; text-align:center;">Failed to load services. ' + escapeHtml(String(err && err.message ? err.message : err)) + '</div>';
             }
         }
 
