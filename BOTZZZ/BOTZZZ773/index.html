@@ -1,259 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOTZZZ773 - #1 SMM Panel | Premium Social Media Services</title>
-    <meta name="description" content="Get the best SMM services at unbeatable prices. Instagram, TikTok, YouTube, Twitter followers, likes, views and more!">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOTZZZ773 - #1 SMM Panel | Premium Social Media Services</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-    <!-- Navigation -->
-    <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
-                <a href="index.html" class="logo">
-                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
-                </a>
-                <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="index.html" class="nav-link active">Home</a></li>
-                    <li><a href="services.html" class="nav-link">Services</a></li>
-                    <li><a href="dashboard.html" class="nav-link">Dashboard</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
-                    <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
-                    <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li id="authNavItem">
-                        <a href="signin.html" class="nav-link btn-primary">Sign In</a>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
+  <!-- Services Table -->
+  <section class="all-services">
+    <div class="container">
+      <h2 class="section-title">All Services</h2>
+      <table id="servicesTable">
+        <thead>
+          <tr>
+            <th>Service ID</th>
+            <th>Name</th>
+            <th>Rate</th>
+            <th>Per</th>
+            <th>Category</th>
+          </tr>
+        </thead>
+        <tbody id="servicesContainer"></tbody>
+      </table>
+    </div>
+  </section>
 
-    <!-- Hero Section -->
-    <section class="hero">
-        <div class="hero-gradient"></div>
-        <div class="container">
-            <div class="hero-content">
-                <h1 class="hero-title">
-                    #1 SMM PANEL<br>
-                    <span class="gradient-text">IN THE WORLD!</span>
-                </h1>
-                <p class="hero-subtitle">Cheap SMM services with lightning-fast delivery and premium quality</p>
-                <div class="hero-buttons">
-                    <a href="services.html" class="btn btn-primary btn-large">View Services</a>
-                    <a href="order.html" class="btn btn-secondary btn-large">Order Now</a>
-                </div>
-                <div class="hero-stats">
-                    <div class="stat-item">
-                        <h3 class="stat-number">7M+</h3>
-                        <p class="stat-label">Orders Completed</p>
-                    </div>
-                    <div class="stat-item">
-                        <h3 class="stat-number">24/7</h3>
-                        <p class="stat-label">Customer Support</p>
-                    </div>
-                    <div class="stat-item">
-                        <h3 class="stat-number">1000+</h3>
-                        <p class="stat-label">Services Available</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
+  <script>
+    async function loadServices() {
+      try {
+        const res = await fetch('/.netlify/functions/services'); // API endpoint
+        const data = await res.json();
+        const container = document.getElementById('servicesContainer');
+        container.innerHTML = '';
 
-    <!-- How It Works -->
-    <section class="how-it-works">
-        <div class="container">
-            <h2 class="section-title">How Our Panel Works</h2>
-            <p class="section-subtitle">Get started in 4 simple steps</p>
-            <div class="steps-grid">
-                <div class="step-card">
-                    <div class="step-number">1</div>
-                    <h3 class="step-title">Register & Log In</h3>
-                    <p class="step-description">Create your account in seconds and access our dashboard</p>
-                </div>
-                <div class="step-card">
-                    <div class="step-number">2</div>
-                    <h3 class="step-title">Add Funds</h3>
-                    <p class="step-description">Choose from multiple payment methods for your convenience</p>
-                </div>
-                <div class="step-card">
-                    <div class="step-number">3</div>
-                    <h3 class="step-title">Select Service</h3>
-                    <p class="step-description">Browse our extensive catalog and place your order</p>
-                </div>
-                <div class="step-card">
-                    <div class="step-number">4</div>
-                    <h3 class="step-title">Watch Results</h3>
-                    <p class="step-description">See your social media grow with real-time updates</p>
-                </div>
-            </div>
-        </div>
-    </section>
+        data.services.forEach(service => {
+          const row = document.createElement('tr');
 
-    <!-- Popular Services -->
-    <section class="popular-services">
-        <div class="container">
-            <h2 class="section-title">Popular Services</h2>
-            <p class="section-subtitle">Most ordered services by our clients</p>
-            <div class="services-grid">
-                <div class="service-card">
-                    <div class="service-icon">📱</div>
-                    <h3 class="service-title">Instagram</h3>
-                    <p class="service-desc">Followers, Likes, Views, Comments & More</p>
-                    <a href="services.html#instagram" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">🎵</div>
-                    <h3 class="service-title">TikTok</h3>
-                    <p class="service-desc">Followers, Likes, Views, Shares & More</p>
-                    <a href="services.html#tiktok" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">▶️</div>
-                    <h3 class="service-title">YouTube</h3>
-                    <p class="service-desc">Views, Subscribers, Likes, Comments & More</p>
-                    <a href="services.html#youtube" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">🐦</div>
-                    <h3 class="service-title">Twitter</h3>
-                    <p class="service-desc">Followers, Likes, Retweets, Views & More</p>
-                    <a href="services.html#twitter" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">👥</div>
-                    <h3 class="service-title">Facebook</h3>
-                    <p class="service-desc">Likes, Followers, Views, Shares & More</p>
-                    <a href="services.html#facebook" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">💬</div>
-                    <h3 class="service-title">Telegram</h3>
-                    <p class="service-desc">Members, Views, Reactions & More</p>
-                    <a href="services.html#telegram" class="btn btn-primary">View Services</a>
-                </div>
-            </div>
-        </div>
-    </section>
+          row.innerHTML = `
+            <td>${service.site_id}</td>
+            <td>${service.name}</td>
+            <td>${service.rate}</td>
+            <td>${service.type}</td>
+            <td>${service.category}</td>
+          `;
+          container.appendChild(row);
+        });
+      } catch (error) {
+        console.error('Failed to load services:', error);
+      }
+    }
 
-    <!-- All Services (Dynamic from services.js) -->
-    <section class="all-services">
-        <div class="container">
-            <h2 class="section-title">All Services</h2>
-            <div id="servicesContainer"></div>
-        </div>
-    </section>
-
-    <!-- Why Choose Us -->
-    <section class="why-choose">
-        <div class="container">
-            <h2 class="section-title">Why Choose BOTZZZ773?</h2>
-            <p class="section-subtitle">We're the best in the business</p>
-            <div class="features-grid">
-                <div class="feature-card">
-                    <div class="feature-icon">⚡</div>
-                    <h3 class="feature-title">Lightning Fast</h3>
-                    <p class="feature-desc">Automated order processing and instant delivery</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">💎</div>
-                    <h3 class="feature-title">Premium Quality</h3>
-                    <p class="feature-desc">High-quality services from verified providers</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">💰</div>
-                    <h3 class="feature-title">Lowest Prices</h3>
-                    <p class="feature-desc">Best prices in the market, guaranteed</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🔒</div>
-                    <h3 class="feature-title">100% Secure</h3>
-                    <p class="feature-desc">Safe and encrypted transactions</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🎯</div>
-                    <h3 class="feature-title">24/7 Support</h3>
-                    <p class="feature-desc">Always here to help you succeed</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon">🌍</div>
-                    <h3 class="feature-title">Global Reach</h3>
-                    <p class="feature-desc">Services for all countries and platforms</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- CTA Section -->
-    <section class="cta-section">
-        <div class="container">
-            <div class="cta-content">
-                <h2 class="cta-title">Ready to Boost Your Social Media?</h2>
-                <p class="cta-subtitle">Join thousands of satisfied customers today!</p>
-                <a href="order.html" class="btn btn-primary btn-large">Get Started Now</a>
-            </div>
-        </div>
-    </section>
-
-    <!-- Footer -->
-    <footer class="footer">
-        <div class="container">
-            <div class="footer-grid">
-                <div class="footer-col">
-                    <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
-                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
-                </div>
-                <div class="footer-col">
-                    <h4 class="footer-heading">Quick Links</h4>
-                    <ul class="footer-links">
-                        <li><a href="index.html">Home</a></li>
-                        <li><a href="services.html">Services</a></li>
-                        <li><a href="order.html">Order Now</a></li>
-                        <li><a href="contact.html">Contact</a></li>
-                    </ul>
-                </div>
-                <div class="footer-col">
-                    <h4 class="footer-heading">Services</h4>
-                    <ul class="footer-links">
-                        <li><a href="services.html#instagram">Instagram</a></li>
-                        <li><a href="services.html#tiktok">TikTok</a></li>
-                        <li><a href="services.html#youtube">YouTube</a></li>
-                        <li><a href="services.html#twitter">Twitter</a></li>
-                    </ul>
-                </div>
-                <div class="footer-col">
-                    <h4 class="footer-heading">Contact</h4>
-                    <ul class="footer-links">
-                        <li>📧 support@botzzz773.com</li>
-                        <li>💬 24/7 Live Chat</li>
-                        <li>🌐 Worldwide Service</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="footer-bottom">
-                <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
-            </div>
-        </div>
-    </footer>
-
-    <!-- JS -->
-    <script src="js/api-client.js"></script>
-    <script src="js/main.js"></script>
-    <script src="js/auth-backend.js"></script>
-    <script src="services.js"></script> <!-- 🔹 Tek services.js dosyası -->
+    loadServices();
+  </script>
 </body>
 </html>
+
 
 
 
