@@ -1,117 +1,426 @@
-// ==========================================
-// Load Services from API (compatible with api-client.js)
-// ==========================================
-async function loadServicesFromAPI() {
-    const container = document.getElementById('servicesContainer');
+// Services API - Get, Create, Update, Delete Services
+const { supabase, supabaseAdmin } = require('./utils/supabase');
+const jwt = require('jsonwebtoken');
+const axios = require('axios');
 
-    try {
-        // Loading spinner
-        container.innerHTML = `
-            <div class="loading-spinner" style="text-align:center; padding:60px;">
-                <div style="display:inline-block; width:50px; height:50px; border:4px solid rgba(255,20,148,0.2); border-top-color:#FF1494; border-radius:50%; animation:spin 1s linear infinite;"></div>
-                <p style="margin-top:20px; color:#94A3B8;">Loading services...</p>
-            </div>
-        `;
+const JWT_SECRET = process.env.JWT_SECRET;
 
-        // ✅ Senin sistemdeki çağrı — api-client.js'den geliyor
-        const data = await fetchServices();
-        const services = data?.services || [];
-
-        if (!Array.isArray(services) || services.length === 0) {
-            container.innerHTML = '<p style="text-align:center; padding:80px;">No services available</p>';
-            return;
-        }
-
-        // 🔢 Özel site ID sayacı
-        let globalServiceCounter = 0;
-        const START_SITE_ID = 2231;
-
-        // Gruplama
-        const grouped = {};
-        services.forEach(service => {
-            const category = (service.category || 'Other').toLowerCase();
-            if (!grouped[category]) grouped[category] = [];
-            grouped[category].push(service);
-        });
-
-        let html = '';
-        const categoryIcons = {
-            instagram: '📱',
-            tiktok: '🎵',
-            youtube: '▶️',
-            twitter: '🐦',
-            facebook: '👥',
-            telegram: '💬',
-            spotify: '🎧',
-            soundcloud: '🎶',
-            other: '⭐'
-        };
-
-        Object.keys(grouped).sort().forEach(category => {
-            const icon = categoryIcons[category] || '⭐';
-            const categoryServices = grouped[category];
-            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
-
-            html += `
-                <div class="service-category" data-category="${category}" id="${category}">
-                    <h2 class="category-title">${icon} ${categoryName} Services</h2>
-                    <div class="service-subcategory">
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-            `;
-
-            categoryServices.forEach(service => {
-                const rate = parseFloat(service.rate || 0).toFixed(2);
-                const minRaw = service.min_quantity ?? service.min_order;
-                const maxRaw = service.max_quantity ?? service.max_order;
-                const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
-                const max = maxRaw == null ? '∞' : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
-
-                // 🔒 Gerçek public_id'yi kullanmıyoruz, sadece site ID
-                const labelId = START_SITE_ID + globalServiceCounter;
-                globalServiceCounter++;
-
-                html += `
-                    <div class="service-row" data-service-id="${service.id}">
-                        <div class="service-col">
-                            <strong>${labelId} · ${escapeHtml(service.name)}</strong>
-                            <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
-                        </div>
-                        <div class="service-col price">$${rate}</div>
-                        <div class="service-col">${min} / ${max}</div>
-                        <div class="service-col">
-                            <button onclick="showServiceDescription(
-                                '${service.id}',
-                                '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}',
-                                '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}',
-                                '${rate}',
-                                '${min}',
-                                '${max}'
-                            )" class="btn btn-primary btn-sm">Description</button>
-                        </div>
-                    </div>
-                `;
-            });
-
-            html += `
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-        console.log('[SUCCESS] Services loaded (via api-client.js)');
-
-    } catch (error) {
-        console.error('[ERROR] Failed to load services:', error);
-        container.innerHTML = `<p style="text-align:center; padding:80px;">Failed to load services: ${error.message}</p>`;
-    }
+function getUserFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
 }
 
+exports.handler = async (event) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Content-Type': 'application/json'
+  };
 
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  const user = getUserFromToken(event.headers.authorization);
+  
+  try {
+    const body = JSON.parse(event.body || '{}');
+
+    switch (event.httpMethod) {
+      case 'GET':
+        return await handleGetServices(user, headers);
+      case 'POST':
+        return await handleCreateService(user, body, headers);
+      case 'PUT':
+        return await handleUpdateService(user, body, headers);
+      case 'DELETE':
+        return await handleDeleteService(user, body, headers);
+      default:
+        return {
+          statusCode: 405,
+          headers,
+          body: JSON.stringify({ error: 'Method not allowed' })
+        };
+    }
+  } catch (error) {
+    console.error('Services API error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+};
+
+async function handleGetServices(user, headers) {
+  try {
+    const isAdmin = user && user.role === 'admin';
+    const client = isAdmin ? supabaseAdmin : supabase;
+
+    let query = client
+      .from('services')
+      .select(`
+        *,
+        provider:providers(id, name, status, markup)
+      `);
+
+    if (!isAdmin) {
+      query = query.eq('status', 'active');
+    }
+
+    query = query.order('category', { ascending: true }).order('name', { ascending: true });
+
+    const { data: services, error } = await query;
+
+    if (error) {
+      console.error('Get services error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch services' })
+      };
+    }
+
+    // 🔹 Her servise siteye özel ID ekliyoruz (2231'den başlayarak)
+    const startingId = 2231;
+    const servicesWithCustomId = services.map((service, index) => ({
+      ...service,
+      site_id: startingId + index
+    }));
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ services: servicesWithCustomId })
+    };
+  } catch (error) {
+    console.error('Get services error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleCreateService(user, data, headers) {
+  try {
+    if (!user || user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { action } = data;
+
+    if (action === 'create-category') {
+      return await handleCreateCategory(data, headers);
+    }
+
+    if (action === 'duplicate') {
+      return await handleDuplicateService(data, headers);
+    }
+
+    const {
+      providerId,
+      providerServiceId,
+      name,
+      category,
+      description,
+      rate,
+      price,
+      min_quantity,
+      minOrder,
+      max_quantity,
+      maxOrder,
+      type,
+      status
+    } = data;
+
+    if (!name || !category) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Missing required fields' })
+      };
+    }
+
+    const servicePrice = rate || price || 0;
+    const minQty = min_quantity || minOrder || 10;
+    const maxQty = max_quantity || maxOrder || 100000;
+
+    const { data: service, error } = await supabaseAdmin
+      .from('services')
+      .insert({
+        provider_id: providerId || null,
+        provider_service_id: providerServiceId || null,
+        name,
+        category,
+        description: description || '',
+        rate: servicePrice,
+        min_quantity: minQty,
+        max_quantity: maxQty,
+        type: type || 'service',
+        status: status || 'active'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Create service error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to create service' })
+      };
+    }
+
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        service
+      })
+    };
+  } catch (error) {
+    console.error('Create service error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleUpdateService(user, data, headers) {
+  try {
+    if (!user || user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const {
+      serviceId,
+      name,
+      category,
+      rate,
+      price,
+      min_quantity,
+      max_quantity,
+      description,
+      status,
+      providerId,
+      provider_id,
+      providerServiceId,
+      provider_service_id,
+      ...updateData
+    } = data;
+
+    if (!serviceId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service ID is required' })
+      };
+    }
+
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (category !== undefined) updates.category = category;
+    if (rate !== undefined) updates.rate = rate;
+    if (price !== undefined) updates.rate = price;
+    if (min_quantity !== undefined) updates.min_quantity = min_quantity;
+    if (max_quantity !== undefined) updates.max_quantity = max_quantity;
+    if (description !== undefined) updates.description = description;
+    if (status !== undefined) updates.status = status;
+
+    const resolvedProviderId = providerId !== undefined ? providerId : provider_id;
+    if (resolvedProviderId !== undefined) {
+      updates.provider_id = resolvedProviderId || null;
+    }
+
+    const resolvedProviderServiceId = providerServiceId !== undefined ? providerServiceId : provider_service_id;
+    if (resolvedProviderServiceId !== undefined) {
+      updates.provider_service_id = resolvedProviderServiceId || null;
+    }
+
+    const { data: service, error } = await supabaseAdmin
+      .from('services')
+      .update(updates)
+      .eq('id', serviceId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Update service error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to update service' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        service
+      })
+    };
+  } catch (error) {
+    console.error('Update service error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleDeleteService(user, data, headers) {
+  try {
+    if (!user || user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { serviceId } = data;
+
+    if (!serviceId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service ID is required' })
+      };
+    }
+
+    const { error } = await supabaseAdmin
+      .from('services')
+      .delete()
+      .eq('id', serviceId);
+
+    if (error) {
+      console.error('Delete service error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to delete service' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true })
+    };
+  } catch (error) {
+    console.error('Delete service error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleCreateCategory(data, headers) {
+  try {
+    const { name, description, icon } = data;
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ 
+        success: true,
+        message: `Category "${name}" created successfully`,
+        category: { name, description, icon }
+      })
+    };
+  } catch (error) {
+    console.error('Create category error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to create category' })
+    };
+  }
+}
+
+async function handleDuplicateService(data, headers) {
+  try {
+    const { serviceId } = data;
+
+    const { data: originalService, error: fetchError } = await supabaseAdmin
+      .from('services')
+      .select('*')
+      .eq('id', serviceId)
+      .single();
+
+    if (fetchError || !originalService) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Service not found' })
+      };
+    }
+
+    const { data: newService, error: insertError } = await supabaseAdmin
+      .from('services')
+      .insert({
+        provider_id: originalService.provider_id,
+        provider_service_id: originalService.provider_service_id,
+        name: `${originalService.name} (Copy)`,
+        category: originalService.category,
+        description: originalService.description,
+        rate: originalService.rate,
+        min_quantity: originalService.min_quantity,
+        max_quantity: originalService.max_quantity,
+        type: originalService.type,
+        status: 'inactive'
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to duplicate service' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ 
+        success: true,
+        service: newService
+      })
+    };
+  } catch (error) {
+    console.error('Duplicate service error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to duplicate service' })
+    };
+  }
+}
