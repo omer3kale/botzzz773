@@ -62,8 +62,6 @@ exports.handler = async (event) => {
         return await handlePutActions(user, body, headers);
       case 'DELETE':
         return await handleDeleteTicket(user, body, headers);
-      case 'PUT':
-        return await handleUpdateTicket(user, body, headers);
       default:
         return {
           statusCode: 405,

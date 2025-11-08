@@ -10,7 +10,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["@supabase/supabase-js", "stripe"]
+  external_node_modules = ["@supabase/supabase-js", "stripe", "axios"]
 
 [dev]
   command = "npm run dev"

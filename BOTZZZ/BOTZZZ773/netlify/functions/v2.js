@@ -285,7 +285,7 @@ async function handleAddOrder(user, params, headers) {
         quantity: quantity,
         charge: totalCost,
         status: 'pending',
-        order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
+  order_number: `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
       })
       .select()
       .single();
