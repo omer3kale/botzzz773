@@ -3,195 +3,193 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Services - BOTZZZ773 Admin</title>
-    <link rel="stylesheet" href="../css/admin-styles.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <!-- Admin Authentication Protection - MUST BE FIRST -->
-    <script src="../js/admin-auth.js"></script>
+    <title>Our Services - BOTZZZ773 SMM Panel</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 </head>
-<body class="admin-body">
-    <!-- Admin Header -->
-    <header class="admin-header">
-        <button class="sidebar-toggle" onclick="toggleSidebar()">
-            <i class="fas fa-bars"></i>
-        </button>
-        <div class="admin-logo">BOTZZZ773</div>
-        <div class="admin-header-right">
-            <div class="admin-search">
-                <i class="fas fa-search"></i>
-                <input type="text" placeholder="Search services..." id="serviceSearch">
-            </div>
-            <div class="admin-notifications">
-                <i class="fas fa-bell"></i>
-                <span class="notification-badge">10</span>
-            </div>
-            <div class="admin-user">
-                <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
-            </div>
-        </div>
-    </header>
-
-    <!-- Admin Sidebar -->
-    <aside class="admin-sidebar" id="adminSidebar">
-        <nav class="admin-nav">
-            <a href="index.html" class="admin-nav-item">
-                <i class="fas fa-chart-line"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="users.html" class="admin-nav-item">
-                <i class="fas fa-users"></i>
-                <span>Users</span>
-            </a>
-            <a href="orders.html" class="admin-nav-item">
-                <i class="fas fa-shopping-cart"></i>
-                <span>Orders</span>
-            </a>
-            <a href="services.html" class="admin-nav-item active">
-                <i class="fas fa-box"></i>
-                <span>Services</span>
-            </a>
-            <a href="payments.html" class="admin-nav-item">
-                <i class="fas fa-credit-card"></i>
-                <span>Payments</span>
-            </a>
-            <a href="tickets.html" class="admin-nav-item">
-                <i class="fas fa-ticket-alt"></i>
-                <span>Tickets</span>
-                <span class="nav-badge">10</span>
-            </a>
-            <a href="reports.html" class="admin-nav-item">
-                <i class="fas fa-chart-bar"></i>
-                <span>Reports</span>
-            </a>
-            <a href="settings.html" class="admin-nav-item">
-                <i class="fas fa-cog"></i>
-                <span>Settings</span>
-            </a>
-        </nav>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="admin-main">
-        <div class="admin-page-header">
-            <h1>Services</h1>
-            <div class="page-actions">
-                <button class="btn-secondary" onclick="importServices()">
-                    <i class="fas fa-download"></i> Import Services
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="nav-wrapper">
+                <a href="index.html" class="logo">
+                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
+                </a>
+                <button class="mobile-toggle" id="mobileToggle">
+                    <span></span><span></span><span></span>
                 </button>
-                <button class="btn-secondary" onclick="createCategory()">
-                    <i class="fas fa-folder-plus"></i> Create Category
-                </button>
-                <button class="btn-secondary" onclick="addSubscription()">
-                    <i class="fas fa-sync"></i> Add Subscription
-                </button>
-                <button class="btn-primary" onclick="addService()">
-                    <i class="fas fa-plus"></i> Add Service
-                </button>
+                <ul class="nav-menu" id="navMenu">
+                    <li><a href="index.html" class="nav-link">Home</a></li>
+                    <li><a href="services.html" class="nav-link active">Services</a></li>
+                    <li><a href="order.html" class="nav-link">Order Now</a></li>
+                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                    <li><a href="api.html" class="nav-link">API</a></li>
+                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
+                    <li><a href="contact.html" class="nav-link">Contact</a></li>
+                    <li id="authNavItem"><a href="signin.html" class="nav-link btn-primary">Sign In</a></li>
+                </ul>
             </div>
         </div>
+    </nav>
 
-        <!-- Services Table -->
-        <div class="table-container">
-            <table class="admin-table" id="servicesTable">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" onclick="toggleAll(this, 'service-checkbox')"></th>
-                        <th onclick="sortTable('id')">Service IDs <i class="fas fa-sort"></i></th>
-                        <th>Service</th>
-                        <th>Category</th>
-                        <th>Provider</th>
-                        <th onclick="sortTable('rate')">Rates / 1k <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable('min')">Min <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable('max')">Max <i class="fas fa-sort"></i></th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="servicesTableBody">
-                    <!-- Services are loaded dynamically -->
-                </tbody>
-            </table>
+    <!-- Page Header -->
+    <section class="page-header">
+        <div class="container">
+            <h1 class="page-title">Our <span class="gradient-text">Services</span></h1>
+            <p class="page-subtitle">1000+ premium SMM services at unbeatable prices</p>
         </div>
+    </section>
 
-        <!-- Stats Cards -->
-        <div class="stats-grid" style="margin-top: 30px;">
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                    <i class="fas fa-box"></i>
-                </div>
-                <div class="stat-details">
-                    <div class="stat-value" id="totalServices">Loading...</div>
-                    <div class="stat-label">Total Services</div>
-                </div>
+    <!-- Service Filter -->
+    <section class="service-filter">
+        <div class="container">
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">All Services</button>
+                <button class="filter-btn" data-filter="instagram">📱 Instagram</button>
+                <button class="filter-btn" data-filter="tiktok">🎵 TikTok</button>
+                <button class="filter-btn" data-filter="youtube">▶️ YouTube</button>
+                <button class="filter-btn" data-filter="twitter">🐦 Twitter</button>
+                <button class="filter-btn" data-filter="facebook">👥 Facebook</button>
+                <button class="filter-btn" data-filter="telegram">💬 Telegram</button>
             </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                    <i class="fas fa-check-circle"></i>
-                </div>
-                <div class="stat-details">
-                    <div class="stat-value" id="activeServices">Loading...</div>
-                    <div class="stat-label">Active Services</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                    <i class="fas fa-sync"></i>
-                </div>
-                <div class="stat-details">
-                    <div class="stat-label">Last Sync</div>
-                    <div class="update-time" id="lastSync">Loading...</div>
-                </div>
+            <div class="search-box">
+                <input type="text" id="serviceSearch" placeholder="🔍 Search services..." class="search-input">
             </div>
         </div>
+    </section>
 
-        <!-- Pagination -->
-        <div class="pagination">
-            <button class="btn-secondary" id="prevPage" disabled>Previous</button>
-            <span class="pagination-info" id="paginationInfo">Loading...</span>
-            <button class="btn-secondary" id="nextPage">Next</button>
+    <!-- Services List -->
+    <section class="services-list">
+        <div class="container" id="servicesContainer">
+            <!-- Tüm kategoriler burada JS ile yüklenecek -->
         </div>
-    </main>
+    </section>
 
-    <script src="../js/admin.js"></script>
-    <script src="../js/admin-services.js"></script>
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="container">
+            <div class="cta-content">
+                <h2 class="cta-title">Ready to Order?</h2>
+                <p class="cta-subtitle">Get started with the best SMM services now!</p>
+                <a href="order.html" class="btn btn-primary btn-large">Order Now</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
+                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="index.html">Home</a></li>
+                        <li><a href="services.html">Services</a></li>
+                        <li><a href="order.html">Order Now</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Services</h4>
+                    <ul class="footer-links">
+                        <li><a href="services.html#instagram">Instagram</a></li>
+                        <li><a href="services.html#tiktok">TikTok</a></li>
+                        <li><a href="services.html#youtube">YouTube</a></li>
+                        <li><a href="services.html#twitter">Twitter</a></li>
+                    </ul>
+                </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Contact</h4>
+                    <ul class="footer-links">
+                        <li>📧 support@botzzz773.com</li>
+                        <li>💬 24/7 Live Chat</li>
+                        <li>🌐 Worldwide Service</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/main.js"></script>
+    <script>
+        async function loadServices() {
+            try {
+                const res = await fetch('/.netlify/functions/services'); // API URL
+                const data = await res.json();
+                const services = data.services;
+                const container = document.getElementById('servicesContainer');
+
+                const categories = {};
+
+                // Kategorilere ayır
+                services.forEach(service => {
+                    if (!categories[service.category]) {
+                        categories[service.category] = [];
+                    }
+                    categories[service.category].push(service);
+                });
+
+                // Her kategori için HTML oluştur
+                for (const [category, servicesList] of Object.entries(categories)) {
+                    const categoryDiv = document.createElement('div');
+                    categoryDiv.classList.add('service-category');
+                    categoryDiv.dataset.category = category;
+
+                    categoryDiv.innerHTML = `
+                        <h2 class="category-title">${category.charAt(0).toUpperCase() + category.slice(1)} Services</h2>
+                        <div class="service-subcategory">
+                            <div class="services-table">
+                                <div class="service-row service-row-header">
+                                    <div class="service-col">Service ID</div>
+                                    <div class="service-col">Service Name</div>
+                                    <div class="service-col">Rate (per 1000)</div>
+                                    <div class="service-col">Min/Max</div>
+                                    <div class="service-col">Action</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(categoryDiv);
+
+                    const table = categoryDiv.querySelector('.services-table');
+
+                    servicesList.forEach(service => {
+                        const row = document.createElement('div');
+                        row.classList.add('service-row');
+                        row.innerHTML = `
+                            <div class="service-col">${service.site_id || service.id}</div>
+                            <div class="service-col">
+                                <strong>${service.name}</strong>
+                                ${service.description ? `<span class="service-details">${service.description}</span>` : ''}
+                            </div>
+                            <div class="service-col price">$${service.rate}</div>
+                            <div class="service-col">${service.min_quantity} / ${service.max_quantity}</div>
+                            <div class="service-col">
+                                <a href="order.html?service=${service.id}" class="btn btn-primary btn-sm">Order</a>
+                            </div>
+                        `;
+                        table.appendChild(row);
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to load services', err);
+            }
+        }
+
+        loadServices();
+    </script>
 </body>
 </html>
-<script>
-    {
-        // inside loadServices() where servicesCache.forEach(service => { ... })
-        const siteIdValue = service.site_id ?? service.siteId ?? service.public_id ?? service.publicId ?? service.id;
-        const ourIdLabel = siteIdValue ? `#${escapeHtml(String(siteIdValue))}` : '—';
-
-        const providerId = service.provider_service_id ? escapeHtml(service.provider_service_id) : null;
-        const providerLabel = providerId ? `Provider ${providerId}` : 'Manual';
-
-        const minQuantity = formatQuantityValue(service.min_quantity);
-        const maxQuantity = (service.max_quantity === null || service.max_quantity === undefined)
-            ? 'Unlimited'
-            : formatQuantityValue(service.max_quantity);
-        const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
-
-        const row = `
-            <tr>
-                <td><input type="checkbox" class="service-checkbox"></td>
-                <td>
-                    <div class="cell-stack cell-stack-ids">
-                        <span class="cell-primary">${ourIdLabel}</span>
-                        <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
-                    </div>
-                </td>
-                <td>
-                    <div class="service-name">
-                        <i class="${icon}"></i>
-                        ${escapeHtml(service.name)}
-                    </div>
-                </td>
-                /* ...rest of row... */
-            </tr>
-        `;
-        // ...existing code...
-    }
-</script>
 
 
 
