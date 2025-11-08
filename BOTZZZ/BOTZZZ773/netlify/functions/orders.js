@@ -544,17 +544,20 @@ async function submitOrderToProvider(provider, orderData) {
   }
 }
 
-// Use JSON and exact keys
-fetch('/.netlify/functions/orders', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer YOUR_JWT'
-  },
-  body: JSON.stringify({
-    serviceId: 123,        // number or string
-    quantity: 1000,        // number
-    link: 'https://...'    // string
-  })
-});
+// Client example — DO NOT RUN IN LAMBDA (browser only)
+// Use this in your frontend, not in this server file:
+//
+// fetch('/.netlify/functions/orders', {
+//   method: 'POST',
+//   headers: {
+//     'Content-Type': 'application/json',
+//     'Authorization': 'Bearer YOUR_JWT'
+//   },
+//   body: JSON.stringify({
+//     serviceId: 123,        // number or string
+//     quantity: 1000,        // number
+//     link: 'https://...'    // string
+//   })
+// });
+
 
