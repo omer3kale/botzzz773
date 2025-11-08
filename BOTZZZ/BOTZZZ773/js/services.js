@@ -79,7 +79,6 @@ async function handleGetServices(user, headers) {
     query = query.order('category', { ascending: true }).order('name', { ascending: true });
 
     const { data: services, error } = await query;
-
     if (error) {
       console.error('Get services error:', error);
       return {
@@ -89,12 +88,13 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // --- Burada site_id ekliyoruz, kullanıcılar görebilir ---
-    let siteIdCounter = 2231; // 2231'den başlatıyoruz
+    // --- Replace ephemeral counter with deterministic site_id (use public_id if present, otherwise DB id) ---
     const servicesWithSiteId = services.map(service => {
-      return { ...service, site_id: siteIdCounter++ };
+      // prefer persisted public_id/publicId/site_id; fall back to DB id so value is stable across requests
+      const site_id = service.public_id ?? service.publicId ?? service.site_id ?? service.id;
+      return { ...service, site_id };
     });
-
+    
     return {
       statusCode: 200,
       headers,
@@ -501,4 +501,6 @@ if (typeof window !== 'undefined') {
       .catch(err => console.error('Failed to load services:', err));
   });
 }
+
+
 
