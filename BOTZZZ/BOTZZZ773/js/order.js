@@ -219,18 +219,25 @@ async function handleCreateOrder(user, data, headers) {
       order_number: `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
     };
 
-    const { data: order, error: orderError } = await supabaseAdmin
+    // Detailed insert & logging to diagnose failures
+    console.log('Creating order with payload:', orderPayload);
+    const insertResult = await supabaseAdmin
       .from('orders')
       .insert(orderPayload)
-      .select()
-      .single();
+      .select(); // return inserted rows
 
-    if (orderError) {
+    console.log('Supabase insert result:', insertResult);
+
+    // normalize response (data may be array)
+    const order = Array.isArray(insertResult.data) ? insertResult.data[0] : insertResult.data;
+    const orderError = insertResult.error;
+
+    if (orderError || !order) {
       console.error('Create order insert error:', orderError);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create order' })
+        body: JSON.stringify({ error: 'Failed to create order', details: orderError || 'no-order-returned' })
       };
     }
 
@@ -511,4 +518,3 @@ async function submitOrderToProvider(provider, orderData) {
     throw error;
   }
 }
-
