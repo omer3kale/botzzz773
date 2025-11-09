@@ -378,48 +378,20 @@ async function loadOrders() {
             tbody.innerHTML = '';
             
             data.orders.forEach(order => {
-                // Helpful debug to inspect actual API shape:
-                // console.log('order raw:', order);
-                
-                const createdDate = new Date(order.created_at || order.createdAt || Date.now()).toLocaleString();
-                const statusRaw = (order.status || order.status_text || '').toString();
-                const statusClass = statusRaw.toLowerCase().replace(/\s+/g, '-');
-                
-                // Robust user lookup (try several common field names)
-                const username =
-                    order.users?.username ||
-                    order.user?.username ||
-                    order.username ||
-                    order.user_name ||
-                    (order.user_id ? `#${order.user_id}` : null) ||
-                    'Unknown';
-                
-                // Robust service lookup
-                const serviceName =
-                    order.services?.name ||
-                    order.service?.name ||
-                    order.service_name ||
-                    order.service ||
-                    'Unknown Service';
-                
-                const link = order.link || order.url || order.target || '';
-                const linkDisplay = link ? (link.length > 40 ? `${link.substring(0, 40)}...` : link) : '—';
-                const charge = parseFloat(order.charge || order.price || 0).toFixed(2);
-                
-                const isCompleted = statusRaw.toLowerCase() === 'completed';
-                const isCanceled = statusRaw.toLowerCase() === 'canceled';
+                const createdDate = new Date(order.created_at).toLocaleString();
+                const statusClass = order.status.toLowerCase().replace(' ', '-');
                 
                 const row = `
                     <tr data-status="${statusClass}">
                         <td><input type="checkbox" class="order-checkbox"></td>
                         <td>${order.id}</td>
-                        <td>${escapeHtml(username)}</td>
-                        <td>$${charge}</td>
-                        <td>${ link ? `<a href="${escapeHtml(link)}" class="link-preview" target="_blank">${escapeHtml(linkDisplay)}</a>` : '—' }</td>
+                        <td>${order.users?.username || 'Unknown'}</td>
+                        <td>$${parseFloat(order.charge || 0).toFixed(2)}</td>
+                        <td><a href="${order.link}" class="link-preview" target="_blank">${order.link.substring(0, 40)}...</a></td>
                         <td>${order.start_count || 0}</td>
                         <td>${order.quantity || 0}</td>
-                        <td>${escapeHtml(serviceName)}</td>
-                        <td><span class="status-badge ${statusClass}">${escapeHtml(statusRaw || order.status)}</span></td>
+                        <td>${order.services?.name || 'Unknown Service'}</td>
+                        <td><span class="status-badge ${statusClass}">${order.status}</span></td>
                         <td>${order.remains || 0}</td>
                         <td>${createdDate}</td>
                         <td>${order.mode || 'Auto'}</td>
@@ -428,9 +400,9 @@ async function loadOrders() {
                                 <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
                                 <div class="dropdown-menu">
                                     <a href="#" onclick="viewOrder('${order.id}')">View</a>
-                                    ${(!isCompleted && !isCanceled) ? `<a href="#" onclick="editOrder('${order.id}')">Edit</a>` : ''}
-                                    ${isCompleted ? `<a href="#" onclick="refillOrder('${order.id}')">Refill</a>` : ''}
-                                    ${(!isCompleted && !isCanceled) ? `<a href="#" onclick="cancelOrder('${order.id}')">Cancel</a>` : ''}
+                                    ${order.status !== 'completed' && order.status !== 'canceled' ? `<a href="#" onclick="editOrder('${order.id}')">Edit</a>` : ''}
+                                    ${order.status === 'completed' ? `<a href="#" onclick="refillOrder('${order.id}')">Refill</a>` : ''}
+                                    ${order.status !== 'completed' && order.status !== 'canceled' ? `<a href="#" onclick="cancelOrder('${order.id}')">Cancel</a>` : ''}
                                 </div>
                             </div>
                         </td>
