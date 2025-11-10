@@ -417,8 +417,8 @@ async function loadOrders() {
                 paginationInfo.textContent = `Showing 1-${Math.min(data.orders.length, 50)} of ${data.orders.length}`;
             }
         } else {
-            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
-        }
+             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
+         }
     } catch (error) {
         console.error('Load orders error:', error);
         tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
@@ -485,3 +485,4 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
