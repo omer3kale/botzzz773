@@ -367,21 +367,37 @@ async function loadOrders() {
         const response = await fetch('/.netlify/functions/orders', {
             method: 'GET',
             headers: {
-                'Authorization': `Bearer ${token}`,
+                'Authorization': `Bearer ${token || ''}`,
                 'Content-Type': 'application/json'
             }
         });
 
-        const data = await response.json();
-        
-        // If API returned non-OK status, show error and log payload
+        // Handle auth errors explicitly
+        if (response.status === 401 || response.status === 403) {
+            console.warn('Orders API auth error:', response.status);
+            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Unauthorized. Please sign in again.</td></tr>';
+            // Optional: redirect to signin for admin UI
+            setTimeout(() => { window.location.href = 'signin.html'; }, 1200);
+            return;
+        }
+
+        // Try to parse JSON safely
+        let data;
+        try {
+            data = await response.json();
+        } catch (parseErr) {
+            const text = await response.text().catch(() => '<failed to read body>');
+            console.error('Orders API returned non-JSON response:', response.status, text);
+            tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders (invalid response). Check console and network tab.</td></tr>`;
+            return;
+        }
+
         if (!response.ok) {
             console.error('Orders API error:', response.status, data);
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
             return;
         }
-        
-        // Support multiple possible response shapes: { orders: [...] } or { data: [...] } or { results: [...] }
+
         const orders = Array.isArray(data.orders)
             ? data.orders
             : Array.isArray(data.data)
@@ -389,14 +405,13 @@ async function loadOrders() {
                 : Array.isArray(data.results)
                     ? data.results
                     : [];
-        
+
         if (orders.length === 0) {
             console.info('No orders returned from API:', data);
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
             return;
         }
-        
-        // Render rows
+
         tbody.innerHTML = '';
         orders.forEach(order => {
             const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : '-';
@@ -435,8 +450,7 @@ async function loadOrders() {
             `;
             tbody.insertAdjacentHTML('beforeend', row);
         });
-         
-        // Update pagination info (best-effort)
+
         const paginationInfo = document.getElementById('paginationInfo');
         if (paginationInfo) {
             paginationInfo.textContent = `Showing 1-${Math.min(orders.length, 50)} of ${orders.length}`;
@@ -507,3 +521,4 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
