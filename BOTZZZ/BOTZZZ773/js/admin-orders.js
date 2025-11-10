@@ -1,524 +1,867 @@
-// Admin Orders Management with Real Modals
-
-let servicesCache = [];
-
-// Modal Helper Functions (shared with admin-users.js pattern)
-function createModal(title, content, actions = '') {
-    const modalHTML = `
-        <div class="modal-overlay" id="activeModal" onclick="if(event.target === this) closeModal()">
-            <div class="modal-content" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>${title}</h3>
-                    <button class="modal-close" onclick="closeModal()">&times;</button>
-                </div>
-                <div class="modal-body">
-                    ${content}
-                </div>
-                ${actions ? `<div class="modal-footer">${actions}</div>` : ''}
-            </div>
-        </div>
-    `;
-    
-    const existing = document.getElementById('activeModal');
-    if (existing) existing.remove();
-    
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+// Orders API - Create, Get, Update, Cancel Orders
+// Ensure browser-only globals never break the server runtime when bundled.
+if (typeof globalThis.document === 'undefined') {
+  globalThis.document = undefined;
 }
 
-function closeModal() {
-    const modal = document.getElementById('activeModal');
-    if (modal) {
-        modal.classList.remove('show');
-        setTimeout(() => modal.remove(), 300);
+const { supabase, supabaseAdmin } = require('./utils/supabase');
+const jwt = require('jsonwebtoken');
+const axios = require('axios');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
+function getUserFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    return null;
+  }
+}
+
+exports.handler = async (event) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  const user = getUserFromToken(event.headers.authorization);
+  if (!user) {
+    return {
+      statusCode: 401,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Unauthorized - You must be signed in to place orders. Please sign in or create an account.' 
+      })
+    };
+  }
+
+  // Verify user has valid userId and email
+  if (!user.userId || !user.email) {
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Access denied - Invalid user credentials. Please sign in again.' 
+      })
+    };
+  }
+
+  try {
+    const body = JSON.parse(event.body || '{}');
+
+    switch (event.httpMethod) {
+      case 'GET':
+        return await handleGetOrders(user, headers);
+      case 'POST':
+        return await handleCreateOrder(user, body, headers);
+      case 'PUT':
+        return await handleUpdateOrder(user, body, headers);
+      case 'DELETE':
+        return await handleCancelOrder(user, body, headers);
+      default:
+        return {
+          statusCode: 405,
+          headers,
+          body: JSON.stringify({ error: 'Method not allowed' })
+        };
     }
-}
+  } catch (error) {
+    console.error('Orders API error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+};
 
-// Filter orders by status
-function filterOrders(status) {
-    const rows = document.querySelectorAll('#ordersTableBody tr');
-    const tabs = document.querySelectorAll('.filter-tab');
+async function handleGetOrders(user, headers) {
+  try {
+    // Get pagination params
+    const limit = 100; // Default limit
+    const offset = 0;  // Can be made dynamic from query params
     
-    tabs.forEach(tab => tab.classList.remove('active'));
-    document.querySelector(`[data-status="${status}"]`)?.classList.add('active');
-    
-    if (status === 'all') {
-        rows.forEach(row => row.style.display = '');
-    } else {
-        rows.forEach(row => {
-            if (row.dataset.status === status) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        });
+    let query = supabaseAdmin
+      .from('orders')
+      .select(`
+        *,
+        user:users(id, email, username),
+        service:services(id, name, category, rate)
+      `)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    // Non-admins can only see their own orders
+    if (user.role !== 'admin') {
+      query = query.eq('user_id', user.userId);
     }
-}
 
-// View order details
-function viewOrder(orderId) {
-    const content = `
-        <div class="user-details">
-            <div class="user-detail-section">
-                <h4><i class="fas fa-info-circle"></i> Order Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Order ID:</span>
-                    <span class="detail-value">#${orderId}</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label" style="color: #888;">Loading order details...</span>
-                </div>
-            </div>
-            <div class="user-detail-section" style="text-align: center; padding: 40px 20px; color: #888;">
-                <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #FF1494; margin-bottom: 16px;"></i>
-                <p>Fetching order information from database...</p>
-            </div>
-            <div class="user-detail-section" style="display: none;">
-                <h4><i class="fas fa-clock"></i> Timeline</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Created:</span>
-                    <span class="detail-value">-</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Started:</span>
-                    <span class="detail-value">-</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Mode:</span>
-                    <span class="detail-value">-</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="editOrder(${orderId})">
-            <i class="fas fa-edit"></i> Edit
-        </button>
-        <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
-    `;
-    
-    createModal(`Order #${orderId} Details`, content, actions);
-}
+    const { data: orders, error } = await query;
 
-// Edit order
-async function editOrder(orderId) {
-    const servicesOptions = await getServicesOptions();
-    
-    const content = `
-        <form id="editOrderForm" onsubmit="submitEditOrder(event, ${orderId})" class="admin-form">
-            <div class="form-group">
-                <label>Service</label>
-                <select name="service" required>
-                    ${servicesOptions}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Link</label>
-                <input type="url" name="link" value="https://www.instagram.com/username/" required>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <span class="detail-label">Quantity:</span>
-                    <input type="number" name="quantity" value="1000" min="1" required>
-                </div>
-                <div class="form-group">
-                    <label>Charge</label>
-                    <input type="number" name="charge" value="12.50" min="0" step="0.01" required>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Status</label>
-                <select name="status">
-                    <option value="Pending">Pending</option>
-                    <option value="In progress" selected>In progress</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Canceled">Canceled</option>
-                </select>
-            </div>
-        </form>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="editOrderForm" class="btn-primary">
-            <i class="fas fa-save"></i> Save Changes
-        </button>
-    `;
-    
-    createModal(`Edit Order #${orderId}`, content, actions);
-}
-
-function submitEditOrder(event, orderId) {
-    event.preventDefault();
-    showNotification(`Order #${orderId} updated successfully!`, 'success');
-    closeModal();
-}
-
-// Refill order
-function refillOrder(orderId) {
-    const content = `
-        <div class="confirmation-message">
-            <i class="fas fa-redo-alt" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Refill order #${orderId}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will add the order back to the queue for processing. The remaining quantity will be fulfilled.
-            </p>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="confirmRefillOrder(${orderId})">
-            <i class="fas fa-redo-alt"></i> Refill Order
-        </button>
-    `;
-    
-    createModal('Refill Order', content, actions);
-}
-
-function confirmRefillOrder(orderId) {
-    showNotification(`Order #${orderId} refill requested successfully`, 'success');
-    closeModal();
-}
-
-// Cancel order
-function cancelOrder(orderId) {
-    const content = `
-        <div class="confirmation-message danger">
-            <i class="fas fa-times-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
-            <p>Cancel order #${orderId}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will stop the order processing and mark it as canceled. This action cannot be undone.
-            </p>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Keep Order</button>
-        <button type="button" class="btn-danger" onclick="confirmCancelOrder(${orderId})">
-            <i class="fas fa-times"></i> Cancel Order
-        </button>
-    `;
-    
-    createModal('Cancel Order', content, actions);
-}
-
-function confirmCancelOrder(orderId) {
-    showNotification(`Order #${orderId} has been canceled`, 'success');
-    closeModal();
-}
-
-// Add Order Modal
-async function showAddOrderModal() {
-    const servicesOptions = await getServicesOptions();
-    
-    const content = `
-        <form id="addOrderForm" onsubmit="submitAddOrder(event)" class="admin-form">
-            <div class="form-group">
-                <label>User *</label>
-                <select name="user" required>
-                    <option value="">Select User</option>
-                    <option value="11009">sherry5286</option>
-                    <option value="11008">azenarky</option>
-                    <option value="11007">ami7456727779</option>
-                    <option value="11006">yamh48378</option>
-                    <option value="11005">jj1302524</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Service *</label>
-                <select name="service" required>
-                    ${servicesOptions}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Link/Username *</label>
-                <input type="text" name="link" placeholder="https://instagram.com/username or @username" required>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Quantity *</label>
-                    <input type="number" name="quantity" placeholder="1000" min="1" required>
-                </div>
-                <div class="form-group">
-                    <label>Charge (USD)</label>
-                    <input type="number" name="charge" placeholder="12.50" min="0" step="0.01">
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Mode</label>
-                <select name="mode">
-                    <option value="Auto" selected>Auto</option>
-                    <option value="Manual">Manual</option>
-                </select>
-            </div>
-        </form>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="addOrderForm" class="btn-primary">
-            <i class="fas fa-plus"></i> Create Order
-        </button>
-    `;
-    
-    createModal('Add New Order', content, actions);
-}
-
-function submitAddOrder(event) {
-    event.preventDefault();
-    const formData = new FormData(event.target);
-    const orderData = Object.fromEntries(formData);
-    
-    console.log('Creating order:', orderData);
-    showNotification('Order created successfully!', 'success');
-    closeModal();
-}
-
-// Export Orders
-function exportData(format) {
-    const content = `
-        <div class="confirmation-message">
-            <i class="fas fa-file-${format === 'csv' ? 'csv' : 'pdf'}" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Export orders to ${format.toUpperCase()}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will download all visible orders in ${format.toUpperCase()} format. Current filters will be applied.
-            </p>
-            <div style="background: rgba(255,20,148,0.1); border: 1px solid rgba(255,20,148,0.3); border-radius: 8px; padding: 12px; margin-top: 16px;">
-                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                    <span style="color: #888;">Total Orders:</span>
-                    <span style="color: #fff; font-weight: 600;">5</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
-                    <span style="color: #888;">Date Range:</span>
-                    <span style="color: #fff;">All Time</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="confirmExport('${format}')">
-            <i class="fas fa-download"></i> Export ${format.toUpperCase()}
-        </button>
-    `;
-    
-    createModal(`Export Orders`, content, actions);
-}
-
-function confirmExport(format) {
-    showNotification(`Exporting orders to ${format.toUpperCase()}...`, 'success');
-    closeModal();
-    
-    // Simulate download
-    setTimeout(() => {
-        showNotification(`Orders exported successfully!`, 'success');
-    }, 1500);
-}
-
-// Initialize search
-document.addEventListener('DOMContentLoaded', () => {
-    if (typeof handleSearch === 'function') {
-        handleSearch('orderSearch', 'ordersTable');
+    if (error) {
+      console.error('Get orders error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch orders' })
+      };
     }
-    
-    // Add filter change listeners
-    const filters = ['dateFilter', 'serviceFilter', 'providerFilter', 'modeFilter'];
-    filters.forEach(filterId => {
-        const filter = document.getElementById(filterId);
-        if (filter) {
-            filter.addEventListener('change', applyFilters);
-        }
-    });
-});
 
-// Apply all filters
-function applyFilters() {
-    const dateFilter = document.getElementById('dateFilter')?.value;
-    const serviceFilter = document.getElementById('serviceFilter')?.value;
-    const providerFilter = document.getElementById('providerFilter')?.value;
-    const modeFilter = document.getElementById('modeFilter')?.value;
-    
-    // In production, this would make an API call with filter parameters
-    console.log('Applying filters:', {
-        date: dateFilter,
-        service: serviceFilter,
-        provider: providerFilter,
-        mode: modeFilter
-    });
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ orders })
+    };
+  } catch (error) {
+    console.error('Get orders error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
 }
 
-// Load real orders from database
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadOrders();
-});
+async function handleCreateOrder(user, data, headers) {
+  let orderCreated = null;
+  let balanceDeducted = false;
+  let originalBalance = null;
 
-async function loadOrders() {
-    const tbody = document.getElementById('ordersTableBody');
-    if (!tbody) return;
+  try {
+    const { serviceId, quantity, link } = data;
 
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</td></tr>';
+    // ============= STEP 1: VALIDATE INPUT =============
+    console.log(`[ORDER] User ${user.email} attempting to create order for service ${serviceId}`);
 
+    if (!serviceId || !quantity || !link) {
+      console.error('[ORDER] Missing required fields:', { serviceId, quantity, link });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Service ID, quantity, and link are required',
+          details: {
+            serviceId: !serviceId ? 'missing' : 'provided',
+            quantity: !quantity ? 'missing' : 'provided',
+            link: !link ? 'missing' : 'provided'
+          }
+        })
+      };
+    }
+
+    // Validate quantity is a number
+    const qty = parseInt(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      console.error('[ORDER] Invalid quantity:', quantity);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Quantity must be a positive number' })
+      };
+    }
+
+    // Validate link format
+    const linkStr = String(link).trim();
+    if (linkStr.length === 0 || linkStr.length > 500) {
+      console.error('[ORDER] Invalid link length:', linkStr.length);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Link must be between 1 and 500 characters' })
+      };
+    }
+
+    // ============= STEP 2: GET AND VALIDATE SERVICE =============
+    console.log(`[ORDER] Fetching service details for ${serviceId}`);
+    const { data: service, error: serviceError } = await supabase
+      .from('services')
+      .select('*, provider:providers(*)')
+      .eq('id', serviceId)
+      .single();
+
+    if (serviceError) {
+      console.error('[ORDER] Service lookup error:', serviceError);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Service not found' })
+      };
+    }
+
+    if (!service) {
+      console.error('[ORDER] Service not found:', serviceId);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Service does not exist' })
+      };
+    }
+
+    if (service.status !== 'active') {
+      console.error('[ORDER] Service inactive:', serviceId, service.status);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service is not available' })
+      };
+    }
+
+    // Validate quantity within service limits
+    if (qty < service.min_quantity) {
+      console.error('[ORDER] Quantity below minimum:', qty, service.min_quantity);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: `Quantity must be at least ${service.min_quantity}`,
+          min_quantity: service.min_quantity
+        })
+      };
+    }
+
+    if (qty > service.max_quantity) {
+      console.error('[ORDER] Quantity above maximum:', qty, service.max_quantity);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: `Quantity cannot exceed ${service.max_quantity}`,
+          max_quantity: service.max_quantity
+        })
+      };
+    }
+
+    // Validate provider exists and is active
+    if (!service.provider) {
+      console.error('[ORDER] Service has no provider:', serviceId);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service provider not configured' })
+      };
+    }
+
+    if (service.provider.status !== 'active') {
+      console.error('[ORDER] Provider inactive:', service.provider.id, service.provider.status);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service provider is not available' })
+      };
+    }
+
+    if (!service.provider.api_url || !service.provider.api_key) {
+      console.error('[ORDER] Provider missing API credentials:', service.provider.id);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service provider not properly configured' })
+      };
+    }
+
+    if (!service.provider_service_id) {
+      console.error('[ORDER] Service missing provider service ID:', serviceId);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Service not properly configured' })
+      };
+    }
+
+    // ============= STEP 3: CALCULATE COST & CHECK BALANCE =============
+    // Calculate total cost (rate is per 1000 units)
+    const totalCost = parseFloat(((service.rate * qty) / 1000).toFixed(2));
+    console.log(`[ORDER] Calculated cost: ${totalCost} for ${qty} units at rate ${service.rate}`);
+
+    if (totalCost < 0 || !isFinite(totalCost)) {
+      console.error('[ORDER] Invalid cost calculation:', totalCost);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to calculate order cost' })
+      };
+    }
+
+    // Get user balance with lock to prevent race conditions
+    const { data: userData, error: userError } = await supabaseAdmin
+      .from('users')
+      .select('balance, status')
+      .eq('id', user.userId)
+      .single();
+
+    if (userError || !userData) {
+      console.error('[ORDER] User lookup error:', userError);
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'User account not found' })
+      };
+    }
+
+    if (userData.status !== 'active') {
+      console.error('[ORDER] User account inactive:', user.userId, userData.status);
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'User account is not active' })
+      };
+    }
+
+    originalBalance = parseFloat(userData.balance);
+    console.log(`[ORDER] User balance: ${originalBalance}, required: ${totalCost}`);
+
+    if (originalBalance < totalCost) {
+      console.error('[ORDER] Insufficient balance:', originalBalance, totalCost);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Insufficient balance',
+          balance: originalBalance,
+          required: totalCost,
+          shortfall: (totalCost - originalBalance).toFixed(2)
+        })
+      };
+    }
+
+    // ============= STEP 4: CREATE ORDER IN DATABASE =============
+    // Generate compact order number that respects VARCHAR(20) limit
+    const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+    console.log(`[ORDER] Creating order with number: ${orderNumber}`);
+
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .insert({
+        user_id: user.userId,
+        service_id: serviceId,
+        service_name: service.name,
+        link: linkStr,
+        quantity: qty,
+        charge: totalCost,
+        status: 'pending',
+        order_number: orderNumber
+      })
+      .select()
+      .single();
+
+    if (orderError) {
+      console.error('[ORDER] Database insert error:', orderError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to create order in database',
+          details: orderError.message
+        })
+      };
+    }
+
+    if (!order || !order.id) {
+      console.error('[ORDER] Order created but no ID returned');
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Order creation failed' })
+      };
+    }
+
+    orderCreated = order;
+    console.log(`[ORDER] Order created in database: ${order.id}`);
+
+    // ============= STEP 5: DEDUCT BALANCE =============
+    const newBalance = parseFloat((originalBalance - totalCost).toFixed(2));
+    console.log(`[ORDER] Deducting balance: ${originalBalance} -> ${newBalance}`);
+
+    const { error: balanceError } = await supabaseAdmin
+      .from('users')
+      .update({ 
+        balance: newBalance
+      })
+      .eq('id', user.userId);
+
+    if (balanceError) {
+      console.error('[ORDER] Balance deduction error:', balanceError);
+      // Rollback: delete order
+      await supabaseAdmin.from('orders').delete().eq('id', order.id);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to process payment' })
+      };
+    }
+
+    balanceDeducted = true;
+    console.log(`[ORDER] Balance deducted successfully`);
+
+    // ============= STEP 6: SUBMIT TO PROVIDER =============
+    console.log(`[ORDER] Submitting to provider: ${service.provider.name}`);
+    
+    let providerOrderId = null;
     try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/orders', {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${token || ''}`,
-                'Content-Type': 'application/json'
-            }
+      const providerResponse = await submitOrderToProvider(service.provider, {
+        service: service.provider_service_id,
+        link: linkStr,
+        quantity: qty
+      });
+
+      if (!providerResponse || !providerResponse.order) {
+        throw new Error('Provider did not return an order ID');
+      }
+
+      providerOrderId = providerResponse.order;
+      console.log(`[ORDER] Provider accepted order: ${providerOrderId}`);
+
+      // Update order with provider order ID and status
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update({ 
+          provider_order_id: providerOrderId,
+          status: 'processing'
+        })
+        .eq('id', order.id);
+
+      if (updateError) {
+        console.error('[ORDER] Failed to update order with provider ID:', updateError);
+        // Order was submitted to provider but we can't track it - log this critically
+        console.error('[ORDER] CRITICAL: Order submitted to provider but update failed', {
+          orderId: order.id,
+          providerOrderId,
+          error: updateError
         });
+      }
 
-        // Handle auth errors explicitly
-        if (response.status === 401 || response.status === 403) {
-            console.warn('Orders API auth error:', response.status);
-            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Unauthorized. Please sign in again.</td></tr>';
-            // Optional: redirect to signin for admin UI
-            setTimeout(() => { window.location.href = 'signin.html'; }, 1200);
-            return;
-        }
+      order.provider_order_id = providerOrderId;
+      order.status = 'processing';
+      console.log(`[ORDER] Order ${order.id} successfully processed`);
 
-        // Try to parse JSON safely
-        let data;
-        try {
-            data = await response.json();
-        } catch (parseErr) {
-            const text = await response.text().catch(() => '<failed to read body>');
-            console.error('Orders API returned non-JSON response:', response.status, text);
-            tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders (invalid response). Check console and network tab.</td></tr>`;
-            return;
-        }
+    } catch (providerError) {
+      console.error('[ORDER] Provider submission failed:', providerError);
+      
+      // ============= ROLLBACK: REFUND AND MARK FAILED =============
+      console.log(`[ORDER] Rolling back order ${order.id}`);
+      
+      // Refund user
+      const { error: refundError } = await supabaseAdmin
+        .from('users')
+        .update({ 
+          balance: originalBalance
+        })
+        .eq('id', user.userId);
 
-        if (!response.ok) {
-            console.error('Orders API error:', response.status, data);
-            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
-            return;
-        }
-
-        const orders = Array.isArray(data.orders)
-            ? data.orders
-            : Array.isArray(data.data)
-                ? data.data
-                : Array.isArray(data.results)
-                    ? data.results
-                    : [];
-
-        if (orders.length === 0) {
-            console.info('No orders returned from API:', data);
-            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = '';
-        orders.forEach(order => {
-            const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : '-';
-            const statusText = order.status || 'Unknown';
-            const statusClass = String(statusText).toLowerCase().replace(/\s+/g, '-');
-            const username = order.users && order.users.username ? order.users.username : 'Unknown';
-            const serviceName = order.services && order.services.name ? order.services.name : 'Unknown Service';
-            const link = order.link ? order.link : '-';
-
-            const row = `
-                <tr data-status="${statusClass}">
-                    <td><input type="checkbox" class="order-checkbox"></td>
-                    <td>${order.id ?? '-'}</td>
-                    <td>${username}</td>
-                    <td>$${parseFloat(order.charge || 0).toFixed(2)}</td>
-                    <td>${link !== '-' ? `<a href="${link}" class="link-preview" target="_blank" rel="noopener noreferrer">${link.length > 40 ? link.slice(0,40) + '...' : link}</a>` : '-'}</td>
-                    <td>${order.start_count ?? 0}</td>
-                    <td>${order.quantity ?? 0}</td>
-                    <td>${serviceName}</td>
-                    <td><span class="status-badge ${statusClass}">${statusText}</span></td>
-                    <td>${order.remains ?? 0}</td>
-                    <td>${createdDate}</td>
-                    <td>${order.mode ?? 'Auto'}</td>
-                    <td>
-                        <div class="actions-dropdown">
-                            <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                            <div class="dropdown-menu">
-                                <a href="#" onclick="viewOrder('${order.id}')">View</a>
-                                ${statusText.toLowerCase() !== 'completed' && statusText.toLowerCase() !== 'canceled' ? `<a href="#" onclick="editOrder('${order.id}')">Edit</a>` : ''}
-                                ${statusText.toLowerCase() === 'completed' ? `<a href="#" onclick="refillOrder('${order.id}')">Refill</a>` : ''}
-                                ${statusText.toLowerCase() !== 'completed' && statusText.toLowerCase() !== 'canceled' ? `<a href="#" onclick="cancelOrder('${order.id}')">Cancel</a>` : ''}
-                            </div>
-                        </div>
-                    </td>
-                </tr>
-            `;
-            tbody.insertAdjacentHTML('beforeend', row);
+      if (refundError) {
+        console.error('[ORDER] CRITICAL: Failed to refund user after provider failure:', refundError, {
+          userId: user.userId,
+          orderId: order.id,
+          amount: totalCost
         });
+      } else {
+        console.log(`[ORDER] User refunded: ${totalCost}`);
+      }
 
-        const paginationInfo = document.getElementById('paginationInfo');
-        if (paginationInfo) {
-            paginationInfo.textContent = `Showing 1-${Math.min(orders.length, 50)} of ${orders.length}`;
-        }
-    } catch (error) {
-        console.error('Load orders error:', error);
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
-    }
-}
+      // Mark order as failed
+      await supabaseAdmin
+        .from('orders')
+        .update({ 
+          status: 'failed'
+        })
+        .eq('id', order.id);
 
-// Helper function to get services options
-async function getServicesOptions() {
-    if (servicesCache.length > 0) {
-        return buildServicesOptionsHTML(servicesCache);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to submit order to provider',
+          details: providerError.message || 'Provider API error',
+          orderId: order.id,
+          refunded: !refundError
+        })
+      };
     }
+
+    // ============= SUCCESS =============
+    console.log(`[ORDER] Order completed successfully: ${order.id}`);
     
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            }
-        });
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        order: {
+          id: order.id,
+          order_number: order.order_number,
+          service_name: order.service_name,
+          quantity: order.quantity,
+          charge: order.charge,
+          status: order.status,
+          provider_order_id: order.provider_order_id,
+          link: order.link,
+          created_at: order.created_at
+        },
+        message: 'Order created and submitted successfully'
+      })
+    };
+
+  } catch (error) {
+    console.error('[ORDER] Unexpected error:', error);
+    
+    // ============= EMERGENCY ROLLBACK =============
+    if (orderCreated && balanceDeducted && originalBalance !== null) {
+      console.error('[ORDER] Attempting emergency rollback for order:', orderCreated.id);
+      
+      try {
+        // Refund
+        await supabaseAdmin
+          .from('users')
+          .update({ balance: originalBalance })
+          .eq('id', user.userId);
         
-        const data = await response.json();
-        servicesCache = data.services || [];
-        return buildServicesOptionsHTML(servicesCache);
-    } catch (error) {
-        console.error('Failed to load services:', error);
-        return '<option value="">Failed to load services</option>';
-    }
-}
-
-function buildServicesOptionsHTML(services) {
-    if (services.length === 0) {
-        return '<option value="">No services available</option>';
-    }
-    
-    // Group by category
-    const grouped = {};
-    services.forEach(service => {
-        const category = (service.category || 'Other').toLowerCase();
-        const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
-        if (!grouped[categoryName]) {
-            grouped[categoryName] = [];
-        }
-        grouped[categoryName].push(service);
-    });
-    
-    let html = '<option value="">Select Service</option>';
-    Object.keys(grouped).sort().forEach(categoryName => {
-        html += `<optgroup label="${escapeHtml(categoryName)}">`;
-        grouped[categoryName].forEach(service => {
-            const rate = parseFloat(service.rate || 0).toFixed(2);
-            html += `<option value="${service.id}">${escapeHtml(service.name)} - $${rate}/1k</option>`;
+        // Mark failed
+        await supabaseAdmin
+          .from('orders')
+          .update({ status: 'failed' })
+          .eq('id', orderCreated.id);
+        
+        console.log('[ORDER] Emergency rollback completed');
+      } catch (rollbackError) {
+        console.error('[ORDER] CRITICAL: Emergency rollback failed:', rollbackError, {
+          orderId: orderCreated.id,
+          userId: user.userId,
+          amount: orderCreated.charge
         });
-        html += '</optgroup>';
-    });
-    
-    return html;
+      }
+    }
+
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Internal server error',
+        message: 'An unexpected error occurred while processing your order'
+      })
+    };
+  }
 }
 
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+async function handleUpdateOrder(user, data, headers) {
+  try {
+    const { orderId, action } = data;
+
+    if (!orderId || !action) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order ID and action are required' })
+      };
+    }
+
+    // Get order
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select('*, service:services(*, provider:providers(*))')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    // Check permissions
+    if (order.user_id !== user.userId && user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    if (action === 'refill') {
+      // Submit refill request to provider
+      try {
+        const provider = order.service.provider;
+        const refillResponse = await axios.post(provider.api_url, {
+          key: provider.api_key,
+          action: 'refill',
+          order: order.provider_order_id
+        });
+
+        if (refillResponse.data.refill) {
+          await supabaseAdmin
+            .from('orders')
+            .update({ 
+              status: 'refilling',
+              refill_id: refillResponse.data.refill
+            })
+            .eq('id', orderId);
+
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              message: 'Refill request submitted'
+            })
+          };
+        }
+      } catch (error) {
+        console.error('Refill error:', error);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to submit refill request' })
+        };
+      }
+    }
+
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: 'Invalid action' })
+    };
+  } catch (error) {
+    console.error('Update order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
 }
+
+async function handleCancelOrder(user, data, headers) {
+  try {
+    const { orderId } = data;
+
+    if (!orderId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order ID is required' })
+      };
+    }
+
+    // Get order
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select('*, service:services(*, provider:providers(*))')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    // Check permissions
+    if (order.user_id !== user.userId && user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    // Can only cancel pending orders
+    if (order.status !== 'pending' && order.status !== 'processing') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order cannot be cancelled' })
+      };
+    }
+
+    // Try to cancel with provider
+    try {
+      const provider = order.service.provider;
+      await axios.post(provider.api_url, {
+        key: provider.api_key,
+        action: 'cancel',
+        order: order.provider_order_id
+      });
+    } catch (error) {
+      console.error('Provider cancel error:', error);
+      // Continue even if provider cancel fails
+    }
+
+    // Refund user
+    const { data: userData } = await supabaseAdmin
+      .from('users')
+      .select('balance')
+      .eq('id', order.user_id)
+      .single();
+
+    await supabaseAdmin
+      .from('users')
+      .update({ 
+        balance: (parseFloat(userData.balance) + parseFloat(order.charge)).toFixed(2)
+      })
+      .eq('id', order.user_id);
+
+    // Update order status
+    await supabaseAdmin
+      .from('orders')
+      .update({ status: 'cancelled' })
+      .eq('id', orderId);
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: 'Order cancelled and refunded'
+      })
+    };
+  } catch (error) {
+    console.error('Cancel order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function submitOrderToProvider(provider, orderData) {
+  try {
+    console.log(`[PROVIDER] Submitting order to ${provider.name}`, {
+      service: orderData.service,
+      quantity: orderData.quantity
+    });
+
+    // Validate provider configuration
+    if (!provider.api_url) {
+      throw new Error('Provider API URL not configured');
+    }
+
+    if (!provider.api_key) {
+      throw new Error('Provider API key not configured');
+    }
+
+    if (!orderData.service) {
+      throw new Error('Provider service ID not specified');
+    }
+
+    // Build request parameters
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'add');
+    params.append('service', orderData.service);
+    params.append('link', orderData.link);
+    params.append('quantity', orderData.quantity);
+    
+    console.log(`[PROVIDER] Calling ${provider.api_url}`);
+
+    // Make request with timeout
+    const response = await axios.post(provider.api_url, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 30000, // 30 second timeout
+      validateStatus: (status) => status < 500 // Don't throw on 4xx errors
+    });
+
+    console.log(`[PROVIDER] Response status: ${response.status}`);
+    console.log(`[PROVIDER] Response data:`, response.data);
+
+    // Validate response
+    if (!response.data) {
+      throw new Error('Provider returned empty response');
+    }
+
+    // Check for error in response
+    if (response.data.error) {
+      throw new Error(`Provider error: ${response.data.error}`);
+    }
+
+    // Verify order ID was returned
+    if (!response.data.order) {
+      console.error('[PROVIDER] No order ID in response:', response.data);
+      throw new Error('Provider did not return an order ID');
+    }
+
+    // Validate order ID is not null/undefined/empty
+    const orderId = String(response.data.order).trim();
+    if (!orderId || orderId === 'null' || orderId === 'undefined') {
+      throw new Error('Provider returned invalid order ID');
+    }
+
+    console.log(`[PROVIDER] Order successfully submitted: ${orderId}`);
+    
+    return {
+      order: orderId,
+      response: response.data
+    };
+
+  } catch (error) {
+    // Enhanced error logging
+    if (error.response) {
+      console.error('[PROVIDER] HTTP error:', {
+        status: error.response.status,
+        data: error.response.data,
+        headers: error.response.headers
+      });
+      throw new Error(`Provider HTTP error ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+    } else if (error.request) {
+      console.error('[PROVIDER] No response received:', error.message);
+      throw new Error('Provider did not respond (timeout or network error)');
+    } else {
+      console.error('[PROVIDER] Request setup error:', error.message);
+      throw new Error(`Provider request failed: ${error.message}`);
+    }
+  }
+}
+
+// Guard browser-only code so it doesn't run inside the serverless function
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('DOMContentLoaded', async () => {
+        const serviceSelect = document.getElementById('service');
+        const loadingIndicator = document.getElementById('services-loading'); // optional element
+
+        try {
+          if (loadingIndicator) loadingIndicator.style.display = 'block';
+
+          const res = await fetch('/.netlify/functions/services');
+          if (!res.ok) throw new Error(`Services request failed: ${res.status}`);
+
+          const json = await res.json();
+          const services = Array.isArray(json.services) ? json.services : (json.services || []);
+
+          // clear existing options (keep first placeholder)
+          while (serviceSelect && serviceSelect.options.length > 1) serviceSelect.remove(1);
+
+          services.forEach(svc => {
+            const opt = document.createElement('option');
+            opt.value = svc.id || ''; // use DB UUID (backend expects this)
+            opt.textContent = `${svc.name} ${svc.rate ? `(${svc.rate}/1000)` : ''}`;
+            opt.dataset.providerServiceId = svc.provider_service_id ?? '';
+            opt.dataset.siteId = svc.site_id ?? '';
+            serviceSelect.appendChild(opt);
+          });
+
+          if (loadingIndicator) loadingIndicator.style.display = 'none';
+        } catch (err) {
+          console.error('Failed to load services:', err);
+          if (loadingIndicator) loadingIndicator.textContent = 'Failed to load services';
+        }
+    });
+}
+
+
+
 
