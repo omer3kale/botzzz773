@@ -1,6 +1,216 @@
 // Admin Orders Management with Real Modals
 
 let servicesCache = [];
+let ordersAutoRefreshTimer = null;
+let lastOrderSyncTime = 0;
+let ordersSyncInFlight = false;
+const ORDERS_SYNC_MIN_INTERVAL = 30000; // 30 seconds
+const ORDERS_AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
+
+function toNumberOrNull(value) {
+    if (value === undefined || value === null || value === '') return null;
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+}
+
+function formatCurrency(value, fractionDigits = 2, fallback = 'N/A') {
+    const numeric = toNumberOrNull(value);
+    if (numeric === null) {
+        return fallback;
+    }
+    const absolute = Math.abs(numeric).toFixed(fractionDigits);
+    const sign = numeric < 0 ? '-' : '';
+    return `${sign}$${absolute}`;
+}
+
+function truncateText(text, maxLength = 48) {
+    if (!text) return '';
+    const normalized = String(text);
+    if (normalized.length <= maxLength) {
+        return normalized;
+    }
+    return `${normalized.substring(0, maxLength)}...`;
+}
+
+function getStatusKey(status) {
+    const normalized = String(status || '').toLowerCase();
+    if (!normalized) return 'unknown';
+    if (normalized === 'cancelled') return 'canceled';
+    return normalized.replace(/[^a-z0-9]+/g, '-');
+}
+
+function formatStatusLabel(status) {
+    if (!status) return 'Unknown';
+    const value = String(status).replace(/[_-]+/g, ' ').trim();
+    return value.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function getStatusColor(statusKey) {
+    switch (statusKey) {
+        case 'completed':
+            return '#22c55e';
+        case 'pending':
+        case 'awaiting':
+            return '#eab308';
+        case 'processing':
+        case 'in-progress':
+        case 'refilling':
+            return '#3b82f6';
+        case 'partial':
+            return '#f97316';
+        case 'canceled':
+        case 'cancelled':
+        case 'fail':
+        case 'failed':
+            return '#ef4444';
+        default:
+            return '#94a3b8';
+    }
+}
+
+function formatRelativeTime(timestamp) {
+    if (!timestamp) {
+        return 'Sync pending';
+    }
+
+    const time = new Date(timestamp);
+    if (Number.isNaN(time.getTime())) {
+        return 'Sync pending';
+    }
+
+    const diffMs = Date.now() - time.getTime();
+    if (diffMs < 0) {
+        return `Synced ${time.toLocaleString()}`;
+    }
+
+    const diffMinutes = Math.floor(diffMs / 60000);
+    if (diffMinutes < 1) {
+        return 'Synced just now';
+    }
+    if (diffMinutes < 60) {
+        return `Synced ${diffMinutes}m ago`;
+    }
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) {
+        return `Synced ${diffHours}h ago`;
+    }
+    const diffDays = Math.floor(diffHours / 24);
+    return `Synced ${diffDays}d ago`;
+}
+
+function updateOrdersSyncStatus(message, state = 'pending') {
+    const statusEl = document.getElementById('ordersSyncStatus');
+    const dotEl = document.getElementById('ordersSyncDot');
+
+    if (statusEl) {
+        statusEl.textContent = message;
+    }
+
+    if (dotEl) {
+        dotEl.classList.remove('sync-success', 'sync-error');
+        if (state === 'success') {
+            dotEl.classList.add('sync-success');
+        } else if (state === 'error') {
+            dotEl.classList.add('sync-error');
+        }
+    }
+}
+
+async function syncOrderStatuses({ silent = false, force = false } = {}) {
+    if (ordersSyncInFlight) {
+        return { skipped: true, reason: 'in-flight' };
+    }
+
+    const now = Date.now();
+    if (!force && lastOrderSyncTime && now - lastOrderSyncTime < ORDERS_SYNC_MIN_INTERVAL) {
+        return { skipped: true, reason: 'rate-limit' };
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        updateOrdersSyncStatus('Missing admin token', 'error');
+        return { success: false, reason: 'no-token' };
+    }
+
+    ordersSyncInFlight = true;
+    const syncButton = document.getElementById('ordersSyncButton');
+    const originalLabel = syncButton ? syncButton.innerHTML : null;
+
+    if (syncButton) {
+        syncButton.disabled = true;
+        syncButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Syncing...';
+    }
+
+    updateOrdersSyncStatus('Syncing provider statuses...', 'pending');
+
+    try {
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ action: 'sync-status' })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || result.error) {
+            throw new Error(result.error || 'Provider sync failed');
+        }
+
+        lastOrderSyncTime = Date.now();
+        const relative = formatRelativeTime(new Date(lastOrderSyncTime).toISOString());
+        updateOrdersSyncStatus(relative, 'success');
+
+        if (!silent) {
+            showNotification(`Synced ${result.updated || 0} orders with providers`, 'success');
+        }
+
+        return {
+            success: true,
+            updated: result.updated || 0,
+            results: result.results || []
+        };
+    } catch (error) {
+        console.error('Order sync error:', error);
+        const message = error.message || 'Failed to sync provider statuses';
+        updateOrdersSyncStatus(message, 'error');
+        if (!silent) {
+            showNotification(message, 'error');
+        }
+        return { success: false, error: message };
+    } finally {
+        ordersSyncInFlight = false;
+        if (syncButton && originalLabel !== null) {
+            syncButton.disabled = false;
+            syncButton.innerHTML = originalLabel;
+        }
+    }
+}
+
+async function manualOrdersSync() {
+    await syncOrderStatuses({ force: true });
+    await loadOrders({ skipSync: true });
+}
+
+function startOrdersAutoRefresh() {
+    if (ordersAutoRefreshTimer) {
+        clearInterval(ordersAutoRefreshTimer);
+    }
+
+    ordersAutoRefreshTimer = setInterval(async () => {
+        await syncOrderStatuses({ silent: true });
+        await loadOrders({ skipSync: true });
+    }, ORDERS_AUTO_REFRESH_INTERVAL);
+}
+
+async function initializeOrdersPage() {
+    updateOrdersSyncStatus('Provider sync pending...');
+    await syncOrderStatuses({ silent: true, force: true });
+    await loadOrders({ skipSync: true });
+    startOrdersAutoRefresh();
+}
 
 // Modal Helper Functions (shared with admin-users.js pattern)
 function createModal(title, content, actions = '') {
@@ -320,7 +530,7 @@ function confirmExport(format) {
 }
 
 // Initialize search
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     if (typeof handleSearch === 'function') {
         handleSearch('orderSearch', 'ordersTable');
     }
@@ -333,6 +543,13 @@ document.addEventListener('DOMContentLoaded', () => {
             filter.addEventListener('change', applyFilters);
         }
     });
+
+    try {
+        await initializeOrdersPage();
+    } catch (error) {
+        console.error('Failed to initialize orders page:', error);
+        updateOrdersSyncStatus('Failed to load orders', 'error');
+    }
 });
 
 // Apply all filters
@@ -352,17 +569,17 @@ function applyFilters() {
 }
 
 // Load real orders from database
-document.addEventListener('DOMContentLoaded', async () => {
-    await loadOrders();
-});
-
-async function loadOrders() {
+async function loadOrders({ skipSync = false } = {}) {
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) return;
 
     tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</td></tr>';
 
     try {
+        if (!skipSync) {
+            await syncOrderStatuses({ silent: true });
+        }
+
         const token = localStorage.getItem('token');
         const response = await fetch('/.netlify/functions/orders', {
             method: 'GET',
@@ -376,33 +593,103 @@ async function loadOrders() {
         
         if (data.orders && data.orders.length > 0) {
             tbody.innerHTML = '';
-            
+
+            let mostRecentSync = lastOrderSyncTime;
+
             data.orders.forEach(order => {
-                const createdDate = new Date(order.created_at).toLocaleString();
-                const statusClass = order.status.toLowerCase().replace(' ', '-');
-                
+                const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
+                const orderStatusKey = getStatusKey(order.status);
+                const providerStatusRaw = order.provider_status || order.status;
+                const providerStatusKey = getStatusKey(providerStatusRaw);
+                const providerStatusLabel = formatStatusLabel(providerStatusRaw);
+                const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
+                if (lastSync && lastSync > mostRecentSync) {
+                    mostRecentSync = lastSync;
+                }
+
+                const orderIdDisplay = escapeHtml(String(order.id));
+                const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
+                const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
+                const providerOrderMarkup = order.provider_order_id
+                    ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider: ${escapeHtml(providerOrderLabel)}</span>`
+                    : '<span class="order-id-provider order-id-missing">Provider: Not submitted</span>';
+
+                const linkLabel = order.link ? truncateText(order.link, 42) : null;
+                const linkHref = order.link ? encodeURI(order.link) : null;
+                const linkMarkup = order.link
+                    ? `<a href="${linkHref}" class="link-preview" target="_blank" rel="noopener">${escapeHtml(linkLabel)}</a>`
+                    : '<span class="cell-secondary cell-muted">No link</span>';
+
+                const startCountValue = toNumberOrNull(order.start_count);
+                const remainsValue = toNumberOrNull(order.remains);
+                const quantityValue = toNumberOrNull(order.quantity);
+                const startCount = startCountValue !== null ? startCountValue : 'N/A';
+                const remains = remainsValue !== null ? remainsValue : 'N/A';
+                const quantity = quantityValue !== null ? quantityValue : 'N/A';
+
+                const orderUser = order.user || order.users || null;
+                const orderService = order.service || order.services || null;
+                const customerCharge = toNumberOrNull(order.charge);
+                const providerCost = toNumberOrNull(order.provider_cost);
+                const profitValue = (customerCharge !== null && providerCost !== null)
+                    ? Number((customerCharge - providerCost).toFixed(2))
+                    : null;
+                const profitPercent = (profitValue !== null && customerCharge !== null && customerCharge !== 0)
+                    ? Number(((profitValue / customerCharge) * 100).toFixed(1))
+                    : null;
+                const profitClass = profitValue !== null && profitValue < 0 ? 'profit-negative' : 'profit-positive';
+                const profitMarkup = profitValue !== null
+                    ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue)}${profitPercent !== null ? ` (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)` : ''}</span>`
+                    : '';
+
+                const providerStatusDot = `<span class="provider-status-dot" style="background: ${getStatusColor(providerStatusKey)};"></span>`;
+                const providerStatusMarkup = `
+                    <span class="provider-status-row">
+                        ${providerStatusDot}
+                        <span class="provider-status-label">Provider: ${escapeHtml(providerStatusLabel)}</span>
+                    </span>
+                `;
+
+                const lastSyncLabel = formatRelativeTime(order.last_status_sync);
+
+                const actions = buildOrderActions(order);
+
                 const row = `
-                    <tr data-status="${statusClass}">
+                    <tr data-status="${orderStatusKey}">
                         <td><input type="checkbox" class="order-checkbox"></td>
-                        <td>${order.id}</td>
-                        <td>${order.users?.username || 'Unknown'}</td>
-                        <td>$${parseFloat(order.charge || 0).toFixed(2)}</td>
-                        <td><a href="${order.link}" class="link-preview" target="_blank">${order.link.substring(0, 40)}...</a></td>
-                        <td>${order.start_count || 0}</td>
-                        <td>${order.quantity || 0}</td>
-                        <td>${order.services?.name || 'Unknown Service'}</td>
-                        <td><span class="status-badge ${statusClass}">${order.status}</span></td>
-                        <td>${order.remains || 0}</td>
-                        <td>${createdDate}</td>
-                        <td>${order.mode || 'Auto'}</td>
+                        <td>
+                            <div class="order-id-cell">
+                                <span class="order-id-primary">#${orderIdDisplay}</span>
+                                ${providerOrderMarkup}
+                            </div>
+                        </td>
+                        <td>${escapeHtml(orderUser?.username || orderUser?.email || 'Unknown')}</td>
+                        <td>
+                            <div class="cell-stack">
+                                <span class="cell-primary cell-highlight">IN: ${formatCurrency(customerCharge)}</span>
+                                <span class="cell-secondary">OUT: ${formatCurrency(providerCost, 4)}</span>
+                                ${profitMarkup}
+                            </div>
+                        </td>
+                        <td>${linkMarkup}</td>
+                        <td>${escapeHtml(String(startCount))}</td>
+                        <td>${escapeHtml(String(quantity))}</td>
+                        <td>${escapeHtml(orderService?.name || 'Unknown Service')}</td>
+                        <td>
+                            <div class="cell-stack">
+                                <span class="status-badge ${orderStatusKey}">${escapeHtml(formatStatusLabel(order.status))}</span>
+                                ${providerStatusMarkup}
+                                <span class="cell-secondary cell-muted">${escapeHtml(lastSyncLabel)}</span>
+                            </div>
+                        </td>
+                        <td>${escapeHtml(String(remains))}</td>
+                        <td>${escapeHtml(createdDate)}</td>
+                        <td>${escapeHtml(order.mode || 'Auto')}</td>
                         <td>
                             <div class="actions-dropdown">
                                 <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
                                 <div class="dropdown-menu">
-                                    <a href="#" onclick="viewOrder('${order.id}')">View</a>
-                                    ${order.status !== 'completed' && order.status !== 'canceled' ? `<a href="#" onclick="editOrder('${order.id}')">Edit</a>` : ''}
-                                    ${order.status === 'completed' ? `<a href="#" onclick="refillOrder('${order.id}')">Refill</a>` : ''}
-                                    ${order.status !== 'completed' && order.status !== 'canceled' ? `<a href="#" onclick="cancelOrder('${order.id}')">Cancel</a>` : ''}
+                                    ${actions}
                                 </div>
                             </div>
                         </td>
@@ -410,11 +697,16 @@ async function loadOrders() {
                 `;
                 tbody.insertAdjacentHTML('beforeend', row);
             });
-            
-            // Update pagination
+
+            if (mostRecentSync > 0) {
+                lastOrderSyncTime = mostRecentSync;
+                updateOrdersSyncStatus(formatRelativeTime(new Date(mostRecentSync).toISOString()), 'success');
+            }
+
             const paginationInfo = document.getElementById('paginationInfo');
             if (paginationInfo) {
-                paginationInfo.textContent = `Showing 1-${Math.min(data.orders.length, 50)} of ${data.orders.length}`;
+                const count = data.orders.length;
+                paginationInfo.textContent = `Showing ${count > 0 ? '1' : '0'}-${Math.min(count, 50)} of ${count}`;
             }
         } else {
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
@@ -422,7 +714,29 @@ async function loadOrders() {
     } catch (error) {
         console.error('Load orders error:', error);
         tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
+        updateOrdersSyncStatus('Failed to load orders', 'error');
     }
+}
+
+function buildOrderActions(order) {
+    const statusKey = getStatusKey(order.status);
+    const actions = [];
+
+    actions.push(`<a href="#" onclick="viewOrder('${order.id}')">View</a>`);
+
+    if (!['completed', 'canceled', 'cancelled', 'failed', 'fail'].includes(statusKey)) {
+        actions.push(`<a href="#" onclick="editOrder('${order.id}')">Edit</a>`);
+    }
+
+    if (statusKey === 'completed') {
+        actions.push(`<a href="#" onclick="refillOrder('${order.id}')">Refill</a>`);
+    }
+
+    if (!['completed', 'canceled', 'cancelled'].includes(statusKey)) {
+        actions.push(`<a href="#" onclick="cancelOrder('${order.id}')">Cancel</a>`);
+    }
+
+    return actions.join('');
 }
 
 // Helper function to get services options

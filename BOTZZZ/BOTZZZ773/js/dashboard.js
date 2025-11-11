@@ -475,29 +475,34 @@
     // ORDERS VIEW
     // ==========================================
     const ordersLink = document.getElementById('ordersLink');
+    const dashboardLink = document.querySelector('.sidebar-link[href="dashboard.html"]');
     const dashboardContent = document.getElementById('dashboardContent');
     const ordersView = document.getElementById('ordersView');
+
+    function setActiveSidebarLink(activeLink) {
+        document.querySelectorAll('.sidebar-link').forEach(link => {
+            link.classList.remove('active');
+            link.removeAttribute('aria-current');
+        });
+
+        if (activeLink) {
+            activeLink.classList.add('active');
+            activeLink.setAttribute('aria-current', 'page');
+        }
+    }
 
     function showOrdersView() {
         if (dashboardContent) dashboardContent.classList.add('hidden');
         if (ordersView) ordersView.classList.remove('hidden');
-        
-        // Update sidebar active state
-        document.querySelectorAll('.sidebar-link').forEach(link => {
-            link.classList.remove('active');
-        });
-        if (ordersLink) ordersLink.classList.add('active');
+
+        setActiveSidebarLink(ordersLink);
     }
 
     function showDashboardView() {
         if (ordersView) ordersView.classList.add('hidden');
         if (dashboardContent) dashboardContent.classList.remove('hidden');
-        
-        // Update sidebar active state
-        document.querySelectorAll('.sidebar-link').forEach(link => {
-            link.classList.remove('active');
-        });
-        document.querySelector('.sidebar-link[href="dashboard.html"]')?.classList.add('active');
+
+        setActiveSidebarLink(dashboardLink);
     }
 
     if (ordersLink) {
@@ -506,6 +511,11 @@
             showOrdersView();
             loadOrders();
         });
+    }
+
+    // Ensure initial active state has aria-current set
+    if (dashboardLink) {
+        setActiveSidebarLink(dashboardLink);
     }
 
     // Load orders from backend

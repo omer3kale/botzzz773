@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS services (
     category VARCHAR(50) NOT NULL,
     type VARCHAR(20) DEFAULT 'default',
     rate DECIMAL(10, 4) NOT NULL,
+    provider_rate DECIMAL(10, 4),
+    retail_rate DECIMAL(10, 4),
+    markup_percentage DECIMAL(5, 2),
     min_quantity INTEGER NOT NULL,
     max_quantity INTEGER NOT NULL,
     description TEXT,
@@ -69,6 +72,9 @@ CREATE TABLE IF NOT EXISTS orders (
     remains INTEGER,
     status VARCHAR(20) DEFAULT 'pending',
     provider_order_id VARCHAR(50),
+    provider_cost DECIMAL(10, 4),
+    provider_status VARCHAR(50),
+    last_status_sync TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -176,6 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_api_key ON users(api_key);
 CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+CREATE INDEX IF NOT EXISTS idx_orders_provider_order_id ON orders(provider_order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);

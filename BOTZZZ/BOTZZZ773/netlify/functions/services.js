@@ -17,6 +17,24 @@ function getUserFromToken(authHeader) {
   }
 }
 
+function toNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function calculateMarkup(providerRate, retailRate) {
+  if (!Number.isFinite(providerRate) || !Number.isFinite(retailRate) || providerRate <= 0) {
+    return null;
+  }
+
+  const markup = ((retailRate - providerRate) / providerRate) * 100;
+  return Number(markup.toFixed(2));
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -25,7 +43,6 @@ exports.handler = async (event) => {
     'Content-Type': 'application/json'
   };
 
-  // Add quick OPTIONS response to avoid CORS preflight hanging
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -38,7 +55,12 @@ exports.handler = async (event) => {
     switch (event.httpMethod) {
       case 'GET':
         return await handleGetServices(user, headers);
-      // (optional) add other cases for admin actions later
+      case 'POST':
+        return await handleCreateService(user, body, headers);
+      case 'PUT':
+        return await handleUpdateService(user, body, headers);
+      case 'DELETE':
+        return await handleDeleteService(user, body, headers);
       default:
         return {
           statusCode: 405,
@@ -85,17 +107,10 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    // 🔹 Her servise siteye özel ID ekliyoruz (2231'den başlayarak)
-    const startingId = 2231;
-    const servicesWithCustomId = services.map((service, index) => ({
-      ...service,
-      site_id: startingId + index
-    }));
-
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: servicesWithCustomId })
+      body: JSON.stringify({ services })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -109,6 +124,7 @@ async function handleGetServices(user, headers) {
 
 async function handleCreateService(user, data, headers) {
   try {
+    // Only admins can create services
     if (!user || user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -119,6 +135,7 @@ async function handleCreateService(user, data, headers) {
 
     const { action } = data;
 
+    // Handle different create actions
     if (action === 'create-category') {
       return await handleCreateCategory(data, headers);
     }
@@ -135,6 +152,12 @@ async function handleCreateService(user, data, headers) {
       description,
       rate,
       price,
+      provider_rate,
+      providerRate,
+      retail_rate,
+      retailRate,
+      markup_percentage,
+      markupPercentage,
       min_quantity,
       minOrder,
       max_quantity,
@@ -151,9 +174,20 @@ async function handleCreateService(user, data, headers) {
       };
     }
 
-    const servicePrice = rate || price || 0;
-    const minQty = min_quantity || minOrder || 10;
-    const maxQty = max_quantity || maxOrder || 100000;
+    const providerRateInput = provider_rate ?? providerRate;
+    const retailRateInput = retail_rate ?? retailRate ?? rate ?? price;
+    const fallbackRetailInput = rate ?? price ?? 0;
+
+    const numericProviderRate = toNumberOrNull(providerRateInput);
+    const numericRetailRate = toNumberOrNull(retailRateInput);
+    const numericFallbackRetail = toNumberOrNull(fallbackRetailInput) ?? 0;
+
+    const resolvedRetailRate = numericRetailRate ?? numericFallbackRetail;
+    const manualMarkup = toNumberOrNull(markup_percentage ?? markupPercentage);
+    const resolvedMarkup = manualMarkup ?? calculateMarkup(numericProviderRate, resolvedRetailRate);
+
+    const minQty = min_quantity ?? minOrder ?? 10;
+    const maxQty = max_quantity ?? maxOrder ?? 100000;
 
     const { data: service, error } = await supabaseAdmin
       .from('services')
@@ -163,7 +197,10 @@ async function handleCreateService(user, data, headers) {
         name,
         category,
         description: description || '',
-        rate: servicePrice,
+        rate: resolvedRetailRate,
+        provider_rate: numericProviderRate,
+        retail_rate: resolvedRetailRate,
+        markup_percentage: resolvedMarkup,
         min_quantity: minQty,
         max_quantity: maxQty,
         type: type || 'service',
@@ -201,6 +238,7 @@ async function handleCreateService(user, data, headers) {
 
 async function handleUpdateService(user, data, headers) {
   try {
+    // Only admins can update services
     if (!user || user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -215,15 +253,21 @@ async function handleUpdateService(user, data, headers) {
       category,
       rate,
       price,
+      provider_rate,
+      providerRate,
+      retail_rate,
+      retailRate,
+      markup_percentage,
+      markupPercentage,
       min_quantity,
       max_quantity,
       description,
       status,
+      type,
       providerId,
       provider_id,
       providerServiceId,
-      provider_service_id,
-      ...updateData
+      provider_service_id
     } = data;
 
     if (!serviceId) {
@@ -234,15 +278,65 @@ async function handleUpdateService(user, data, headers) {
       };
     }
 
+    // Build update object with proper field names
     const updates = {};
     if (name !== undefined) updates.name = name;
     if (category !== undefined) updates.category = category;
-    if (rate !== undefined) updates.rate = rate;
-    if (price !== undefined) updates.rate = price;
     if (min_quantity !== undefined) updates.min_quantity = min_quantity;
     if (max_quantity !== undefined) updates.max_quantity = max_quantity;
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;
+    if (type !== undefined) updates.type = type;
+
+    const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||
+      Object.prototype.hasOwnProperty.call(data, 'providerRate');
+    const hasRetailRateField = Object.prototype.hasOwnProperty.call(data, 'retail_rate') ||
+      Object.prototype.hasOwnProperty.call(data, 'retailRate') ||
+      Object.prototype.hasOwnProperty.call(data, 'rate') ||
+      Object.prototype.hasOwnProperty.call(data, 'price');
+    const hasMarkupField = Object.prototype.hasOwnProperty.call(data, 'markup_percentage') ||
+      Object.prototype.hasOwnProperty.call(data, 'markupPercentage');
+
+    const providerRateInput = provider_rate ?? providerRate;
+    const retailRateInput = retail_rate ?? retailRate ?? rate ?? price;
+    const fallbackRetailInput = rate ?? price;
+
+    const numericProviderRate = toNumberOrNull(providerRateInput);
+    const numericRetailRate = toNumberOrNull(retailRateInput);
+    const numericFallbackRetail = toNumberOrNull(fallbackRetailInput);
+
+    const resolvedRetailRate = numericRetailRate ?? numericFallbackRetail;
+    if (resolvedRetailRate !== null) {
+      updates.rate = resolvedRetailRate;
+      updates.retail_rate = resolvedRetailRate;
+    } else if (hasRetailRateField) {
+      updates.rate = null;
+      updates.retail_rate = null;
+    }
+
+    if (numericProviderRate !== null) {
+      updates.provider_rate = numericProviderRate;
+    } else if (hasProviderRateField) {
+      updates.provider_rate = null;
+    }
+
+    let shouldUpdateMarkup = false;
+    let resolvedMarkup = null;
+
+    if (hasMarkupField) {
+      resolvedMarkup = toNumberOrNull(markup_percentage ?? markupPercentage);
+      shouldUpdateMarkup = true;
+    } else {
+      const autoMarkup = calculateMarkup(numericProviderRate, resolvedRetailRate);
+      if (autoMarkup !== null) {
+        resolvedMarkup = autoMarkup;
+        shouldUpdateMarkup = true;
+      }
+    }
+
+    if (shouldUpdateMarkup) {
+      updates.markup_percentage = resolvedMarkup;
+    }
 
     const resolvedProviderId = providerId !== undefined ? providerId : provider_id;
     if (resolvedProviderId !== undefined) {
@@ -290,6 +384,7 @@ async function handleUpdateService(user, data, headers) {
 
 async function handleDeleteService(user, data, headers) {
   try {
+    // Only admins can delete services
     if (!user || user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -341,6 +436,8 @@ async function handleCreateCategory(data, headers) {
   try {
     const { name, description, icon } = data;
 
+    // For now, categories are just stored as metadata
+    // You can create a categories table later if needed
     return {
       statusCode: 200,
       headers,
@@ -364,6 +461,7 @@ async function handleDuplicateService(data, headers) {
   try {
     const { serviceId } = data;
 
+    // Get the original service
     const { data: originalService, error: fetchError } = await supabaseAdmin
       .from('services')
       .select('*')
@@ -378,6 +476,7 @@ async function handleDuplicateService(data, headers) {
       };
     }
 
+    // Create duplicate with modified name
     const { data: newService, error: insertError } = await supabaseAdmin
       .from('services')
       .insert({
@@ -387,10 +486,13 @@ async function handleDuplicateService(data, headers) {
         category: originalService.category,
         description: originalService.description,
         rate: originalService.rate,
+        provider_rate: originalService.provider_rate,
+        retail_rate: originalService.retail_rate,
+        markup_percentage: originalService.markup_percentage,
         min_quantity: originalService.min_quantity,
         max_quantity: originalService.max_quantity,
         type: originalService.type,
-        status: 'inactive'
+        status: 'inactive' // New duplicates start as inactive
       })
       .select()
       .single();

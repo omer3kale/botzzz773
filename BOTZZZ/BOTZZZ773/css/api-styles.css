@@ -40,6 +40,11 @@
     gap: var(--spacing-xl);
     justify-content: center;
     flex-wrap: wrap;
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid rgba(255, 20, 148, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    box-shadow: 0 8px 32px rgba(255, 20, 148, 0.1);
 }
 
 .api-info-item {
@@ -130,11 +135,18 @@
 }
 
 .api-step {
-    background: var(--bg-darker);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid rgba(255, 20, 148, 0.15);
     border-radius: var(--radius-lg);
     padding: var(--spacing-xl);
     text-align: center;
+    transition: all var(--transition-normal);
+}
+
+.api-step:hover {
+    border-color: rgba(255, 20, 148, 0.4);
+    box-shadow: 0 12px 40px rgba(255, 20, 148, 0.15);
+    transform: translateY(-4px);
 }
 
 .step-number {
@@ -217,11 +229,19 @@
 
 /* Endpoint Cards */
 .endpoint-card {
-    background: var(--bg-darker);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.03);
+    border: 2px solid rgba(255, 20, 148, 0.15);
     border-radius: var(--radius-lg);
     padding: var(--spacing-xl);
     margin-bottom: var(--spacing-xl);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    transition: all var(--transition-normal);
+}
+
+.endpoint-card:hover {
+    border-color: rgba(255, 20, 148, 0.4);
+    box-shadow: 0 12px 40px rgba(255, 20, 148, 0.15);
+    transform: translateY(-2px);
 }
 
 .endpoint-header {

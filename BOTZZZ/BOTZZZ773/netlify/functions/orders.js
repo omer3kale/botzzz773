@@ -1,7 +1,15 @@
 // Orders API - Create, Get, Update, Cancel Orders
 // Ensure browser-only globals never break the server runtime when bundled.
-if (typeof globalThis.document === 'undefined') {
-  globalThis.document = undefined;
+if (typeof globalThis === 'object') {
+  if (typeof globalThis.document === 'undefined') {
+    globalThis.document = undefined;
+  }
+  if (typeof globalThis.window === 'undefined') {
+    globalThis.window = undefined;
+  }
+  if (typeof globalThis.addEventListener === 'undefined') {
+    globalThis.addEventListener = undefined;
+  }
 }
 
 const { supabase, supabaseAdmin } = require('./utils/supabase');
@@ -20,6 +28,78 @@ function getUserFromToken(authHeader) {
   } catch (error) {
     return null;
   }
+}
+
+function toNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function calculateProviderRate(service) {
+  const directRate = toNumberOrNull(service.provider_rate);
+  if (directRate !== null) {
+    return directRate;
+  }
+
+  const retailRate = toNumberOrNull(service.retail_rate ?? service.rate);
+  const markup = toNumberOrNull(service.markup_percentage ?? service.provider?.markup);
+
+  if (retailRate !== null && markup !== null && markup > -100) {
+    const base = retailRate / (1 + markup / 100);
+    return Number(base.toFixed(4));
+  }
+
+  return null;
+}
+
+function calculateProviderCharge(ratePerThousand, quantity) {
+  if (!Number.isFinite(ratePerThousand) || !Number.isFinite(quantity)) {
+    return null;
+  }
+  const charge = (ratePerThousand * quantity) / 1000;
+  return Number(charge.toFixed(4));
+}
+
+function normalizeProviderStatus(rawStatus) {
+  if (!rawStatus) {
+    return 'processing';
+  }
+
+  const status = String(rawStatus).trim().toLowerCase();
+
+  if (!status) {
+    return 'processing';
+  }
+
+  if (['pending', 'in queue', 'queue', 'waiting'].includes(status)) {
+    return 'pending';
+  }
+
+  if (status.includes('progress') || status === 'processing' || status === 'started') {
+    return 'processing';
+  }
+
+  if (status.includes('partial')) {
+    return 'partial';
+  }
+
+  if (status.includes('cancel') || status.includes('refunded') || status.includes('reversed')) {
+    return 'cancelled';
+  }
+
+  if (status.includes('fail')) {
+    return 'failed';
+  }
+
+  if (status.includes('completed') || status.includes('success') || status.includes('done')) {
+    return 'completed';
+  }
+
+  return 'processing';
 }
 
 exports.handler = async (event) => {
@@ -63,6 +143,9 @@ exports.handler = async (event) => {
       case 'GET':
         return await handleGetOrders(user, headers);
       case 'POST':
+        if (body && body.action === 'sync-status') {
+          return await handleSyncOrderStatuses(user, body, headers);
+        }
         return await handleCreateOrder(user, body, headers);
       case 'PUT':
         return await handleUpdateOrder(user, body, headers);
@@ -279,9 +362,28 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // ============= STEP 3: CALCULATE COST & CHECK BALANCE =============
+    const retailRatePerThousand = toNumberOrNull(service.retail_rate ?? service.rate);
+    if (retailRatePerThousand === null) {
+      console.error('[ORDER] Retail rate missing or invalid for service:', serviceId, service.retail_rate, service.rate);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Service pricing not configured correctly' })
+      };
+    }
+
     // Calculate total cost (rate is per 1000 units)
-    const totalCost = parseFloat(((service.rate * qty) / 1000).toFixed(2));
-    console.log(`[ORDER] Calculated cost: ${totalCost} for ${qty} units at rate ${service.rate}`);
+    const totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(2));
+    console.log(`[ORDER] Calculated cost: ${totalCost} for ${qty} units at retail rate ${retailRatePerThousand}`);
+
+    const providerRatePerThousand = calculateProviderRate(service);
+    const providerCharge = providerRatePerThousand !== null
+      ? calculateProviderCharge(providerRatePerThousand, qty)
+      : null;
+    console.log('[ORDER] Provider cost estimate:', {
+      providerRatePerThousand,
+      providerCharge
+    });
 
     if (totalCost < 0 || !isFinite(totalCost)) {
       console.error('[ORDER] Invalid cost calculation:', totalCost);
@@ -348,6 +450,7 @@ async function handleCreateOrder(user, data, headers) {
         link: linkStr,
         quantity: qty,
         charge: totalCost,
+        provider_cost: providerCharge,
         status: 'pending',
         order_number: orderNumber
       })
@@ -421,13 +524,24 @@ async function handleCreateOrder(user, data, headers) {
       providerOrderId = providerResponse.order;
       console.log(`[ORDER] Provider accepted order: ${providerOrderId}`);
 
+      const providerChargeFromResponse = toNumberOrNull(providerResponse.response?.charge);
+      const nowIso = new Date().toISOString();
+
+      const providerUpdatePayload = {
+        provider_order_id: providerOrderId,
+        status: 'processing',
+        provider_status: 'processing',
+        last_status_sync: nowIso
+      };
+
+      if (providerChargeFromResponse !== null) {
+        providerUpdatePayload.provider_cost = providerChargeFromResponse;
+      }
+
       // Update order with provider order ID and status
       const { error: updateError } = await supabaseAdmin
         .from('orders')
-        .update({ 
-          provider_order_id: providerOrderId,
-          status: 'processing'
-        })
+        .update(providerUpdatePayload)
         .eq('id', order.id);
 
       if (updateError) {
@@ -442,6 +556,11 @@ async function handleCreateOrder(user, data, headers) {
 
       order.provider_order_id = providerOrderId;
       order.status = 'processing';
+      order.provider_status = 'processing';
+      order.last_status_sync = nowIso;
+      if (providerChargeFromResponse !== null) {
+        order.provider_cost = providerChargeFromResponse;
+      }
       console.log(`[ORDER] Order ${order.id} successfully processed`);
 
     } catch (providerError) {
@@ -472,7 +591,9 @@ async function handleCreateOrder(user, data, headers) {
       await supabaseAdmin
         .from('orders')
         .update({ 
-          status: 'failed'
+          status: 'failed',
+          provider_status: 'failed',
+          last_status_sync: new Date().toISOString()
         })
         .eq('id', order.id);
 
@@ -504,6 +625,9 @@ async function handleCreateOrder(user, data, headers) {
           charge: order.charge,
           status: order.status,
           provider_order_id: order.provider_order_id,
+          provider_cost: order.provider_cost,
+          provider_status: order.provider_status,
+          last_status_sync: order.last_status_sync,
           link: order.link,
           created_at: order.created_at
         },
@@ -528,7 +652,11 @@ async function handleCreateOrder(user, data, headers) {
         // Mark failed
         await supabaseAdmin
           .from('orders')
-          .update({ status: 'failed' })
+          .update({ 
+            status: 'failed',
+            provider_status: 'failed',
+            last_status_sync: new Date().toISOString()
+          })
           .eq('id', orderCreated.id);
         
         console.log('[ORDER] Emergency rollback completed');
@@ -737,6 +865,215 @@ async function handleCancelOrder(user, data, headers) {
   }
 }
 
+async function handleSyncOrderStatuses(user, data, headers) {
+  if (!user || user.role !== 'admin') {
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ error: 'Admin access required' })
+    };
+  }
+
+  try {
+    const orderIds = Array.isArray(data.orderIds) ? data.orderIds : null;
+    const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
+
+    let query = supabaseAdmin
+      .from('orders')
+      .select(`
+        id,
+        provider_order_id,
+        status,
+        provider_status,
+        provider_cost,
+        start_count,
+        remains,
+        quantity,
+        last_status_sync,
+        service:services(
+          id,
+          provider_rate,
+          retail_rate,
+          markup_percentage,
+          provider:providers(id, name, api_url, api_key)
+        )
+      `)
+      .not('provider_order_id', 'is', null);
+
+    if (orderIds && orderIds.length > 0) {
+      query = query.in('id', orderIds);
+    } else {
+      query = query.in('status', statusesToSync);
+    }
+
+    const { data: ordersToSync, error } = await query.limit(100);
+
+    if (error) {
+      console.error('[ORDER SYNC] Failed to load orders for sync:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to load orders for sync' })
+      };
+    }
+
+    if (!ordersToSync || ordersToSync.length === 0) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, updated: 0, results: [] })
+      };
+    }
+
+    const results = [];
+    const nowIso = new Date().toISOString();
+
+    for (const order of ordersToSync) {
+      if (!order.service || !order.service.provider || !order.service.provider.api_url) {
+        results.push({
+          orderId: order.id,
+          providerOrderId: order.provider_order_id,
+          success: false,
+          error: 'Provider configuration missing'
+        });
+        continue;
+      }
+
+      try {
+        const statusResponse = await fetchProviderOrderStatus(order.service.provider, order.provider_order_id);
+
+        const providerStatusRaw = statusResponse.status || order.provider_status || 'processing';
+        const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
+        const updatePayload = {
+          provider_status: providerStatusRaw,
+          last_status_sync: nowIso
+        };
+
+        if (normalizedStatus) {
+          updatePayload.status = normalizedStatus;
+        }
+
+        const remainsValue = toNumberOrNull(statusResponse.remains);
+        if (remainsValue !== null) {
+          updatePayload.remains = Math.max(0, Math.trunc(remainsValue));
+        }
+
+        const startCountValue = toNumberOrNull(statusResponse.start_count ?? statusResponse.startCount);
+        if (startCountValue !== null) {
+          updatePayload.start_count = Math.max(0, Math.trunc(startCountValue));
+        }
+
+        const providerChargeValue = toNumberOrNull(statusResponse.charge);
+        if (providerChargeValue !== null) {
+          updatePayload.provider_cost = Number(providerChargeValue.toFixed(4));
+        }
+
+        const { error: updateError } = await supabaseAdmin
+          .from('orders')
+          .update(updatePayload)
+          .eq('id', order.id);
+
+        if (updateError) {
+          console.error('[ORDER SYNC] Failed to update order', order.id, updateError);
+          results.push({
+            orderId: order.id,
+            providerOrderId: order.provider_order_id,
+            success: false,
+            error: updateError.message
+          });
+          continue;
+        }
+
+        results.push({
+          orderId: order.id,
+          providerOrderId: order.provider_order_id,
+          success: true,
+          status: normalizedStatus,
+          provider_status: providerStatusRaw
+        });
+      } catch (syncError) {
+        console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
+        results.push({
+          orderId: order.id,
+          providerOrderId: order.provider_order_id,
+          success: false,
+          error: syncError.message || 'Provider sync failed'
+        });
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        updated: results.filter((r) => r.success).length,
+        results
+      })
+    };
+  } catch (error) {
+    console.error('[ORDER SYNC] Unexpected error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to sync order statuses' })
+    };
+  }
+}
+
+async function fetchProviderOrderStatus(provider, providerOrderId) {
+  if (!provider || !provider.api_url || !provider.api_key) {
+    throw new Error('Provider credentials missing');
+  }
+
+  if (!providerOrderId) {
+    throw new Error('Provider order id missing');
+  }
+
+  try {
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'status');
+    params.append('order', providerOrderId);
+
+    const response = await axios.post(provider.api_url, params, {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 20000,
+      validateStatus: (status) => status < 500
+    });
+
+    if (!response.data) {
+      throw new Error('Provider returned empty status response');
+    }
+
+    if (response.data.error) {
+      throw new Error(`Provider status error: ${response.data.error}`);
+    }
+
+    return response.data;
+  } catch (error) {
+    if (error.response) {
+      console.error('[PROVIDER STATUS] HTTP error:', {
+        status: error.response.status,
+        data: error.response.data
+      });
+      throw new Error(
+        `Provider status HTTP error ${error.response.status}: ${JSON.stringify(error.response.data)}`
+      );
+    }
+
+    if (error.request) {
+      console.error('[PROVIDER STATUS] No response received:', error.message);
+      throw new Error('Provider status request timed out');
+    }
+
+    console.error('[PROVIDER STATUS] Unexpected error:', error.message);
+    throw new Error(`Provider status request failed: ${error.message}`);
+  }
+}
+
 async function submitOrderToProvider(provider, orderData) {
   try {
     console.log(`[PROVIDER] Submitting order to ${provider.name}`, {
@@ -826,37 +1163,3 @@ async function submitOrderToProvider(provider, orderData) {
     }
   }
 }
-
-document.addEventListener('DOMContentLoaded', async () => {
-  const serviceSelect = document.getElementById('service');
-  const loadingIndicator = document.getElementById('services-loading'); // optional element
-
-  try {
-    if (loadingIndicator) loadingIndicator.style.display = 'block';
-
-    const res = await fetch('/.netlify/functions/services');
-    if (!res.ok) throw new Error(`Services request failed: ${res.status}`);
-
-    const json = await res.json();
-    const services = Array.isArray(json.services) ? json.services : (json.services || []);
-
-    // clear existing options (keep first placeholder)
-    while (serviceSelect && serviceSelect.options.length > 1) serviceSelect.remove(1);
-
-    services.forEach(svc => {
-      const opt = document.createElement('option');
-      opt.value = svc.id || ''; // use DB UUID (backend expects this)
-      opt.textContent = `${svc.name} ${svc.rate ? `(${svc.rate}/1000)` : ''}`;
-      opt.dataset.providerServiceId = svc.provider_service_id ?? '';
-      opt.dataset.siteId = svc.site_id ?? '';
-      serviceSelect.appendChild(opt);
-    });
-
-    if (loadingIndicator) loadingIndicator.style.display = 'none';
-  } catch (err) {
-    console.error('Failed to load services:', err);
-    if (loadingIndicator) loadingIndicator.textContent = 'Failed to load services';
-  }
-});
-
-

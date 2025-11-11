@@ -25,8 +25,28 @@
                 <i class="fas fa-bell"></i>
                 <span class="notification-badge">10</span>
             </div>
-            <div class="admin-user">
-                <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+            <div class="admin-user-menu">
+                <button class="admin-user-button" onclick="toggleUserMenu()">
+                    <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <div class="user-dropdown-menu" id="userDropdownMenu">
+                    <div class="user-dropdown-header">
+                        <div class="user-dropdown-info">
+                            <strong id="adminUserName">Admin</strong>
+                            <span id="adminUserEmail">admin@botzzz773.com</span>
+                        </div>
+                    </div>
+                    <div class="user-dropdown-divider"></div>
+                    <a href="settings.html" class="user-dropdown-item">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                    <a href="#" onclick="adminLogout(event)" class="user-dropdown-item logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </a>
+                </div>
             </div>
         </div>
     </header>
@@ -150,15 +170,25 @@
             </div>
         </div>
 
+        <div class="sync-status-bar">
+            <div class="sync-status-meta">
+                <span class="sync-status-dot" id="ordersSyncDot"></span>
+                <span id="ordersSyncStatus">Provider sync pending…</span>
+            </div>
+            <button class="btn-secondary" id="ordersSyncButton" onclick="manualOrdersSync()">
+                <i class="fas fa-sync-alt"></i> Sync Now
+            </button>
+        </div>
+
         <!-- Orders Table -->
         <div class="table-container">
             <table class="admin-table" id="ordersTable">
                 <thead>
                     <tr>
                         <th><input type="checkbox" onclick="toggleAll(this, 'order-checkbox')"></th>
-                        <th onclick="sortTable('id')">ID <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('id')">Order IDs <i class="fas fa-sort"></i></th>
                         <th>User</th>
-                        <th onclick="sortTable('charge')">Charge <i class="fas fa-sort"></i></th>
+                        <th onclick="sortTable('charge')">Amount (IN / OUT) <i class="fas fa-sort"></i></th>
                         <th>Link</th>
                         <th>Start count</th>
                         <th onclick="sortTable('quantity')">Quantity <i class="fas fa-sort"></i></th>

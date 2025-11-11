@@ -7,6 +7,39 @@ function toggleSidebar() {
     document.body.classList.toggle('sidebar-collapsed');
 }
 
+// Toggle User Menu
+function toggleUserMenu() {
+    const menu = document.getElementById('userDropdownMenu');
+    if (menu) {
+        menu.classList.toggle('show');
+    }
+}
+
+// Close user menu when clicking outside
+document.addEventListener('click', (event) => {
+    const menu = document.getElementById('userDropdownMenu');
+    const button = document.querySelector('.admin-user-button');
+    
+    if (menu && button && !menu.contains(event.target) && !button.contains(event.target)) {
+        menu.classList.remove('show');
+    }
+});
+
+// Admin Logout
+function adminLogout(event) {
+    if (event) {
+        event.preventDefault();
+    }
+    
+    // Clear all authentication data
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('userRole');
+    
+    // Redirect to signin page
+    window.location.href = '../signin.html';
+}
+
 // API Helper for admin operations
 async function adminApiCall(endpoint, options = {}) {
     const token = localStorage.getItem('token');

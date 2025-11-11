@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Loading Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+        h1 { color: #60a5fa; }
+        .test-box {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .info { color: #60a5fa; }
+        pre {
+            background: #0f172a;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #2563eb; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Service Loading Diagnostic</h1>
+    
+    <div class="test-box">
+        <h2>Test Controls</h2>
+        <button onclick="testFetch()">Test Fetch API</button>
+        <button onclick="testXHR()">Test XMLHttpRequest</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+
+    <div class="test-box">
+        <h2>Results</h2>
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const resultsDiv = document.getElementById('results');
+
+        function log(message, type = 'info') {
+            const p = document.createElement('p');
+            p.className = type;
+            p.textContent = message;
+            resultsDiv.appendChild(p);
+        }
+
+        function clearResults() {
+            resultsDiv.innerHTML = '';
+        }
+
+        async function testFetch() {
+            clearResults();
+            log('🚀 Testing Fetch API...', 'info');
+            
+            try {
+                const startTime = Date.now();
+                const response = await fetch('/.netlify/functions/services', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                const endTime = Date.now();
+                
+                log(`✅ Response received in ${endTime - startTime}ms`, 'success');
+                log(`Status: ${response.status} ${response.statusText}`, 'info');
+                log(`Headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}`, 'info');
+                
+                const data = await response.json();
+                log(`✅ JSON parsed successfully`, 'success');
+                log(`Services count: ${data.services?.length || 0}`, 'info');
+                
+                if (data.services && data.services.length > 0) {
+                    log(`✅ First service: ${data.services[0].name}`, 'success');
+                    const pre = document.createElement('pre');
+                    pre.textContent = JSON.stringify(data.services[0], null, 2);
+                    resultsDiv.appendChild(pre);
+                } else {
+                    log('❌ No services returned!', 'error');
+                }
+                
+            } catch (error) {
+                log(`❌ ERROR: ${error.message}`, 'error');
+                log(`Stack: ${error.stack}`, 'error');
+            }
+        }
+
+        async function testXHR() {
+            clearResults();
+            log('🚀 Testing XMLHttpRequest...', 'info');
+            
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', '/.netlify/functions/services');
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                
+                xhr.onload = function() {
+                    log(`✅ Response received`, 'success');
+                    log(`Status: ${xhr.status} ${xhr.statusText}`, 'info');
+                    log(`Response length: ${xhr.responseText.length} bytes`, 'info');
+                    
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        log(`✅ JSON parsed successfully`, 'success');
+                        log(`Services count: ${data.services?.length || 0}`, 'info');
+                        
+                        if (data.services && data.services.length > 0) {
+                            log(`✅ First service: ${data.services[0].name}`, 'success');
+                        }
+                    } catch (error) {
+                        log(`❌ JSON parse error: ${error.message}`, 'error');
+                    }
+                };
+                
+                xhr.onerror = function() {
+                    log(`❌ XHR Error`, 'error');
+                };
+                
+                xhr.ontimeout = function() {
+                    log(`❌ XHR Timeout`, 'error');
+                };
+                
+                xhr.send();
+            });
+        }
+
+        // Auto-run test on load
+        window.addEventListener('load', () => {
+            setTimeout(testFetch, 500);
+        });
+    </script>
+</body>
+</html>
