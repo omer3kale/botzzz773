@@ -390,7 +390,7 @@ async function loadServices() {
             fetchHeaders['Authorization'] = `Bearer ${token}`;
         }
         
-        const response = await fetch('/.netlify/functions/services', {
+        const response = await fetch('/.netlify/functions/services?audience=customer', {
             method: 'GET',
             headers: fetchHeaders
         });

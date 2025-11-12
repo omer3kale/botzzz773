@@ -54,7 +54,7 @@ exports.handler = async (event) => {
 
     switch (event.httpMethod) {
       case 'GET':
-        return await handleGetServices(user, headers);
+        return await handleGetServices(event, user, headers);
       case 'POST':
         return await handleCreateService(user, body, headers);
       case 'PUT':
@@ -78,10 +78,14 @@ exports.handler = async (event) => {
   }
 };
 
-async function handleGetServices(user, headers) {
+async function handleGetServices(event, user, headers) {
   try {
-    const isAdmin = user && user.role === 'admin';
-    const client = isAdmin ? supabaseAdmin : supabase;
+    const queryParams = event?.queryStringParameters || {};
+    const audienceParam = (queryParams.audience || queryParams.scope || '').toLowerCase();
+    const forceCustomerScope = audienceParam === 'customer';
+
+    const isAdminUser = user && user.role === 'admin' && !forceCustomerScope;
+    const client = isAdminUser ? supabaseAdmin : supabase;
 
     let query = client
       .from('services')
@@ -90,11 +94,13 @@ async function handleGetServices(user, headers) {
         provider:providers!inner(id, name, status, markup)
       `);
 
-    if (!isAdmin) {
-      // For customers: only show services that are active AND belong to active providers
+    if (!isAdminUser) {
+      // For customer scope (default) only show services explicitly active and from active providers
       query = query
         .eq('status', 'active')
         .eq('provider.status', 'active');
+      // Only expose services that have a public customer-facing identifier assigned
+      query = query.not('public_id', 'is', null);
     }
 
     query = query.order('category', { ascending: true }).order('name', { ascending: true });
