@@ -2,19 +2,39 @@
 // Services Page JavaScript
 // ==========================================
 
+let filterButtons;
+
 document.addEventListener('DOMContentLoaded', function() {
-    // Load services from API
-    loadServicesFromAPI();
+    // Load services from API first, then initialize filters
+    loadServicesFromAPI()
+        .then(isLoaded => {
+            if (isLoaded) {
+                initializeFilters();
+            } else {
+                console.warn('[FILTERS] Skipping initialization because services failed to load.');
+            }
+        })
+        .catch(error => {
+            console.error('[FILTERS] Failed to load services before initialization:', error);
+        });
     
-    // Service Filter
-    const filterButtons = document.querySelectorAll('.filter-btn');
-    const searchInput = document.getElementById('serviceSearch');
+    // Initialize search (can work immediately)
+    initializeSearch();
+});
+
+// Initialize filter buttons
+function initializeFilters() {
+    filterButtons = document.querySelectorAll('.filter-btn');
     
-    // Filter by category
+    console.log('[FILTERS] Initializing with', filterButtons.length, 'buttons');
+    
     filterButtons.forEach(button => {
         button.addEventListener('click', function() {
             const filter = this.dataset.filter;
             const serviceCategories = document.querySelectorAll('.service-category');
+            
+            console.log('[FILTER] Clicked:', filter);
+            console.log('[FILTER] Found categories:', serviceCategories.length);
             
             // Update active button
             filterButtons.forEach(btn => btn.classList.remove('active'));
@@ -25,7 +45,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (filter === 'all') {
                     category.style.display = 'block';
                 } else {
-                    if (category.dataset.category === filter) {
+                    const categoryName = category.dataset.category;
+                    console.log('[FILTER] Category:', categoryName, 'Filter:', filter, 'Match:', categoryName === filter);
+                    if (categoryName === filter) {
                         category.style.display = 'block';
                     } else {
                         category.style.display = 'none';
@@ -47,46 +69,38 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
     
-    // Search functionality
+    console.log('[FILTERS] Initialized successfully');
+}
+
+// Initialize search functionality
+function initializeSearch() {
+    const searchInput = document.getElementById('serviceSearch');
+    
     if (searchInput) {
         searchInput.addEventListener('input', function() {
             const searchTerm = this.value.toLowerCase();
             const serviceCategories = document.querySelectorAll('.service-category');
             
             serviceCategories.forEach(category => {
-                const categoryTitle = category.querySelector('.category-title').textContent.toLowerCase();
-                const subcategories = category.querySelectorAll('.service-subcategory');
-                let hasVisibleSubcategory = false;
+                const categoryTitle = category.querySelector('.category-title')?.textContent.toLowerCase() || '';
+                const rows = category.querySelectorAll('.service-row:not(.service-row-header)');
+                let hasVisibleRow = false;
                 
-                subcategories.forEach(subcategory => {
-                    const subcategoryTitle = subcategory.querySelector('.subcategory-title').textContent.toLowerCase();
-                    const rows = subcategory.querySelectorAll('.service-row:not(.service-row-header)');
-                    let hasVisibleRow = false;
+                rows.forEach(row => {
+                    const serviceName = row.querySelector('strong')?.textContent.toLowerCase() || '';
+                    const serviceDetails = row.querySelector('.service-details')?.textContent.toLowerCase() || '';
                     
-                    rows.forEach(row => {
-                        const serviceName = row.querySelector('strong')?.textContent.toLowerCase() || '';
-                        const serviceDetails = row.querySelector('.service-details')?.textContent.toLowerCase() || '';
-                        
-                        if (serviceName.includes(searchTerm) || 
-                            serviceDetails.includes(searchTerm) ||
-                            categoryTitle.includes(searchTerm) ||
-                            subcategoryTitle.includes(searchTerm)) {
-                            row.style.display = 'grid';
-                            hasVisibleRow = true;
-                        } else {
-                            row.style.display = 'none';
-                        }
-                    });
-                    
-                    if (hasVisibleRow || subcategoryTitle.includes(searchTerm)) {
-                        subcategory.style.display = 'block';
-                        hasVisibleSubcategory = true;
+                    if (serviceName.includes(searchTerm) || 
+                        serviceDetails.includes(searchTerm) ||
+                        categoryTitle.includes(searchTerm)) {
+                        row.style.display = 'grid';
+                        hasVisibleRow = true;
                     } else {
-                        subcategory.style.display = 'none';
+                        row.style.display = 'none';
                     }
                 });
                 
-                if (hasVisibleSubcategory || categoryTitle.includes(searchTerm)) {
+                if (hasVisibleRow || categoryTitle.includes(searchTerm)) {
                     category.style.display = 'block';
                 } else {
                     category.style.display = 'none';
@@ -104,14 +118,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }, 100);
     }
-    
-    // Highlight matching text in search
-    function highlightText(text, search) {
-        if (!search) return text;
-        const regex = new RegExp(`(${search})`, 'gi');
-        return text.replace(regex, '<mark style="background: rgba(255,20,148,0.3); color: #FF1494;">$1</mark>');
-    }
-});
+}
 
 // Add fade in animation
 const style = document.createElement('style');
@@ -141,6 +148,10 @@ console.log('📱 Services page loaded!');
 
 async function loadServicesFromAPI() {
     const container = document.getElementById('servicesContainer');
+    if (!container) {
+        console.warn('[SERVICES] Container element not found.');
+        return false;
+    }
     
     try {
         // Show loading state
@@ -170,7 +181,7 @@ async function loadServicesFromAPI() {
                     <p style="color: #64748B; font-size: 16px;">Services will appear here once they are synced from providers.</p>
                 </div>
             `;
-            return;
+            return true;
         }
         
         // Group services by category
@@ -255,6 +266,9 @@ async function loadServicesFromAPI() {
         container.innerHTML = html;
         console.log('[SUCCESS] Services loaded and displayed');
         
+        // Return true to signal completion
+    return true;
+        
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
         container.innerHTML = `
@@ -265,6 +279,9 @@ async function loadServicesFromAPI() {
                 <button onclick="location.reload()" class="btn btn-primary">Retry</button>
             </div>
         `;
+        
+        // Return false to signal error
+        return false;
     }
 }
 

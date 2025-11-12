@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Our Services - BOTZZZ773 SMM Panel</title>
-    <meta name="description" content="Browse our complete catalog of SMM services for Instagram, TikTok, YouTube, Twitter and more!">
     <link rel="stylesheet" href="css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 </head>
 <body>
     <!-- Navigation -->
@@ -19,9 +19,7 @@
                     <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
                 </a>
                 <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <span></span><span></span><span></span>
                 </button>
                 <ul class="nav-menu" id="navMenu">
                     <li><a href="index.html" class="nav-link">Home</a></li>
@@ -31,7 +29,6 @@
                     <li><a href="api.html" class="nav-link">API</a></li>
                     <li><a href="tickets.html" class="nav-link">Tickets</a></li>
                     <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <!-- Auth navigation dynamically updated by main.js -->
                     <li id="authNavItem"><a href="signin.html" class="nav-link btn-primary">Sign In</a></li>
                 </ul>
             </div>
@@ -50,13 +47,30 @@
     <section class="service-filter">
         <div class="container">
             <div class="filter-buttons">
-                <button class="filter-btn active" data-filter="all">All Services</button>
-                <button class="filter-btn" data-filter="instagram">📱 Instagram</button>
-                <button class="filter-btn" data-filter="tiktok">🎵 TikTok</button>
-                <button class="filter-btn" data-filter="youtube">▶️ YouTube</button>
-                <button class="filter-btn" data-filter="twitter">🐦 Twitter</button>
-                <button class="filter-btn" data-filter="facebook">👥 Facebook</button>
-                <button class="filter-btn" data-filter="telegram">💬 Telegram</button>
+                <button class="filter-btn filter-btn--all active" data-filter="all">
+                    <i class="fas fa-th"></i> All Services
+                </button>
+                <button class="filter-btn filter-btn--instagram" data-filter="instagram">
+                    <i class="fab fa-instagram"></i> Instagram
+                </button>
+                <button class="filter-btn filter-btn--tiktok" data-filter="tiktok">
+                    <i class="fab fa-tiktok"></i> TikTok
+                </button>
+                <button class="filter-btn filter-btn--youtube" data-filter="youtube">
+                    <i class="fab fa-youtube"></i> YouTube
+                </button>
+                <button class="filter-btn filter-btn--twitter" data-filter="twitter">
+                    <i class="fab fa-twitter"></i> Twitter
+                </button>
+                <button class="filter-btn filter-btn--facebook" data-filter="facebook">
+                    <i class="fab fa-facebook"></i> Facebook
+                </button>
+                <button class="filter-btn filter-btn--telegram" data-filter="telegram">
+                    <i class="fab fa-telegram"></i> Telegram
+                </button>
+                <button class="filter-btn filter-btn--reddit" data-filter="reddit">
+                    <i class="fab fa-reddit"></i> Reddit
+                </button>
             </div>
             <div class="search-box">
                 <input type="text" id="serviceSearch" placeholder="🔍 Search services..." class="search-input">
@@ -66,471 +80,8 @@
 
     <!-- Services List -->
     <section class="services-list">
-        <div class="container">
-            <div id="servicesContainer">
-                <!-- Instagram Services -->
-                <div class="service-category" data-category="instagram" id="instagram">
-                    <h2 class="category-title">📱 Instagram Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Instagram Followers</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Followers [HQ Mix]</strong>
-                                    <span class="service-details">Speed: 100k/D | Max: 1M | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$1.81</div>
-                                <div class="service-col">10 / 1,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-followers-hq" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Followers [Real Mix]</strong>
-                                    <span class="service-details">Speed: 50k/D | Max: 1M | Refill: 60 Days</span>
-                                </div>
-                                <div class="service-col price">$2.50</div>
-                                <div class="service-col">10 / 1,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-followers-real" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Followers [USA Real]</strong>
-                                    <span class="service-details">Speed: 5k/D | Max: 10k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$25.00</div>
-                                <div class="service-col">50 / 10,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-followers-usa" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Instagram Likes</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Likes [Instant]</strong>
-                                    <span class="service-details">Speed: 100k/D | Max: 100k | No Refill</span>
-                                </div>
-                                <div class="service-col price">$0.11</div>
-                                <div class="service-col">10 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-likes-instant" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Likes [Real HQ]</strong>
-                                    <span class="service-details">Speed: 50k/D | Max: 50k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$0.45</div>
-                                <div class="service-col">10 / 50,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-likes-real" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Instagram Views</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Views [Cheapest]</strong>
-                                    <span class="service-details">Speed: 1M/Hour | Instant Start</span>
-                                </div>
-                                <div class="service-col price">$0.07</div>
-                                <div class="service-col">100 / 100,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-views-cheap" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Instagram Reel Views</strong>
-                                    <span class="service-details">Instant | Cheapest in Market</span>
-                                </div>
-                                <div class="service-col price">$0.04</div>
-                                <div class="service-col">100 / 100,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=ig-reel-views" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- TikTok Services -->
-                <div class="service-category" data-category="tiktok" id="tiktok">
-                    <h2 class="category-title">🎵 TikTok Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">TikTok Followers</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>TikTok Followers [HQ]</strong>
-                                    <span class="service-details">Speed: 50k/D | Max: 1M | No Refill</span>
-                                </div>
-                                <div class="service-col price">$0.78</div>
-                                <div class="service-col">10 / 1,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tt-followers-hq" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>TikTok Followers [Superfast]</strong>
-                                    <span class="service-details">Speed: 100k/D | Max: 500k | No Refill</span>
-                                </div>
-                                <div class="service-col price">$0.93</div>
-                                <div class="service-col">10 / 500,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tt-followers-fast" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">TikTok Likes</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>TikTok Likes [Mix HQ]</strong>
-                                    <span class="service-details">Speed: 50k/D | Max: 10M | No Refill</span>
-                                </div>
-                                <div class="service-col price">$0.02</div>
-                                <div class="service-col">10 / 10,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tt-likes-mix" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>TikTok Likes [Real HQ]</strong>
-                                    <span class="service-details">Speed: 100k/D | Max: 10M | Refill: 365 Days</span>
-                                </div>
-                                <div class="service-col price">$0.04</div>
-                                <div class="service-col">10 / 10,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tt-likes-real" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">TikTok Views</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>TikTok Video Views [Own Service]</strong>
-                                    <span class="service-details">Speed: 50M/D | Instant Start</span>
-                                </div>
-                                <div class="service-col price">$0.01</div>
-                                <div class="service-col">100 / 2,147,483,647</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tt-views" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- YouTube Services -->
-                <div class="service-category" data-category="youtube" id="youtube">
-                    <h2 class="category-title">▶️ YouTube Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">YouTube Views</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>YouTube Views [Lifetime Refill]</strong>
-                                    <span class="service-details">Speed: 2-5k/D | Lifetime Guarantee</span>
-                                </div>
-                                <div class="service-col price">$0.93</div>
-                                <div class="service-col">100 / 2,147,483,647</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=yt-views-lifetime" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>YouTube Views [Fast]</strong>
-                                    <span class="service-details">Speed: 10k/D | Lifetime Refill</span>
-                                </div>
-                                <div class="service-col price">$1.02</div>
-                                <div class="service-col">100 / 1,000,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=yt-views-fast" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">YouTube Subscribers</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>YouTube Subscribers [Real]</strong>
-                                    <span class="service-details">Speed: 50/D | Max: 50k | Refill: 60 Days</span>
-                                </div>
-                                <div class="service-col price">$13.50</div>
-                                <div class="service-col">100 / 10,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=yt-subs-real" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>YouTube Subscribers [Superfast]</strong>
-                                    <span class="service-details">Speed: 2k/D | Max: 100k | Refill: 90 Days</span>
-                                </div>
-                                <div class="service-col price">$24.84</div>
-                                <div class="service-col">100 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=yt-subs-fast" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">YouTube Likes</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>YouTube Likes [Instant]</strong>
-                                    <span class="service-details">Speed: 20k/D | Max: 100k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$0.75</div>
-                                <div class="service-col">10 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=yt-likes" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Twitter Services -->
-                <div class="service-category" data-category="twitter" id="twitter">
-                    <h2 class="category-title">🐦 Twitter Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Twitter Followers</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Twitter Followers [HQ]</strong>
-                                    <span class="service-details">Speed: 10k/D | Max: 100k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$12.80</div>
-                                <div class="service-col">10 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tw-followers" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Twitter Likes</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Twitter Likes [Instant HQ]</strong>
-                                    <span class="service-details">Speed: 10k/D | Max: 10k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$3.51</div>
-                                <div class="service-col">10 / 10,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tw-likes" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Facebook Services -->
-                <div class="service-category" data-category="facebook" id="facebook">
-                    <h2 class="category-title">👥 Facebook Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Facebook Page Likes</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Facebook Page Likes</strong>
-                                    <span class="service-details">Speed: 5-10k/D | Max: 500k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$1.17</div>
-                                <div class="service-col">10 / 500,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=fb-page-likes" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Facebook Followers</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Facebook Profile Followers</strong>
-                                    <span class="service-details">Speed: 5k/D | Max: 500k</span>
-                                </div>
-                                <div class="service-col price">$0.39</div>
-                                <div class="service-col">10 / 500,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=fb-followers" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Telegram Services -->
-                <div class="service-category" data-category="telegram" id="telegram">
-                    <h2 class="category-title">💬 Telegram Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Telegram Members</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Telegram Members [HQ Non Drop]</strong>
-                                    <span class="service-details">Speed: 50k/D | Max: 50k | Refill: 30 Days</span>
-                                </div>
-                                <div class="service-col price">$0.61</div>
-                                <div class="service-col">10 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tg-members" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-subcategory">
-                        <h3 class="subcategory-title">Telegram Post Views</h3>
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-                            <div class="service-row">
-                                <div class="service-col">
-                                    <strong>Telegram Post Views [Last 10 Posts]</strong>
-                                    <span class="service-details">Instant</span>
-                                </div>
-                                <div class="service-col price">$0.07</div>
-                                <div class="service-col">100 / 100,000</div>
-                                <div class="service-col">
-                                    <a href="order.html?service=tg-views" class="btn btn-primary btn-sm">Order</a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        <div class="container" id="servicesContainer">
+            <!-- Tüm kategoriler burada JS ile yüklenecek -->
         </div>
     </section>
 
@@ -574,7 +125,7 @@
                 <div class="footer-col">
                     <h4 class="footer-heading">Contact</h4>
                     <ul class="footer-links">
-                        <li>📧 support@botzzz773.com</li>
+                        <li>📧 <a href="mailto:botzzz773@gmail.com">botzzz773@gmail.com</a></li>
                         <li>💬 24/7 Live Chat</li>
                         <li>🌐 Worldwide Service</li>
                     </ul>
@@ -586,7 +137,18 @@
         </div>
     </footer>
 
+    <!-- Scripts -->
     <script src="js/main.js"></script>
     <script src="js/services.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
