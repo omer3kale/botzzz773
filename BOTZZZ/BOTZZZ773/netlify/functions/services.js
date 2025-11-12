@@ -87,11 +87,14 @@ async function handleGetServices(user, headers) {
       .from('services')
       .select(`
         *,
-        provider:providers(id, name, status, markup)
+        provider:providers!inner(id, name, status, markup)
       `);
 
     if (!isAdmin) {
-      query = query.eq('status', 'active');
+      // For customers: only show services that are active AND belong to active providers
+      query = query
+        .eq('status', 'active')
+        .eq('provider.status', 'active');
     }
 
     query = query.order('category', { ascending: true }).order('name', { ascending: true });
