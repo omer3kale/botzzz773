@@ -80,10 +80,9 @@ exports.handler = async (event) => {
 
 async function handleGetServices(user, headers) {
   try {
-    const isAdmin = user && user.role === 'admin';
-    const client = isAdmin ? supabaseAdmin : supabase;
+    const isAdmin = Boolean(user && user.role === 'admin');
 
-    let query = client
+    let query = supabaseAdmin
       .from('services')
       .select(`
         *,
@@ -94,7 +93,9 @@ async function handleGetServices(user, headers) {
       query = query.eq('status', 'active');
     }
 
-    query = query.order('category', { ascending: true }).order('name', { ascending: true });
+    query = query
+      .order('category', { ascending: true })
+      .order('name', { ascending: true });
 
     const { data: services, error } = await query;
 
@@ -110,7 +111,7 @@ async function handleGetServices(user, headers) {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services })
+      body: JSON.stringify({ services: Array.isArray(services) ? services : [] })
     };
   } catch (error) {
     console.error('Get services error:', error);
