@@ -1167,30 +1167,51 @@ async function loadServices() {
                 const providerLabel = providerId ? `Provider ID ${providerId}` : 'Provider ID not set';
 
                 const providerMarkupRaw = toNumeric(service.provider?.markup);
-                let markupPercent = Number.isFinite(providerMarkupRaw) ? providerMarkupRaw : DEFAULT_MARKUP_PERCENT;
+                const serviceMarkupOverride = toNumeric(service.markup_percentage ?? service.markup);
+                let markupPercent = Number.isFinite(serviceMarkupOverride)
+                    ? serviceMarkupOverride
+                    : Number.isFinite(providerMarkupRaw)
+                        ? providerMarkupRaw
+                        : DEFAULT_MARKUP_PERCENT;
+
                 if (!Number.isFinite(markupPercent) || markupPercent <= -100) {
                     markupPercent = DEFAULT_MARKUP_PERCENT;
                 }
+
                 const markupFactor = 1 + markupPercent / 100;
 
-                let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
-                const retailRate = toNumeric(service.rate);
+                let providerCost = toNumeric(
+                    service.provider_rate ??
+                    service.provider_cost ??
+                    service.raw_rate ??
+                    service.rate
+                );
 
-                if (providerCost === null && Number.isFinite(retailRate) && markupFactor !== 0) {
-                    providerCost = retailRate / markupFactor;
+                const storedRetailRate = toNumeric(
+                    service.retail_rate ??
+                    service.customer_rate ??
+                    service.catalog_rate ??
+                    service.price ??
+                    service.public_rate ??
+                    null
+                );
+
+                let retailRateValue = Number.isFinite(providerCost)
+                    ? providerCost * markupFactor
+                    : null;
+
+                if (!Number.isFinite(retailRateValue) && Number.isFinite(storedRetailRate)) {
+                    retailRateValue = storedRetailRate;
                 }
 
-                let catalogRate = null;
-                if (Number.isFinite(providerCost)) {
-                    catalogRate = providerCost * markupFactor;
-                } else if (Number.isFinite(retailRate)) {
-                    catalogRate = retailRate;
+                if (!Number.isFinite(providerCost) && Number.isFinite(retailRateValue) && markupFactor !== 0) {
+                    providerCost = retailRateValue / markupFactor;
                 }
 
                 const providerRateDisplay = formatRatePerThousand(providerCost);
-                const catalogRateDisplay = formatRatePerThousand(catalogRate);
-                const calculatedMarkup = Number.isFinite(providerCost) && Number.isFinite(catalogRate)
-                    ? calculateMarkupPercent(providerCost, catalogRate)
+                const retailRateDisplay = formatRatePerThousand(retailRateValue);
+                const calculatedMarkup = Number.isFinite(providerCost) && Number.isFinite(retailRateValue)
+                    ? calculateMarkupPercent(providerCost, retailRateValue)
                     : markupPercent;
                 const markupDisplay = Number.isFinite(calculatedMarkup)
                     ? `${calculatedMarkup >= 0 ? '+' : ''}${calculatedMarkup.toFixed(1)}%`
@@ -1223,8 +1244,8 @@ async function loadServices() {
                         <td>${providerName}</td>
                         <td>
                             <div class="cell-stack cell-stack-right">
-                                <span class="cell-secondary">Provider: ${providerRateDisplay}</span>
-                                <span class="cell-primary cell-highlight">Retail: ${catalogRateDisplay}</span>
+                                <span class="cell-secondary">Retail: ${retailRateDisplay}</span>
+                                <span class="cell-primary cell-highlight">Provider: ${providerRateDisplay}</span>
                                 <span class="cell-secondary">Markup: ${markupDisplay}</span>
                             </div>
                         </td>
