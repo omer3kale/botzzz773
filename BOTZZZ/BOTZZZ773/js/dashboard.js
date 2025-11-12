@@ -165,7 +165,7 @@
             const response = await fetch('/.netlify/functions/services');
             const data = await response.json();
             
-            if (data.success && data.services) {
+            if (Array.isArray(data.services)) {
                 // Categorize services
                 servicesData = {};
                 data.services.forEach(service => {
@@ -193,6 +193,8 @@
                 return true;
             } else {
                 console.error('Failed to load services:', data.error);
+                // When API responds without a services array, surface a clear error
+                console.error('Failed to load services:', data.error || 'No services array in response');
                 return false;
             }
         } catch (error) {
