@@ -24,7 +24,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize filter buttons
 function initializeFilters() {
-    filterButtons = document.querySelectorAll('.filter-btn');
+    filterButtons = document.querySelectorAll('[data-filter]');
     
     console.log('[FILTERS] Initializing with', filterButtons.length, 'buttons');
     
