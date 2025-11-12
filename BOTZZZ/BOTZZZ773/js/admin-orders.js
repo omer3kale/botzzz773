@@ -642,7 +642,9 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
                 const orderProvider = orderService?.provider || orderService?.providers || null;
-                const providerName = orderProvider?.name || 'Unknown Provider';
+                const providerNameRaw = (orderProvider?.name && String(orderProvider.name).trim())
+                    ? String(orderProvider.name).trim()
+                    : 'Unknown Provider';
                 
                 // COMPREHENSIVE DEBUG LOGGING
                 console.log('═══════════════════════════════════════');
@@ -650,7 +652,7 @@ async function loadOrders({ skipSync = false } = {}) {
                 console.log('Full order object:', order);
                 console.log('Service object:', orderService);
                 console.log('Provider object:', orderProvider);
-                console.log('Provider name:', providerName);
+                console.log('Provider name:', providerNameRaw);
                 console.log('Provider order ID:', order.provider_order_id);
                 console.log('═══════════════════════════════════════');
 
@@ -665,8 +667,8 @@ async function loadOrders({ skipSync = false } = {}) {
                 
                 // ALWAYS show provider info, even if no provider_order_id
                 const providerOrderMarkup = order.provider_order_id
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}"><strong>${escapeHtml(providerName)}:</strong> ${escapeHtml(providerOrderLabel)}</span>`
-                    : `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(providerName)}:</strong> Not submitted</span>`;
+                    ? `<span class="order-id-provider" title="${providerOrderTitle}"><strong>${escapeHtml(providerNameRaw)}:</strong> ${escapeHtml(providerOrderLabel)}</span>`
+                    : `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(providerNameRaw)}:</strong> Not submitted</span>`;
 
                 console.log('Provider markup:', providerOrderMarkup);
 
