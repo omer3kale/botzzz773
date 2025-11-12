@@ -162,13 +162,43 @@
     // Load services from database
     async function loadServicesFromDatabase() {
         try {
-            const response = await fetch('/.netlify/functions/services');
-            const data = await response.json();
-            
-            if (data.success && data.services) {
+            const response = await fetch('/.netlify/functions/services?audience=customer', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const rawBody = await response.text();
+            let data;
+            try {
+                data = rawBody ? JSON.parse(rawBody) : {};
+            } catch (parseError) {
+                console.error('[DASHBOARD] Failed to parse services response:', parseError, rawBody);
+                throw new Error('Received invalid response while loading services');
+            }
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn('[DASHBOARD] Services request unauthorized. Response:', data);
+                showToast('Your session expired. Please sign in again to view services.', 'error');
+                setTimeout(() => {
+                    handleLogout();
+                }, 1200);
+                return false;
+            }
+
+            if (!response.ok) {
+                console.error('[DASHBOARD] Services API error:', data);
+                throw new Error(data.error || 'Failed to load services');
+            }
+
+            const services = Array.isArray(data.services) ? data.services : [];
+
+            if (services.length > 0) {
                 // Categorize services
                 servicesData = {};
-                data.services.forEach(service => {
+                services.forEach(service => {
                     const category = (service.category || 'other').toLowerCase();
                     const publicId = Number(service.public_id ?? service.publicId);
                     const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
@@ -192,7 +222,8 @@
                 console.log('Services loaded successfully:', Object.keys(servicesData).length, 'categories');
                 return true;
             } else {
-                console.error('Failed to load services:', data.error);
+                console.warn('[DASHBOARD] No customer-visible services returned.');
+                showToast('No services are currently available. Please contact support.', 'error');
                 return false;
             }
         } catch (error) {
