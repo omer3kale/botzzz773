@@ -280,7 +280,10 @@
                     if (!servicesData[categorySlug]) {
                         servicesData[categorySlug] = [];
                     }
-                    const publicId = Number(service.public_id ?? service.publicId);
+                    const rawPublicId = service.public_id ?? service.publicId;
+                    const publicId = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
+                        ? null
+                        : Number(rawPublicId);
                     const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
                     const maxQuantity = Number(service.max_quantity ?? service.max_order ?? 10000) || 10000;
                     servicesData[categorySlug].push({
@@ -339,7 +342,8 @@
                 servicesData[category].forEach(service => {
                     const option = document.createElement('option');
                     option.value = service.id;
-                    const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
+                    const hasPublicId = Number.isFinite(service.publicId);
+                    const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
                     option.textContent = `[${labelId}] ${service.name}`;
                     option.dataset.price = service.price;
                     option.dataset.min = service.min;
@@ -347,7 +351,7 @@
                     option.dataset.avgTime = service.avgTime;
                     option.dataset.description = service.description;
                     option.dataset.serviceName = service.name;
-                    if (service.publicId) {
+                    if (hasPublicId) {
                         option.dataset.publicId = service.publicId;
                     }
                     serviceSelect.appendChild(option);
@@ -374,7 +378,7 @@
                     min: Number.isFinite(minValue) ? minValue : 0,
                     max: Number.isFinite(maxValue) ? maxValue : Infinity,
                     avgTime: option.dataset.avgTime,
-                    publicId: option.dataset.publicId ? option.dataset.publicId : null
+                    publicId: option.dataset.publicId ? Number(option.dataset.publicId) : null
                 };
 
                 // Update quantity limits
@@ -401,7 +405,9 @@
 
                 // Show service info
                 if (serviceInfo) {
-                    const serviceLabel = selectedService.publicId ? `#${selectedService.publicId}` : selectedService.id;
+                    const serviceLabel = Number.isFinite(selectedService.publicId)
+                        ? `#${selectedService.publicId}`
+                        : 'ID Pending';
                     serviceInfo.innerHTML = `
                         <strong>Service ID:</strong> ${serviceLabel} | 
                         <strong>Price:</strong> $${selectedService.price.toFixed(4)} per 1000 | 
@@ -482,7 +488,8 @@
             serviceSelect.innerHTML = '<option value="" disabled selected>Search results...</option>';
             results.forEach(service => {
                 const option = document.createElement('option');
-                const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
+                const hasPublicId = Number.isFinite(service.publicId);
+                const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
                 option.value = service.id;
                 const categoryDisplay = `${getCategoryIcon(service.categorySlug)} ${service.categoryLabel}`;
                 option.textContent = `[${labelId}] [${categoryDisplay}] ${service.name}`;
@@ -492,7 +499,7 @@
                 option.dataset.avgTime = service.avgTime;
                 option.dataset.description = service.description;
                 option.dataset.serviceName = service.name;
-                if (service.publicId) {
+                if (hasPublicId) {
                     option.dataset.publicId = service.publicId;
                 }
                 serviceSelect.appendChild(option);

@@ -102,6 +102,10 @@ function buildProviderOptionsWithSelected(providers, selectedId) {
 }
 
 function toNumeric(value) {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
 }
@@ -410,7 +414,8 @@ async function editService(serviceId) {
 
     const isManualService = isAdminCreatedService(service);
     const publicIdValue = toNumeric(service.public_id);
-    const publicIdDisplay = isManualService && publicIdValue !== null ? `#${publicIdValue}` : '—';
+    const hasPublicId = Number.isFinite(publicIdValue);
+    const publicIdDisplay = hasPublicId ? `#${publicIdValue}` : 'ID Pending';
     const providerIdDisplay = service.provider_service_id ? escapeHtml(service.provider_service_id) : '—';
 
     const providerMarkup = toNumeric(service.provider?.markup);
@@ -1154,11 +1159,11 @@ async function loadServices() {
 
                 const isManualService = isAdminCreatedService(service);
                 const publicIdValue = toNumeric(service.public_id);
-                const ourIdLabel = isManualService && publicIdValue !== null
-                    ? `#${publicIdValue}`
-                    : (isManualService ? 'Pending ID' : 'Imported');
-                const providerId = service.provider_service_id ? escapeHtml(service.provider_service_id) : null;
-                const providerLabel = providerId ? `Provider ${providerId}` : 'No provider';
+                const hasPublicId = Number.isFinite(publicIdValue);
+                const ourIdLabel = hasPublicId ? `#${publicIdValue}` : 'ID Pending';
+                const providerIdRaw = service.provider_service_id ? String(service.provider_service_id) : '';
+                const providerId = providerIdRaw ? escapeHtml(providerIdRaw) : null;
+                const providerLabel = providerId ? `Provider ID ${providerId}` : 'Provider ID not set';
 
                 const providerMarkup = toNumeric(service.provider?.markup);
                 let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
@@ -1200,8 +1205,8 @@ async function loadServices() {
                         <td><input type="checkbox" class="service-checkbox"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
-                                <span class="cell-primary${isManualService && publicIdValue !== null ? '' : ' cell-muted'}">${ourIdLabel}</span>
-                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}">${providerLabel}</span>
+                                <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
+                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}" title="Provider reference">${providerLabel}</span>
                             </div>
                         </td>
                         <td>

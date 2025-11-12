@@ -193,18 +193,38 @@ async function loadServicesFromAPI() {
             headers.Authorization = `Bearer ${authToken}`;
         }
 
-        const response = await fetch('/.netlify/functions/services', {
+        const response = await fetch('/.netlify/functions/services?audience=customer', {
             method: 'GET',
             headers
         });
-        
-        const data = await response.json();
-        
+
+        const rawBody = await response.text();
+        let data;
+        try {
+            data = rawBody ? JSON.parse(rawBody) : {};
+        } catch (parseError) {
+            console.error('[SERVICES] Failed to parse services response:', parseError, rawBody);
+            throw new Error('Received invalid response while loading services');
+        }
+
+        if (response.status === 401 || response.status === 403) {
+            console.warn('[SERVICES] Services request unauthorized. Response:', data);
+            container.innerHTML = `
+                <div style="text-align: center; padding: 80px 20px;">
+                    <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
+                    <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Session Expired</h3>
+                    <p style="color: #64748B; font-size: 16px; margin-bottom: 20px;">Please sign in again to view services.</p>
+                    <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
+                </div>
+            `;
+            return false;
+        }
+
         if (!response.ok) {
             throw new Error(data.error || 'Failed to load services');
         }
-        
-        const services = data.services || [];
+
+        const services = Array.isArray(data.services) ? data.services : [];
         console.log('[DEBUG] Loaded services:', services.length, services);
         
         if (services.length === 0) {
@@ -270,10 +290,13 @@ async function loadServicesFromAPI() {
                 const max = maxRaw === null || maxRaw === undefined
                     ? Infinity
                     : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
-                const publicId = Number(service.public_id ?? service.publicId);
-                const labelId = Number.isFinite(publicId)
-                    ? `#${publicId}`
-                    : (service.provider_service_id ? `PID ${service.provider_service_id}` : 'ID');
+                const rawPublicId = service.public_id ?? service.publicId;
+                const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
+                    ? null
+                    : Number(rawPublicId);
+                const labelId = Number.isFinite(publicIdValue)
+                    ? `#${publicIdValue}`
+                    : 'ID Pending';
                 
                 html += `
                     <div class="service-row" data-service-id="${service.id}">
@@ -301,7 +324,7 @@ async function loadServicesFromAPI() {
         console.log('[SUCCESS] Services loaded and displayed');
         
         // Return true to signal completion
-    return true;
+        return true;
         
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);

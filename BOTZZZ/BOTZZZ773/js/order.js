@@ -485,8 +485,9 @@ async function loadServices() {
                 const min = service.min_quantity;
                 const max = service.max_quantity;
                 const datasetMax = max === Infinity ? 'Infinity' : max;
-                const labelId = service.publicId ? `#${service.publicId}` : (service.provider_service_id ? `PID ${service.provider_service_id}` : 'ID');
-                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${service.publicId ?? ''}">
+                const hasPublicId = Number.isFinite(service.publicId);
+                const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
+                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
                     ${labelId} · ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
                 </option>`;
             });
