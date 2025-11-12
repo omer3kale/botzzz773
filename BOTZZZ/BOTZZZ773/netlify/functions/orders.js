@@ -64,6 +64,94 @@ function calculateProviderCharge(ratePerThousand, quantity) {
   return Number(charge.toFixed(4));
 }
 
+function normalizeOrderDisplayValue(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  return null;
+}
+
+function resolveOrderDisplayNumber(order, fallback) {
+  const normalizedFallback = normalizeOrderDisplayValue(fallback);
+
+  if (!order || typeof order !== 'object') {
+    return normalizedFallback || null;
+  }
+
+  const candidateKeys = [
+    'order_number',
+    'orderNumber',
+    'order_id',
+    'orderId',
+    'orderid',
+    'customer_order_number',
+    'customer_order_id',
+    'customerOrderNumber',
+    'customerOrderId',
+    'display_id',
+    'displayId',
+    'public_id',
+    'publicId',
+    'reference',
+    'order_reference',
+    'orderReference'
+  ];
+
+  for (const key of candidateKeys) {
+    const candidate = normalizeOrderDisplayValue(order[key]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const hyphenCandidate = normalizeOrderDisplayValue(order['order-id']);
+  if (hyphenCandidate) {
+    return hyphenCandidate;
+  }
+
+  if (order.meta && typeof order.meta === 'object') {
+    const metaKeys = ['order_number', 'orderNumber', 'reference', 'order_reference', 'orderReference'];
+    for (const key of metaKeys) {
+      const candidate = normalizeOrderDisplayValue(order.meta[key]);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  if (Array.isArray(order.identifiers)) {
+    for (const entry of order.identifiers) {
+      const candidate = normalizeOrderDisplayValue(entry);
+      if (candidate) {
+        return candidate;
+      }
+    }
+  }
+
+  if (order.id) {
+    const baseId = String(order.id).trim();
+    if (baseId) {
+      const compact = baseId.replace(/[^A-Za-z0-9]/g, '').substring(0, 8).toUpperCase();
+      if (compact) {
+        return compact;
+      }
+      return baseId;
+    }
+  }
+
+  return normalizedFallback || null;
+}
+
 function normalizeProviderStatus(rawStatus) {
   if (!rawStatus) {
     return 'processing';
@@ -200,10 +288,27 @@ async function handleGetOrders(user, headers) {
       };
     }
 
+    const normalizedOrders = Array.isArray(orders)
+      ? orders.map(order => {
+          const reference = resolveOrderDisplayNumber(order);
+          if (!reference) {
+            return order;
+          }
+
+          const normalized = { ...order, order_number: reference };
+
+          if (!normalizeOrderDisplayValue(order.order_reference)) {
+            normalized.order_reference = reference;
+          }
+
+          return normalized;
+        })
+      : [];
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ orders })
+      body: JSON.stringify({ orders: normalizedOrders })
     };
   } catch (error) {
     console.error('Get orders error:', error);
@@ -219,6 +324,9 @@ async function handleCreateOrder(user, data, headers) {
   let orderCreated = null;
   let balanceDeducted = false;
   let originalBalance = null;
+  let orderDisplayNumber = null;
+  let orderNumberPersisted = true;
+  let orderIdentifierColumnUsed = 'order_number';
 
   try {
     const { serviceId, quantity, link } = data;
@@ -441,21 +549,82 @@ async function handleCreateOrder(user, data, headers) {
     const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
     console.log(`[ORDER] Creating order with number: ${orderNumber}`);
 
-    const { data: order, error: orderError } = await supabaseAdmin
+    const orderInsertBase = {
+      user_id: user.userId,
+      service_id: serviceId,
+      service_name: service.name,
+      link: linkStr,
+      quantity: qty,
+      charge: totalCost,
+      provider_cost: providerCharge,
+      status: 'pending'
+    };
+
+    let { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
-      .insert({
-        user_id: user.userId,
-        service_id: serviceId,
-        service_name: service.name,
-        link: linkStr,
-        quantity: qty,
-        charge: totalCost,
-        provider_cost: providerCharge,
-        status: 'pending',
-        order_number: orderNumber
-      })
+      .insert({ ...orderInsertBase, order_number: orderNumber })
       .select()
       .single();
+
+    if (orderError) {
+      const missingOrderNumberColumn = orderError.code === '42703'
+        || /order_number/i.test(orderError.message || '')
+        || /order_number/i.test(orderError.details || '')
+        || /order_number/i.test(orderError.hint || '');
+
+      if (missingOrderNumberColumn) {
+        console.warn('[ORDER] orders table missing order_number column. Attempting fallback identifiers.');
+        orderNumberPersisted = false;
+
+        const fallbackColumns = ['order_id', 'orderId', 'orderid', 'order-id', 'order_reference', 'orderReference', 'reference', 'display_id', 'displayId'];
+        let fallbackApplied = false;
+        let lastFallbackError = orderError;
+
+        for (const column of fallbackColumns) {
+          const payload = { ...orderInsertBase };
+          payload[column] = orderNumber;
+
+          const { data: fallbackOrder, error: fallbackError } = await supabaseAdmin
+            .from('orders')
+            .insert(payload)
+            .select()
+            .single();
+
+          if (!fallbackError && fallbackOrder) {
+            order = fallbackOrder;
+            orderError = null;
+            fallbackApplied = true;
+            orderNumberPersisted = true;
+            orderIdentifierColumnUsed = column;
+            console.warn(`[ORDER] Stored order reference using fallback column '${column}'.`);
+            break;
+          }
+
+          if (fallbackError) {
+            lastFallbackError = fallbackError;
+            console.warn('[ORDER] Fallback insert attempt failed', {
+              column,
+              code: fallbackError.code,
+              message: fallbackError.message
+            });
+          }
+        }
+
+        if (!fallbackApplied) {
+          ({ data: order, error: orderError } = await supabaseAdmin
+            .from('orders')
+            .insert(orderInsertBase)
+            .select()
+            .single());
+
+          if (!orderError) {
+            console.warn('[ORDER] Proceeding without persisting human-friendly order reference column.');
+          } else if (!orderError.details && lastFallbackError?.message) {
+            orderError.details = lastFallbackError.message;
+          }
+        }
+      }
+    }
 
     if (orderError) {
       console.error('[ORDER] Database insert error:', orderError);
@@ -480,8 +649,25 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
+    if (!orderNumberPersisted) {
+      order.order_number = orderNumber;
+    }
+
+    orderDisplayNumber = resolveOrderDisplayNumber(order, orderNumber);
+    if (orderDisplayNumber) {
+      order.order_number = orderDisplayNumber;
+      if (!normalizeOrderDisplayValue(order.order_reference)) {
+        order.order_reference = orderDisplayNumber;
+      }
+    }
+
     orderCreated = order;
     console.log(`[ORDER] Order created in database: ${order.id}`);
+    if (orderIdentifierColumnUsed && orderIdentifierColumnUsed !== 'order_number') {
+      console.log(`[ORDER] Order reference stored via fallback column: ${orderIdentifierColumnUsed}`);
+    } else if (!orderNumberPersisted) {
+      console.warn('[ORDER] Order reference not persisted in database; relying on runtime-generated identifier.');
+    }
 
     // ============= STEP 5: DEDUCT BALANCE =============
     const newBalance = parseFloat((originalBalance - totalCost).toFixed(2));
@@ -621,7 +807,8 @@ async function handleCreateOrder(user, data, headers) {
         success: true,
         order: {
           id: order.id,
-          order_number: order.order_number,
+          order_number: orderDisplayNumber || order.order_number,
+          order_reference: order.order_reference ?? orderDisplayNumber ?? order.order_number,
           service_name: order.service_name,
           quantity: order.quantity,
           charge: order.charge,

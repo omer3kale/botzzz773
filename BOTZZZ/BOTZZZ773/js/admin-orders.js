@@ -182,6 +182,112 @@ function buildProviderOrderIdMarkup(providerName, providerOrderId) {
     return `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(safeName)}:</strong> Not submitted</span>`;
 }
 
+// Normalize order identifiers for consistent display
+function resolveOrderIdentifiers(order) {
+    const uuidRaw = order?.id ? String(order.id) : null;
+    const candidateValues = [
+        order?.order_number,
+        order?.customer_order_number,
+        order?.customer_order_id,
+        order?.display_id,
+        order?.public_id,
+        order?.reference,
+        order?.external_order_id,
+        order?.external_id
+    ];
+
+    let customerFacing = candidateValues.find(value => {
+        if (value === undefined || value === null) {
+            return false;
+        }
+        if (typeof value === 'number') {
+            return Number.isFinite(value);
+        }
+        if (typeof value === 'string') {
+            return value.trim().length > 0;
+        }
+        return false;
+    });
+
+    if (typeof customerFacing === 'number') {
+        customerFacing = String(customerFacing);
+    }
+
+    const cleanUuidShort = uuidRaw
+        ? uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase()
+        : null;
+
+    const primaryLabel = customerFacing
+        ? `#${escapeHtml(String(customerFacing).trim())}`
+        : cleanUuidShort
+            ? `#${escapeHtml(cleanUuidShort)}`
+            : '#—';
+
+    const internalLabel = uuidRaw
+        ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
+        : '';
+
+    return { primaryLabel, internalLabel };
+}
+
+function resolveProviderStatus(order) {
+    const candidates = [
+        order?.provider_status,
+        order?.providerStatus,
+        order?.provider_status_label,
+        order?.provider_status_text,
+        order?.provider_status_display,
+        order?.provider_status_raw,
+        order?.status_provider,
+        order?.statusProvider,
+        order?.status_provider_label,
+        order?.provider_statuses,
+        order?.providerStatusText,
+        order?.provider_status_detail,
+        order?.service?.provider_status,
+        order?.service?.providerStatus,
+        order?.provider?.status,
+        order?.provider?.provider_status,
+        order?.meta?.provider_status,
+        order?.sync_status?.provider,
+        order?.status_history?.provider_status,
+        order?.status_history?.provider
+    ];
+
+    for (const value of candidates) {
+        if (!value) {
+            continue;
+        }
+
+        if (typeof value === 'string' && value.trim().length > 0) {
+            return value.trim();
+        }
+
+        if (typeof value === 'object') {
+            if (Array.isArray(value)) {
+                const first = value.find(entry => typeof entry === 'string' && entry.trim().length > 0);
+                if (first) {
+                    return first.trim();
+                }
+                const firstObject = value.find(entry => entry && typeof entry === 'object' && typeof entry.status === 'string');
+                if (firstObject) {
+                    return firstObject.status.trim();
+                }
+            } else if (typeof value.status === 'string' && value.status.trim().length > 0) {
+                return value.status.trim();
+            } else if (typeof value.label === 'string' && value.label.trim().length > 0) {
+                return value.label.trim();
+            }
+        }
+    }
+
+    if (order?.status) {
+        return String(order.status).trim();
+    }
+
+    return 'processing';
+}
+
 function updateOrdersSyncStatus(message, state = 'pending') {
     const statusEl = document.getElementById('ordersSyncStatus');
     const dotEl = document.getElementById('ordersSyncDot');
@@ -714,7 +820,7 @@ async function loadOrders({ skipSync = false } = {}) {
             data.orders.forEach(order => {
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const orderStatusKey = getStatusKey(order.status);
-                const providerStatusRaw = order.provider_status || order.status;
+                const providerStatusRaw = resolveProviderStatus(order);
                 const providerStatusKey = getStatusKey(providerStatusRaw);
                 const providerStatusLabel = formatStatusLabel(providerStatusRaw);
                 const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
@@ -737,12 +843,7 @@ async function loadOrders({ skipSync = false } = {}) {
                 console.log('Provider order ID:', order.provider_order_id);
                 console.log('═══════════════════════════════════════');
 
-                const orderNumberRaw = order.order_number ? String(order.order_number) : null;
-                const orderIdRaw = String(order.id);
-                const orderPrimaryLabel = escapeHtml(orderNumberRaw ?? orderIdRaw);
-                const orderInternalLabel = orderNumberRaw
-                    ? `<span class="cell-secondary cell-muted" title="${escapeHtml(orderIdRaw)}">UUID: ${escapeHtml(truncateText(orderIdRaw, 12))}</span>`
-                    : '';
+                const { primaryLabel: orderPrimaryLabel, internalLabel: orderInternalLabel } = resolveOrderIdentifiers(order);
                 // ALWAYS show provider info, even if no provider_order_id
                 const providerOrderMarkup = buildProviderOrderIdMarkup(providerName, order.provider_order_id);
 
@@ -791,7 +892,7 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td><input type="checkbox" class="order-checkbox"></td>
                         <td>
                             <div class="order-id-cell">
-                                <span class="order-id-primary">#${orderPrimaryLabel}</span>
+                                <span class="order-id-primary">${orderPrimaryLabel}</span>
                                 ${orderInternalLabel}
                                 ${providerOrderMarkup}
                             </div>
