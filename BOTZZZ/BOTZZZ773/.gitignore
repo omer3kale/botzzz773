@@ -13,3 +13,29 @@ build/
 *.swo
 *~
 .netlify/
+
+# Local workspace clutter outside project scope
+/AZ2003/
+/BOTZZZ/BOTZZZ-1/
+/Challenge-project-foreach-if-array-CSharp-main/
+/CsharpProjects/
+/Exceptions101/
+/Exceptions102/
+/Guided-project-foreach-if-array-CSharp-main/
+/HttpExample.cs
+/Learn lab account manager/
+/PRODUCT BACKLOG ITEM 21019.txt
+/Program.cs
+/Properties/
+/Test/
+/devsichrplace/
+/host.json
+/javacrashcourse/
+/login.csv
+/newcsharp/
+/package-lock.json
+/tools/
+/vs code files.csproj
+/vs code files.sln
+/BOTZZZ/Dropbox.lnk
+/BOTZZZ/New Text Document.txt
