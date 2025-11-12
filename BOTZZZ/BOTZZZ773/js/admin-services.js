@@ -35,6 +35,7 @@ function closeModal() {
 // Provider utilities for form dropdowns
 let providersCache = null;
 let servicesCache = [];
+const DEFAULT_MARKUP_PERCENT = 30;
 
 // Expose cache invalidation globally
 window.invalidateProvidersCache = function() {
@@ -1165,31 +1166,34 @@ async function loadServices() {
                 const providerId = providerIdRaw ? escapeHtml(providerIdRaw) : null;
                 const providerLabel = providerId ? `Provider ID ${providerId}` : 'Provider ID not set';
 
-                const providerMarkup = toNumeric(service.provider?.markup);
+                const providerMarkupRaw = toNumeric(service.provider?.markup);
+                let markupPercent = Number.isFinite(providerMarkupRaw) ? providerMarkupRaw : DEFAULT_MARKUP_PERCENT;
+                if (!Number.isFinite(markupPercent) || markupPercent <= -100) {
+                    markupPercent = DEFAULT_MARKUP_PERCENT;
+                }
+                const markupFactor = 1 + markupPercent / 100;
+
                 let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
                 const retailRate = toNumeric(service.rate);
 
-                if (providerCost === null && retailRate !== null && providerMarkup !== null && providerMarkup > -100) {
-                    const factor = 1 + providerMarkup / 100;
-                    if (factor !== 0) {
-                        providerCost = retailRate / factor;
-                    }
+                if (providerCost === null && Number.isFinite(retailRate) && markupFactor !== 0) {
+                    providerCost = retailRate / markupFactor;
                 }
 
-                let catalogRate = retailRate;
-                if (catalogRate === null && providerCost !== null) {
-                    const factor = providerMarkup !== null ? 1 + providerMarkup / 100 : 1;
-                    catalogRate = providerCost * factor;
+                let catalogRate = null;
+                if (Number.isFinite(providerCost)) {
+                    catalogRate = providerCost * markupFactor;
+                } else if (Number.isFinite(retailRate)) {
+                    catalogRate = retailRate;
                 }
 
                 const providerRateDisplay = formatRatePerThousand(providerCost);
                 const catalogRateDisplay = formatRatePerThousand(catalogRate);
-                const markupPercent = toNumeric(service.markup_percentage ?? service.markup);
-                const calculatedMarkup = markupPercent !== null
-                    ? markupPercent
-                    : calculateMarkupPercent(providerCost, retailRate ?? catalogRate);
+                const calculatedMarkup = Number.isFinite(providerCost) && Number.isFinite(catalogRate)
+                    ? calculateMarkupPercent(providerCost, catalogRate)
+                    : markupPercent;
                 const markupDisplay = Number.isFinite(calculatedMarkup)
-                    ? `${calculatedMarkup.toFixed(1)}%`
+                    ? `${calculatedMarkup >= 0 ? '+' : ''}${calculatedMarkup.toFixed(1)}%`
                     : '—';
 
                 const categoryRaw = String(service.category || 'Default');
