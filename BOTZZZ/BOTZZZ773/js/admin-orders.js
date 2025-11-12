@@ -144,6 +144,7 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
     updateOrdersSyncStatus('Syncing provider statuses...', 'pending');
 
     try {
+        console.log('[SYNC] Starting order status sync...');
         const response = await fetch('/.netlify/functions/orders', {
             method: 'POST',
             headers: {
@@ -153,10 +154,19 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
             body: JSON.stringify({ action: 'sync-status' })
         });
 
-        const result = await response.json();
+        console.log('[SYNC] Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[SYNC] API error response:', errorText);
+            throw new Error(`Sync failed (${response.status}): ${errorText}`);
+        }
 
-        if (!response.ok || result.error) {
-            throw new Error(result.error || 'Provider sync failed');
+        const result = await response.json();
+        console.log('[SYNC] Sync result:', result);
+
+        if (result.error) {
+            throw new Error(result.error);
         }
 
         lastOrderSyncTime = Date.now();
@@ -167,13 +177,15 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
             showNotification(`Synced ${result.updated || 0} orders with providers`, 'success');
         }
 
+        console.log('[SYNC] Sync completed successfully');
         return {
             success: true,
             updated: result.updated || 0,
             results: result.results || []
         };
     } catch (error) {
-        console.error('Order sync error:', error);
+        console.error('[SYNC] Order sync error:', error);
+        console.error('[SYNC] Error stack:', error.stack);
         const message = error.message || 'Failed to sync provider statuses';
         updateOrdersSyncStatus(message, 'error');
         if (!silent) {
@@ -571,16 +583,26 @@ function applyFilters() {
 // Load real orders from database
 async function loadOrders({ skipSync = false } = {}) {
     const tbody = document.getElementById('ordersTableBody');
-    if (!tbody) return;
+    if (!tbody) {
+        console.error('[ORDERS] Table body element not found!');
+        return;
+    }
 
     tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</td></tr>';
 
     try {
         if (!skipSync) {
+            console.log('[ORDERS] Syncing order statuses first...');
             await syncOrderStatuses({ silent: true });
         }
 
         const token = localStorage.getItem('token');
+        if (!token) {
+            console.error('[ORDERS] No auth token found!');
+            throw new Error('Not authenticated');
+        }
+
+        console.log('[ORDERS] Fetching orders from API...');
         const response = await fetch('/.netlify/functions/orders', {
             method: 'GET',
             headers: {
@@ -589,7 +611,16 @@ async function loadOrders({ skipSync = false } = {}) {
             }
         });
 
+        console.log('[ORDERS] API response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[ORDERS] API error response:', errorText);
+            throw new Error(`API returned ${response.status}: ${errorText}`);
+        }
+
         const data = await response.json();
+        console.log('[ORDERS] Received data:', data);
         
         if (data.orders && data.orders.length > 0) {
             tbody.innerHTML = '';
@@ -732,11 +763,18 @@ async function loadOrders({ skipSync = false } = {}) {
                 paginationInfo.textContent = `Showing ${count > 0 ? '1' : '0'}-${Math.min(count, 50)} of ${count}`;
             }
         } else {
+            console.log('[ORDERS] No orders found in response');
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
         }
     } catch (error) {
-        console.error('Load orders error:', error);
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
+        console.error('[ORDERS] Load orders error:', error);
+        console.error('[ORDERS] Error stack:', error.stack);
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">
+            Failed to load orders: ${error.message}<br>
+            <button class="btn-secondary" onclick="loadOrders({ skipSync: true })" style="margin-top: 12px;">
+                <i class="fas fa-redo"></i> Retry
+            </button>
+        </td></tr>`;
         updateOrdersSyncStatus('Failed to load orders', 'error');
     }
 }
