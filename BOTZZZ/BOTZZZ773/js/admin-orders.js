@@ -615,13 +615,13 @@ async function loadOrders({ skipSync = false } = {}) {
                     : '';
                 const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
                 const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
+                
+                // ALWAYS show provider info, even if no provider_order_id
                 const providerOrderMarkup = order.provider_order_id
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}">
-                         <strong>${escapeHtml(providerName)}:</strong> ${escapeHtml(providerOrderLabel)}
-                       </span>`
-                    : `<span class="order-id-provider order-id-missing">
-                         <strong>${escapeHtml(providerName)}:</strong> Not submitted
-                       </span>`;
+                    ? `<span class="order-id-provider" title="${providerOrderTitle}"><strong>${escapeHtml(providerName)}:</strong> ${escapeHtml(providerOrderLabel)}</span>`
+                    : `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(providerName)}:</strong> Not submitted</span>`;
+
+                console.log('Provider markup:', providerOrderMarkup);
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
@@ -641,10 +641,15 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderProvider = orderService?.provider || orderService?.providers || null;
                 const providerName = orderProvider?.name || 'Unknown Provider';
                 
-                // Debug log to verify provider data
-                if (order.provider_order_id) {
-                    console.log(`[ORDER ${order.id}] Provider: ${providerName}, Provider Order ID: ${order.provider_order_id}`);
-                }
+                // COMPREHENSIVE DEBUG LOGGING
+                console.log('═══════════════════════════════════════');
+                console.log(`Order #${order.order_number || order.id}`);
+                console.log('Full order object:', order);
+                console.log('Service object:', orderService);
+                console.log('Provider object:', orderProvider);
+                console.log('Provider name:', providerName);
+                console.log('Provider order ID:', order.provider_order_id);
+                console.log('═══════════════════════════════════════');
                 
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
