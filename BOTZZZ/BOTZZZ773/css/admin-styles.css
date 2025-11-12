@@ -645,9 +645,13 @@
 .order-id-provider {
     font-size: 12px;
     color: var(--admin-gray-text);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    display: block;
+    margin-top: 2px;
+}
+
+.order-id-provider strong {
+    color: var(--primary-pink);
+    font-weight: 600;
 }
 
 .order-id-provider.order-id-missing {

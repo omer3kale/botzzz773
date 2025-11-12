@@ -640,6 +640,12 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderService = order.service || order.services || null;
                 const orderProvider = orderService?.provider || orderService?.providers || null;
                 const providerName = orderProvider?.name || 'Unknown Provider';
+                
+                // Debug log to verify provider data
+                if (order.provider_order_id) {
+                    console.log(`[ORDER ${order.id}] Provider: ${providerName}, Provider Order ID: ${order.provider_order_id}`);
+                }
+                
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null)
