@@ -616,8 +616,12 @@ async function loadOrders({ skipSync = false } = {}) {
                 const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
                 const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
                 const providerOrderMarkup = order.provider_order_id
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider: ${escapeHtml(providerOrderLabel)}</span>`
-                    : '<span class="order-id-provider order-id-missing">Provider: Not submitted</span>';
+                    ? `<span class="order-id-provider" title="${providerOrderTitle}">
+                         <strong>${escapeHtml(providerName)}:</strong> ${escapeHtml(providerOrderLabel)}
+                       </span>`
+                    : `<span class="order-id-provider order-id-missing">
+                         <strong>${escapeHtml(providerName)}:</strong> Not submitted
+                       </span>`;
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
@@ -634,6 +638,8 @@ async function loadOrders({ skipSync = false } = {}) {
 
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
+                const orderProvider = orderService?.provider || orderService?.providers || null;
+                const providerName = orderProvider?.name || 'Unknown Provider';
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null)
