@@ -4,6 +4,23 @@
 
 let servicesData = [];
 
+// Helper to consistently manage the service dropdown state
+function setServiceSelectPlaceholder(selectEl, message, disabled = true) {
+    if (!selectEl) {
+        return;
+    }
+
+    // Clear current options and show a single descriptive placeholder option
+    selectEl.innerHTML = '';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = message;
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    selectEl.appendChild(placeholder);
+    selectEl.disabled = disabled;
+}
+
 // Show message to user
 function showMessage(message, type = 'info') {
     // Create message element if it doesn't exist
@@ -360,8 +377,7 @@ async function loadServices() {
     if (!serviceSelect) return;
     
     console.log('[ORDER] Loading services...');
-    serviceSelect.disabled = true;
-    serviceSelect.innerHTML = '<option value="">Loading services...</option>';
+    setServiceSelectPlaceholder(serviceSelect, 'Loading services...');
     
     try {
         const token = localStorage.getItem('token');
@@ -381,16 +397,36 @@ async function loadServices() {
         
         console.log('[ORDER] Services API response:', response.status);
         
-        const data = await response.json();
+        const rawBody = await response.text();
+        let data;
+
+        try {
+            data = rawBody ? JSON.parse(rawBody) : {};
+        } catch (parseError) {
+            console.error('[ORDER] Failed to parse services payload:', parseError, rawBody);
+            throw new Error('Received an invalid response from services API');
+        }
+
+        if (response.status === 401 || response.status === 403) {
+            console.warn('[ORDER] Services request unauthorized. Response:', data);
+            setServiceSelectPlaceholder(serviceSelect, 'Sign in required to load services', true);
+            showMessage('Your session expired. Please sign in again to view services.', 'error');
+            setTimeout(() => {
+                window.location.href = 'signin.html?redirect=order.html';
+            }, 1500);
+            return;
+        }
         
         if (!response.ok) {
             console.error('[ORDER] Services API error:', data);
             throw new Error(data.error || 'Failed to load services');
         }
         
-        console.log('[ORDER] Received services:', data.services?.length || 0);
+        const services = Array.isArray(data.services) ? data.services : [];
+
+        console.log('[ORDER] Received services:', services.length);
         
-        servicesData = (data.services || []).map(service => {
+        servicesData = services.map(service => {
             const rawMin = service.min_quantity ?? service.min_order;
             const minCandidate = rawMin === null || rawMin === undefined ? NaN : Number(rawMin);
             const minValue = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
@@ -405,7 +441,10 @@ async function loadServices() {
             }
 
             const rateCandidate = Number(service.rate || 0);
-            const publicIdCandidate = Number(service.public_id ?? service.publicId);
+            const rawPublicId = service.public_id ?? service.publicId;
+            const publicIdCandidate = rawPublicId === null || rawPublicId === undefined
+                ? null
+                : Number(rawPublicId);
 
             return {
                 ...service,
@@ -420,9 +459,8 @@ async function loadServices() {
         
         if (servicesData.length === 0) {
             console.warn('[ORDER] No services available!');
-            serviceSelect.innerHTML = '<option value="">No services available</option>';
+            setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
             showMessage('No services are currently available. Please contact support.', 'error');
-            serviceSelect.disabled = true;
             return;
         }
         
@@ -462,8 +500,7 @@ async function loadServices() {
         
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
-        serviceSelect.innerHTML = '<option value="">Error loading services - Retry</option>';
-        serviceSelect.disabled = true;
+        setServiceSelectPlaceholder(serviceSelect, 'Error loading services - retry', true);
         showMessage('Failed to load services: ' + error.message, 'error');
     }
 }
