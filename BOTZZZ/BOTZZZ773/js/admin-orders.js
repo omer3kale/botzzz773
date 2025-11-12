@@ -98,6 +98,90 @@ function formatRelativeTime(timestamp) {
     return `Synced ${diffDays}d ago`;
 }
 
+// Resolve provider information from the order payload regardless of shape
+function resolveOrderProvider(order, orderService) {
+    const service = orderService || order?.service || order?.services || null;
+    const providerCandidates = [
+        order?.provider,
+        order?.providers,
+        order?.provider_info,
+        order?.providerDetails,
+        service?.provider,
+        service?.providers
+    ];
+
+    let providerObject = null;
+    let rawName = null;
+
+    for (const candidate of providerCandidates) {
+        if (!candidate) {
+            continue;
+        }
+
+        if (Array.isArray(candidate)) {
+            for (const entry of candidate) {
+                if (!entry) {
+                    continue;
+                }
+                if (typeof entry === 'object') {
+                    providerObject = entry;
+                    break;
+                }
+                if (!rawName && typeof entry === 'string') {
+                    rawName = entry.trim();
+                }
+            }
+
+            if (providerObject) {
+                break;
+            }
+            continue;
+        }
+
+        if (typeof candidate === 'object') {
+            providerObject = candidate;
+            break;
+        }
+
+        if (typeof candidate === 'string') {
+            rawName = candidate.trim();
+            break;
+        }
+    }
+
+    const nameCandidates = [
+        rawName,
+        providerObject?.name,
+        providerObject?.providerName,
+        providerObject?.title,
+        providerObject?.label,
+        order?.provider_name,
+        order?.providerName,
+        service?.provider_name,
+        service?.providerName
+    ];
+
+    const providerName = nameCandidates.find(value => typeof value === 'string' && value.trim().length > 0)?.trim() || 'Unknown Provider';
+
+    return {
+        provider: providerObject,
+        providerName
+    };
+}
+
+// Build consistent provider order ID markup with graceful fallback
+function buildProviderOrderIdMarkup(providerName, providerOrderId) {
+    const safeName = providerName && providerName.trim().length > 0 ? providerName.trim() : 'Unknown Provider';
+
+    if (providerOrderId) {
+        const label = truncateText(String(providerOrderId), 30);
+        const title = escapeHtml(String(providerOrderId));
+        return `<span class="order-id-provider" title="${title}"><strong>${escapeHtml(safeName)}:</strong> ${escapeHtml(label)}</span>`;
+    }
+
+    return `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(safeName)}:</strong> Not submitted</span>`;
+}
+
 function updateOrdersSyncStatus(message, state = 'pending') {
     const statusEl = document.getElementById('ordersSyncStatus');
     const dotEl = document.getElementById('ordersSyncDot');
@@ -641,18 +725,15 @@ async function loadOrders({ skipSync = false } = {}) {
                 // EXTRACT PROVIDER INFO FIRST (before using it)
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
-                const orderProvider = orderService?.provider || orderService?.providers || null;
-                const providerNameRaw = (orderProvider?.name && String(orderProvider.name).trim())
-                    ? String(orderProvider.name).trim()
-                    : 'Unknown Provider';
-                
+                const { provider: orderProvider, providerName } = resolveOrderProvider(order, orderService);
+
                 // COMPREHENSIVE DEBUG LOGGING
                 console.log('═══════════════════════════════════════');
                 console.log(`Order #${order.order_number || order.id}`);
                 console.log('Full order object:', order);
                 console.log('Service object:', orderService);
                 console.log('Provider object:', orderProvider);
-                console.log('Provider name:', providerNameRaw);
+                console.log('Provider name:', providerName);
                 console.log('Provider order ID:', order.provider_order_id);
                 console.log('═══════════════════════════════════════');
 
@@ -662,13 +743,8 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderInternalLabel = orderNumberRaw
                     ? `<span class="cell-secondary cell-muted" title="${escapeHtml(orderIdRaw)}">UUID: ${escapeHtml(truncateText(orderIdRaw, 12))}</span>`
                     : '';
-                const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
-                const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
-                
                 // ALWAYS show provider info, even if no provider_order_id
-                const providerOrderMarkup = order.provider_order_id
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}"><strong>${escapeHtml(providerNameRaw)}:</strong> ${escapeHtml(providerOrderLabel)}</span>`
-                    : `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(providerNameRaw)}:</strong> Not submitted</span>`;
+                const providerOrderMarkup = buildProviderOrderIdMarkup(providerName, order.provider_order_id);
 
                 console.log('Provider markup:', providerOrderMarkup);
 
