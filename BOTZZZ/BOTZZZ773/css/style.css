@@ -476,6 +476,12 @@ section {
     transition: var(--transition-normal);
 }
 
+.service-card--reddit {
+    grid-column: 1 / -1;
+    justify-self: center;
+    max-width: 320px;
+}
+
 .service-card:hover {
     background: rgba(255, 20, 148, 0.05);
     border-color: var(--primary-pink);

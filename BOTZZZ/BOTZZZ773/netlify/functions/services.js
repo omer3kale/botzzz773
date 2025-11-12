@@ -108,10 +108,16 @@ async function handleGetServices(user, headers) {
       };
     }
 
+    let servicesList = Array.isArray(services) ? services : [];
+
+    if (!servicesList.length) {
+      servicesList = await fetchServicesFromProviders();
+    }
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: Array.isArray(services) ? services : [] })
+      body: JSON.stringify({ services: servicesList })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -121,6 +127,104 @@ async function handleGetServices(user, headers) {
       body: JSON.stringify({ error: 'Internal server error' })
     };
   }
+}
+
+async function fetchServicesFromProviders() {
+  try {
+    const { data: providers, error } = await supabaseAdmin
+      .from('providers')
+      .select('*')
+      .eq('status', 'active');
+
+    if (error) {
+      console.error('[SERVICES] Failed to load providers for fallback:', error);
+      return [];
+    }
+
+    if (!Array.isArray(providers) || !providers.length) {
+      return [];
+    }
+
+    const allServices = [];
+
+    for (const provider of providers) {
+      if (!provider?.api_url || !provider?.api_key) {
+        continue;
+      }
+
+      try {
+        const params = new URLSearchParams();
+        params.append('key', provider.api_key);
+        params.append('action', 'services');
+
+        const response = await axios.post(provider.api_url, params, {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          timeout: 20000
+        });
+
+        if (!Array.isArray(response.data)) {
+          console.warn('[SERVICES] Provider returned unexpected format', provider.name);
+          continue;
+        }
+
+        const providerServices = response.data
+          .map((service) => normalizeProviderService(provider, service))
+          .filter(Boolean);
+
+        allServices.push(...providerServices);
+      } catch (providerError) {
+        console.error('[SERVICES] Failed to fetch services from provider', provider.name, providerError.message);
+      }
+    }
+
+  return allServices.filter((service) => service.status === 'active');
+  } catch (fallbackError) {
+    console.error('[SERVICES] Fallback provider load failed:', fallbackError);
+    return [];
+  }
+}
+
+function normalizeProviderService(provider, rawService) {
+  if (!rawService || typeof rawService !== 'object') {
+    return null;
+  }
+
+  const toNumber = (value, fallback = null) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const minQuantity = toNumber(rawService.min) ?? toNumber(rawService.min_order) ?? 1;
+  const maxQuantity = toNumber(rawService.max) ?? toNumber(rawService.max_order) ?? 100000;
+  const rate = toNumber(rawService.rate ?? rawService.price, 0);
+
+  const rawStatus = rawService.status ? String(rawService.status).toLowerCase() : 'active';
+  const normalizedStatus = ['active', 'enabled', 'running'].includes(rawStatus) ? 'active' : 'inactive';
+
+  return {
+    id: `${provider.id || provider.name}:${rawService.service || rawService.id || rawService.name}`,
+    provider_id: provider.id || null,
+    provider_service_id: String(rawService.service ?? rawService.id ?? rawService.name ?? ''),
+    name: String(rawService.name || rawService.service || 'Untitled Service'),
+    category: String(rawService.category || 'General'),
+    type: String(rawService.type || 'default'),
+    rate,
+    provider_rate: toNumber(rawService.rate),
+    retail_rate: rate,
+    markup_percentage: provider.markup,
+    min_quantity: minQuantity,
+    max_quantity: maxQuantity,
+  description: String(rawService.description || rawService.desc || ''),
+  status: normalizedStatus,
+    provider: {
+      id: provider.id,
+      name: provider.name,
+      status: provider.status,
+      markup: provider.markup
+    }
+  };
 }
 
 async function handleCreateService(user, data, headers) {
