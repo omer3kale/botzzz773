@@ -607,7 +607,12 @@ async function loadOrders({ skipSync = false } = {}) {
                     mostRecentSync = lastSync;
                 }
 
-                const orderIdDisplay = escapeHtml(String(order.id));
+                const orderNumberRaw = order.order_number ? String(order.order_number) : null;
+                const orderIdRaw = String(order.id);
+                const orderPrimaryLabel = escapeHtml(orderNumberRaw ?? orderIdRaw);
+                const orderInternalLabel = orderNumberRaw
+                    ? `<span class="cell-secondary cell-muted" title="${escapeHtml(orderIdRaw)}">UUID: ${escapeHtml(truncateText(orderIdRaw, 12))}</span>`
+                    : '';
                 const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
                 const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
                 const providerOrderMarkup = order.provider_order_id
@@ -659,7 +664,8 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td><input type="checkbox" class="order-checkbox"></td>
                         <td>
                             <div class="order-id-cell">
-                                <span class="order-id-primary">#${orderIdDisplay}</span>
+                                <span class="order-id-primary">#${orderPrimaryLabel}</span>
+                                ${orderInternalLabel}
                                 ${providerOrderMarkup}
                             </div>
                         </td>

@@ -3,8 +3,36 @@
 // ==========================================
 
 let filterButtons;
+let authToken = null;
+
+function requireAuth() {
+    const token = localStorage.getItem('token');
+    const rawUser = localStorage.getItem('user');
+
+    if (!token || !rawUser) {
+        window.location.href = 'signin.html';
+        return null;
+    }
+
+    try {
+        const user = JSON.parse(rawUser);
+        authToken = token;
+        return { token, user };
+    } catch (error) {
+        console.error('[SERVICES] Invalid cached user payload:', error);
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = 'signin.html';
+        return null;
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
+    const auth = requireAuth();
+    if (!auth) {
+        return;
+    }
+
     // Load services from API first, then initialize filters
     loadServicesFromAPI()
         .then(isLoaded => {
@@ -157,11 +185,17 @@ async function loadServicesFromAPI() {
         // Show loading state
         container.innerHTML = '<div class="loading-spinner" style="text-align: center; padding: 60px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px; color: #94A3B8;">Loading services...</p></div>';
         
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        if (authToken) {
+            headers.Authorization = `Bearer ${authToken}`;
+        }
+
         const response = await fetch('/.netlify/functions/services', {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
+            headers
         });
         
         const data = await response.json();
@@ -271,6 +305,19 @@ async function loadServicesFromAPI() {
         
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
+
+        if (error.message && error.message.toLowerCase().includes('unauthorized')) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 80px 20px;">
+                    <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
+                    <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Sign in required</h3>
+                    <p style="color: #64748B; font-size: 16px; margin-bottom: 20px;">Please sign in to view available services.</p>
+                    <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
+                </div>
+            `;
+            return false;
+        }
+
         container.innerHTML = `
             <div style="text-align: center; padding: 80px 20px;">
                 <div style="font-size: 80px; margin-bottom: 20px;">⚠️</div>

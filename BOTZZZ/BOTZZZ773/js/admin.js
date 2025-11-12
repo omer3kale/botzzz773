@@ -138,16 +138,20 @@ async function populateRecentOrders() {
         return;
     }
     
-    tbody.innerHTML = orders.map(order => `
+    tbody.innerHTML = orders.map(order => {
+        const orderNumber = order.order_number || order.id;
+        const uuidMarkup = order.order_number ? `<div class="cell-secondary cell-muted">${order.id}</div>` : '';
+        return `
         <tr>
-            <td>${order.id}</td>
+            <td><strong>${orderNumber}</strong>${uuidMarkup}</td>
             <td>${order.user_id || order.username || 'N/A'}</td>
             <td>${order.service_id || order.service || 'N/A'}</td>
             <td>$${(order.charge || 0).toFixed(2)}</td>
             <td><span class="status-badge ${(order.status || '').toLowerCase().replace(' ', '-')}">${order.status || 'Unknown'}</span></td>
             <td>${order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A'}</td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 }
 
 // Initialize dashboard with Chart.js

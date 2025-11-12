@@ -464,7 +464,9 @@ async function handleCreateOrder(user, data, headers) {
         headers,
         body: JSON.stringify({ 
           error: 'Failed to create order in database',
-          details: orderError.message
+          details: orderError.message,
+          hint: orderError.hint,
+          code: orderError.code
         })
       };
     }
@@ -865,6 +867,133 @@ async function handleCancelOrder(user, data, headers) {
   }
 }
 
+async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
+  const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
+
+  let query = supabaseAdmin
+    .from('orders')
+    .select(`
+      id,
+      provider_order_id,
+      status,
+      provider_status,
+      provider_cost,
+      start_count,
+      remains,
+      quantity,
+      last_status_sync,
+      service:services(
+        id,
+        provider_rate,
+        retail_rate,
+        markup_percentage,
+        provider:providers(id, name, api_url, api_key)
+      )
+    `)
+    .not('provider_order_id', 'is', null);
+
+  if (orderIds && orderIds.length > 0) {
+    query = query.in('id', orderIds);
+  } else {
+    query = query.in('status', statusesToSync);
+  }
+
+  const { data: ordersToSync, error } = await query.limit(limit);
+
+  if (error) {
+    const syncError = new Error(`[ORDER SYNC] Failed to load orders for sync: ${error.message}`);
+    syncError.cause = error;
+    throw syncError;
+  }
+
+  if (!ordersToSync || ordersToSync.length === 0) {
+    return { success: true, updated: 0, results: [] };
+  }
+
+  const results = [];
+  const nowIso = new Date().toISOString();
+
+  for (const order of ordersToSync) {
+    if (!order.service || !order.service.provider || !order.service.provider.api_url) {
+      results.push({
+        orderId: order.id,
+        providerOrderId: order.provider_order_id,
+        success: false,
+        error: 'Provider configuration missing'
+      });
+      continue;
+    }
+
+    try {
+      const statusResponse = await fetchProviderOrderStatus(order.service.provider, order.provider_order_id);
+
+      const providerStatusRaw = statusResponse.status || order.provider_status || 'processing';
+      const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
+      const updatePayload = {
+        provider_status: providerStatusRaw,
+        last_status_sync: nowIso
+      };
+
+      if (normalizedStatus) {
+        updatePayload.status = normalizedStatus;
+      }
+
+      const remainsValue = toNumberOrNull(statusResponse.remains);
+      if (remainsValue !== null) {
+        updatePayload.remains = Math.max(0, Math.trunc(remainsValue));
+      }
+
+      const startCountValue = toNumberOrNull(statusResponse.start_count ?? statusResponse.startCount);
+      if (startCountValue !== null) {
+        updatePayload.start_count = Math.max(0, Math.trunc(startCountValue));
+      }
+
+      const providerChargeValue = toNumberOrNull(statusResponse.charge);
+      if (providerChargeValue !== null) {
+        updatePayload.provider_cost = Number(providerChargeValue.toFixed(4));
+      }
+
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', order.id);
+
+      if (updateError) {
+        console.error('[ORDER SYNC] Failed to update order', order.id, updateError);
+        results.push({
+          orderId: order.id,
+          providerOrderId: order.provider_order_id,
+          success: false,
+          error: updateError.message
+        });
+        continue;
+      }
+
+      results.push({
+        orderId: order.id,
+        providerOrderId: order.provider_order_id,
+        success: true,
+        status: normalizedStatus,
+        provider_status: providerStatusRaw
+      });
+    } catch (syncError) {
+      console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
+      results.push({
+        orderId: order.id,
+        providerOrderId: order.provider_order_id,
+        success: false,
+        error: syncError.message || 'Provider sync failed'
+      });
+    }
+  }
+
+  return {
+    success: true,
+    updated: results.filter((r) => r.success).length,
+    results
+  };
+}
+
 async function handleSyncOrderStatuses(user, data, headers) {
   if (!user || user.role !== 'admin') {
     return {
@@ -876,140 +1005,13 @@ async function handleSyncOrderStatuses(user, data, headers) {
 
   try {
     const orderIds = Array.isArray(data.orderIds) ? data.orderIds : null;
-    const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
-
-    let query = supabaseAdmin
-      .from('orders')
-      .select(`
-        id,
-        provider_order_id,
-        status,
-        provider_status,
-        provider_cost,
-        start_count,
-        remains,
-        quantity,
-        last_status_sync,
-        service:services(
-          id,
-          provider_rate,
-          retail_rate,
-          markup_percentage,
-          provider:providers(id, name, api_url, api_key)
-        )
-      `)
-      .not('provider_order_id', 'is', null);
-
-    if (orderIds && orderIds.length > 0) {
-      query = query.in('id', orderIds);
-    } else {
-      query = query.in('status', statusesToSync);
-    }
-
-    const { data: ordersToSync, error } = await query.limit(100);
-
-    if (error) {
-      console.error('[ORDER SYNC] Failed to load orders for sync:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to load orders for sync' })
-      };
-    }
-
-    if (!ordersToSync || ordersToSync.length === 0) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true, updated: 0, results: [] })
-      };
-    }
-
-    const results = [];
-    const nowIso = new Date().toISOString();
-
-    for (const order of ordersToSync) {
-      if (!order.service || !order.service.provider || !order.service.provider.api_url) {
-        results.push({
-          orderId: order.id,
-          providerOrderId: order.provider_order_id,
-          success: false,
-          error: 'Provider configuration missing'
-        });
-        continue;
-      }
-
-      try {
-        const statusResponse = await fetchProviderOrderStatus(order.service.provider, order.provider_order_id);
-
-        const providerStatusRaw = statusResponse.status || order.provider_status || 'processing';
-        const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
-        const updatePayload = {
-          provider_status: providerStatusRaw,
-          last_status_sync: nowIso
-        };
-
-        if (normalizedStatus) {
-          updatePayload.status = normalizedStatus;
-        }
-
-        const remainsValue = toNumberOrNull(statusResponse.remains);
-        if (remainsValue !== null) {
-          updatePayload.remains = Math.max(0, Math.trunc(remainsValue));
-        }
-
-        const startCountValue = toNumberOrNull(statusResponse.start_count ?? statusResponse.startCount);
-        if (startCountValue !== null) {
-          updatePayload.start_count = Math.max(0, Math.trunc(startCountValue));
-        }
-
-        const providerChargeValue = toNumberOrNull(statusResponse.charge);
-        if (providerChargeValue !== null) {
-          updatePayload.provider_cost = Number(providerChargeValue.toFixed(4));
-        }
-
-        const { error: updateError } = await supabaseAdmin
-          .from('orders')
-          .update(updatePayload)
-          .eq('id', order.id);
-
-        if (updateError) {
-          console.error('[ORDER SYNC] Failed to update order', order.id, updateError);
-          results.push({
-            orderId: order.id,
-            providerOrderId: order.provider_order_id,
-            success: false,
-            error: updateError.message
-          });
-          continue;
-        }
-
-        results.push({
-          orderId: order.id,
-          providerOrderId: order.provider_order_id,
-          success: true,
-          status: normalizedStatus,
-          provider_status: providerStatusRaw
-        });
-      } catch (syncError) {
-        console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
-        results.push({
-          orderId: order.id,
-          providerOrderId: order.provider_order_id,
-          success: false,
-          error: syncError.message || 'Provider sync failed'
-        });
-      }
-    }
+    const limit = Number.isFinite(data.limit) ? data.limit : 100;
+    const result = await performOrderStatusSync({ orderIds, limit });
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        success: true,
-        updated: results.filter((r) => r.success).length,
-        results
-      })
+      body: JSON.stringify(result)
     };
   } catch (error) {
     console.error('[ORDER SYNC] Unexpected error:', error);
@@ -1163,3 +1165,5 @@ async function submitOrderToProvider(provider, orderData) {
     }
   }
 }
+
+exports.performOrderStatusSync = performOrderStatusSync;
