@@ -638,6 +638,22 @@ async function loadOrders({ skipSync = false } = {}) {
                     mostRecentSync = lastSync;
                 }
 
+                // EXTRACT PROVIDER INFO FIRST (before using it)
+                const orderUser = order.user || order.users || null;
+                const orderService = order.service || order.services || null;
+                const orderProvider = orderService?.provider || orderService?.providers || null;
+                const providerName = orderProvider?.name || 'Unknown Provider';
+                
+                // COMPREHENSIVE DEBUG LOGGING
+                console.log('═══════════════════════════════════════');
+                console.log(`Order #${order.order_number || order.id}`);
+                console.log('Full order object:', order);
+                console.log('Service object:', orderService);
+                console.log('Provider object:', orderProvider);
+                console.log('Provider name:', providerName);
+                console.log('Provider order ID:', order.provider_order_id);
+                console.log('═══════════════════════════════════════');
+
                 const orderNumberRaw = order.order_number ? String(order.order_number) : null;
                 const orderIdRaw = String(order.id);
                 const orderPrimaryLabel = escapeHtml(orderNumberRaw ?? orderIdRaw);
@@ -667,21 +683,6 @@ async function loadOrders({ skipSync = false } = {}) {
                 const remains = remainsValue !== null ? remainsValue : 'N/A';
                 const quantity = quantityValue !== null ? quantityValue : 'N/A';
 
-                const orderUser = order.user || order.users || null;
-                const orderService = order.service || order.services || null;
-                const orderProvider = orderService?.provider || orderService?.providers || null;
-                const providerName = orderProvider?.name || 'Unknown Provider';
-                
-                // COMPREHENSIVE DEBUG LOGGING
-                console.log('═══════════════════════════════════════');
-                console.log(`Order #${order.order_number || order.id}`);
-                console.log('Full order object:', order);
-                console.log('Service object:', orderService);
-                console.log('Provider object:', orderProvider);
-                console.log('Provider name:', providerName);
-                console.log('Provider order ID:', order.provider_order_id);
-                console.log('═══════════════════════════════════════');
-                
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null)
