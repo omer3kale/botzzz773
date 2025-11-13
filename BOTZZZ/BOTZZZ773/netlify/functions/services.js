@@ -1,5 +1,5 @@
 // Services API - Get, Create, Update, Delete Services
-const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
@@ -174,9 +174,10 @@ async function handleGetServices(event, user, headers) {
     const forceCustomerScope = audienceParam === 'customer';
 
     const isAdminUser = user && user.role === 'admin' && !forceCustomerScope;
-    const client = isAdminUser ? supabaseAdmin : supabase;
 
-    let query = client
+    // Always use the service role client on the server to avoid RLS/anon restrictions.
+    // We still restrict the result set for customer scope below so no sensitive data leaks.
+    let query = supabaseAdmin
       .from('services')
       .select(`
         *,
