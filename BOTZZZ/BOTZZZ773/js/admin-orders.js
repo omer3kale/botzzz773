@@ -224,19 +224,15 @@ function resolveOrderIdentifiers(order, orderService = null) {
             ? `#${escapeHtml(cleanUuidShort)}`
             : '#—';
 
-    const providerServiceCandidates = [
-        order?.provider_service_id,
-        order?.providerServiceId,
+    // Prioritize provider_order_id (the actual order ID from the provider) over provider_service_id
+    const providerOrderIdCandidates = [
         order?.provider_order_id,
-        service?.provider_service_id,
-        service?.providerServiceId,
-        service?.provider?.service_id,
-        service?.provider?.provider_service_id,
-        order?.meta?.provider_service_id,
-        order?.meta?.providerServiceId
+        order?.providerOrderId,
+        order?.external_order_id,
+        order?.meta?.provider_order_id
     ];
 
-    const providerServiceId = providerServiceCandidates.find(value => {
+    const providerOrderId = providerOrderIdCandidates.find(value => {
         if (value === undefined || value === null) {
             return false;
         }
@@ -244,8 +240,8 @@ function resolveOrderIdentifiers(order, orderService = null) {
         return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
     });
 
-    const internalLabel = providerServiceId
-        ? `<span class="cell-secondary cell-muted" title="Provider service identifier">Provider Service: ${escapeHtml(String(providerServiceId).trim())}</span>`
+    const internalLabel = providerOrderId
+        ? `<span class="cell-secondary cell-muted" title="Provider order identifier">Provider Order: ${escapeHtml(String(providerOrderId).trim())}</span>`
         : uuidRaw
             ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
             : '';
