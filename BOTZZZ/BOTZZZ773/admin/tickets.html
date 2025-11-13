@@ -95,8 +95,8 @@
         <div class="admin-page-header">
             <h1>Support Tickets</h1>
             <div class="page-actions">
-                <button class="btn-secondary" onclick="showUnread()">
-                    <i class="fas fa-envelope"></i> Show Unread
+                <button class="btn-secondary" onclick="triggerTicketsRefresh()">
+                    <i class="fas fa-sync-alt"></i> Refresh
                 </button>
                 <button class="btn-primary" onclick="addTicket()">
                     <i class="fas fa-plus"></i> Add Ticket
@@ -104,26 +104,83 @@
             </div>
         </div>
 
-        <!-- Tickets Table -->
-        <div class="table-container">
-            <table class="admin-table" id="ticketsTable">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" onclick="toggleAll(this, 'ticket-checkbox')"></th>
-                        <th onclick="sortTable('id')">ID <i class="fas fa-sort"></i></th>
-                        <th>User</th>
-                        <th>Subject</th>
-                        <th>Status</th>
-                        <th>Assignee</th>
-                        <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
-                        <th>Last Update</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="ticketsTableBody">
-                    <!-- Tickets will be loaded dynamically from database -->
-                </tbody>
-            </table>
+        <div class="tickets-layout">
+            <div class="tickets-quick-actions">
+                <article class="tickets-quick-card" id="selectedTicketsCard" role="button" tabindex="0" aria-label="Open selected tickets summary" aria-haspopup="dialog" aria-pressed="false">
+                    <div class="tickets-quick-card-header">
+                        <h3>Selected Tickets</h3>
+                        <span class="tickets-quick-card-icon">
+                            <i class="fas fa-ticket-alt"></i>
+                        </span>
+                    </div>
+                    <p class="tickets-quick-card-primary" id="selectedTicketsCount">0 selected</p>
+                    <p class="tickets-quick-card-secondary" id="selectedTicketsDetail">
+                        Choose tickets from the table to review, reply, or close them in bulk.
+                    </p>
+                    <span class="tickets-quick-card-hint">Tap to open summary</span>
+                </article>
+                <article class="tickets-quick-card accent" id="addTicketCard" role="button" tabindex="0" aria-label="Add a new ticket" aria-haspopup="dialog">
+                    <div class="tickets-quick-card-header">
+                        <h3>Add Ticket</h3>
+                        <span class="tickets-quick-card-icon">
+                            <i class="fas fa-plus"></i>
+                        </span>
+                    </div>
+                    <p class="tickets-quick-card-primary">Create Support Case</p>
+                    <p class="tickets-quick-card-secondary">
+                        Launch the Inter Miami pop-up to log issues for customers or internal teams.
+                    </p>
+                    <span class="tickets-quick-card-hint">Tap to launch modal</span>
+                </article>
+                <article class="tickets-quick-card" id="unreadTicketsCard" role="button" tabindex="0" aria-label="Filter unread tickets" aria-pressed="false">
+                    <div class="tickets-quick-card-header">
+                        <h3>Unread Focus</h3>
+                        <span class="tickets-quick-card-icon">
+                            <i class="fas fa-envelope-open-text"></i>
+                        </span>
+                    </div>
+                    <p class="tickets-quick-card-primary" id="unreadTicketsStatus">Show unread only</p>
+                    <p class="tickets-quick-card-secondary">
+                        Highlight open and pending tickets that still await a response.
+                    </p>
+                    <span class="tickets-quick-card-hint">Tap to filter queue</span>
+                </article>
+                <article class="tickets-quick-card" id="refreshTicketsCard" role="button" tabindex="0" aria-label="Refresh ticket list" aria-haspopup="dialog" aria-pressed="false">
+                    <div class="tickets-quick-card-header">
+                        <h3>Sync Tickets</h3>
+                        <span class="tickets-quick-card-icon">
+                            <i class="fas fa-sync-alt"></i>
+                        </span>
+                    </div>
+                    <p class="tickets-quick-card-primary" id="ticketsRefreshStatus">Sync latest updates</p>
+                    <p class="tickets-quick-card-secondary">
+                        Pull the most recent support activity, status changes, and assignments.
+                    </p>
+                    <span class="tickets-quick-card-hint">Tap to reload table</span>
+                </article>
+            </div>
+            <div class="tickets-table-panel">
+                <div class="table-container">
+                    <table class="admin-table" id="ticketsTable">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" onclick="toggleAllTickets(this)" aria-label="Select all tickets"></th>
+                                <th onclick="sortTable('id')">ID <i class="fas fa-sort"></i></th>
+                                <th>User</th>
+                                <th>Subject</th>
+                                <th>Status</th>
+                                <th>Assignee</th>
+                                <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
+                                <th>Last Update</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ticketsTableBody">
+                            <!-- Tickets will be loaded dynamically from database -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- Pagination -->
@@ -131,221 +188,6 @@
             <button class="btn-secondary" id="prevPage" disabled>Previous</button>
             <span class="pagination-info" id="paginationInfo">Loading...</span>
             <button class="btn-secondary" id="nextPage">Next</button>
-        </div>
-    </main>
-
-    <script src="../js/admin.js"></script>
-    <script src="../js/admin-tickets.js"></script>
-</body>
-</html>
-
-                        <td><input type="checkbox" class="ticket-checkbox"></td>
-                        <td>1045</td>
-                        <td>codedsmm</td>
-                        <td>
-                            <div class="ticket-subject">
-                                <span class="category-badge orders">Orders</span>
-                                <a href="#" onclick="viewTicket(1045)">Refill - Order #8309627 not completed</a>
-                            </div>
-                        </td>
-                        <td>
-                            <select class="inline-select status-select" onchange="updateTicketStatus(1045, this.value)">
-                                <option selected>Open</option>
-                                <option>Pending</option>
-                                <option>Answered</option>
-                                <option>Closed</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="inline-select assignee-select" onchange="assignTicket(1045, this.value)">
-                                <option selected>Unassigned</option>
-                                <option>Admin</option>
-                                <option>Support 1</option>
-                                <option>Support 2</option>
-                            </select>
-                        </td>
-                        <td>2025-11-02 00:45:12</td>
-                        <td>2025-11-02 00:45:12</td>
-                        <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="viewTicket(1045)">View</a>
-                                    <a href="#" onclick="replyTicket(1045)">Reply</a>
-                                    <a href="#" onclick="closeTicket(1045)">Close</a>
-                                    <a href="#" onclick="deleteTicket(1045)">Delete</a>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><input type="checkbox" class="ticket-checkbox"></td>
-                        <td>1044</td>
-                        <td>azenarky</td>
-                        <td>
-                            <div class="ticket-subject">
-                                <span class="category-badge payment">Payment</span>
-                                <a href="#" onclick="viewTicket(1044)">Payment not credited</a>
-                            </div>
-                        </td>
-                        <td>
-                            <select class="inline-select status-select" onchange="updateTicketStatus(1044, this.value)">
-                                <option>Open</option>
-                                <option selected>Pending</option>
-                                <option>Answered</option>
-                                <option>Closed</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="inline-select assignee-select" onchange="assignTicket(1044, this.value)">
-                                <option>Unassigned</option>
-                                <option selected>Admin</option>
-                                <option>Support 1</option>
-                                <option>Support 2</option>
-                            </select>
-                        </td>
-                        <td>2025-11-01 22:30:45</td>
-                        <td>2025-11-02 08:15:22</td>
-                        <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="viewTicket(1044)">View</a>
-                                    <a href="#" onclick="replyTicket(1044)">Reply</a>
-                                    <a href="#" onclick="closeTicket(1044)">Close</a>
-                                    <a href="#" onclick="deleteTicket(1044)">Delete</a>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr class="unread-ticket">
-                        <td><input type="checkbox" class="ticket-checkbox"></td>
-                        <td>1043</td>
-                        <td>vanak</td>
-                        <td>
-                            <div class="ticket-subject">
-                                <span class="category-badge orders">Orders</span>
-                                <a href="#" onclick="viewTicket(1043)">Cancel - Want to cancel order</a>
-                            </div>
-                        </td>
-                        <td>
-                            <select class="inline-select status-select" onchange="updateTicketStatus(1043, this.value)">
-                                <option selected>Open</option>
-                                <option>Pending</option>
-                                <option>Answered</option>
-                                <option>Closed</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="inline-select assignee-select" onchange="assignTicket(1043, this.value)">
-                                <option selected>Unassigned</option>
-                                <option>Admin</option>
-                                <option>Support 1</option>
-                                <option>Support 2</option>
-                            </select>
-                        </td>
-                        <td>2025-11-01 20:15:30</td>
-                        <td>2025-11-01 20:15:30</td>
-                        <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="viewTicket(1043)">View</a>
-                                    <a href="#" onclick="replyTicket(1043)">Reply</a>
-                                    <a href="#" onclick="closeTicket(1043)">Close</a>
-                                    <a href="#" onclick="deleteTicket(1043)">Delete</a>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><input type="checkbox" class="ticket-checkbox"></td>
-                        <td>1042</td>
-                        <td>pritampargarbabu123</td>
-                        <td>
-                            <div class="ticket-subject">
-                                <span class="category-badge orders">Orders</span>
-                                <a href="#" onclick="viewTicket(1042)">Speed up - Order taking too long</a>
-                            </div>
-                        </td>
-                        <td>
-                            <select class="inline-select status-select" onchange="updateTicketStatus(1042, this.value)">
-                                <option>Open</option>
-                                <option>Pending</option>
-                                <option selected>Answered</option>
-                                <option>Closed</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="inline-select assignee-select" onchange="assignTicket(1042, this.value)">
-                                <option>Unassigned</option>
-                                <option>Admin</option>
-                                <option selected>Support 1</option>
-                                <option>Support 2</option>
-                            </select>
-                        </td>
-                        <td>2025-11-01 18:50:22</td>
-                        <td>2025-11-01 19:35:10</td>
-                        <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="viewTicket(1042)">View</a>
-                                    <a href="#" onclick="replyTicket(1042)">Reply</a>
-                                    <a href="#" onclick="closeTicket(1042)">Close</a>
-                                    <a href="#" onclick="deleteTicket(1042)">Delete</a>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td><input type="checkbox" class="ticket-checkbox"></td>
-                        <td>1041</td>
-                        <td>jj1302524</td>
-                        <td>
-                            <div class="ticket-subject">
-                                <span class="category-badge other">Other</span>
-                                <a href="#" onclick="viewTicket(1041)">How to use API?</a>
-                            </div>
-                        </td>
-                        <td>
-                            <select class="inline-select status-select" onchange="updateTicketStatus(1041, this.value)">
-                                <option>Open</option>
-                                <option>Pending</option>
-                                <option>Answered</option>
-                                <option selected>Closed</option>
-                            </select>
-                        </td>
-                        <td>
-                            <select class="inline-select assignee-select" onchange="assignTicket(1041, this.value)">
-                                <option>Unassigned</option>
-                                <option>Admin</option>
-                                <option>Support 1</option>
-                                <option selected>Support 2</option>
-                            </select>
-                        </td>
-                        <td>2025-11-01 15:20:00</td>
-                        <td>2025-11-01 16:45:30</td>
-                        <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="viewTicket(1041)">View</a>
-                                    <a href="#" onclick="replyTicket(1041)">Reply</a>
-                                    <a href="#" onclick="deleteTicket(1041)">Delete</a>
-                                </div>
-                            </div>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <div class="pagination">
-            <button class="btn-secondary" disabled>Previous</button>
-            <span class="pagination-info">Showing 1-5 of 10</span>
-            <button class="btn-secondary">Next</button>
         </div>
     </main>
 

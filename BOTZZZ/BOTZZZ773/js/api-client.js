@@ -141,8 +141,9 @@ class APIClient {
     }
 
     // Service endpoints
-    async getServices() {
-        return this.request('/.netlify/functions/services', {
+    async getServices({ audience = 'customer' } = {}) {
+        const query = audience ? `?audience=${encodeURIComponent(audience)}` : '';
+        return this.request(`/.netlify/functions/services${query}`, {
             method: 'GET'
         });
     }

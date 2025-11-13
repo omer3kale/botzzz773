@@ -95,7 +95,7 @@
         <div class="admin-page-header">
             <h1>Payments</h1>
             <div class="page-actions">
-                <button class="btn-secondary" onclick="exportData('csv')">
+                <button class="btn-secondary" onclick="openExportPaymentsModal()">
                     <i class="fas fa-download"></i> Export
                 </button>
                 <button class="btn-primary" onclick="addPayment()">
@@ -104,28 +104,86 @@
             </div>
         </div>
 
-        <!-- Payments Table -->
-        <div class="table-container">
-            <table class="admin-table" id="paymentsTable">
-                <thead>
-                    <tr>
-                        <th onclick="sortTable('id')">ID <i class="fas fa-sort"></i></th>
-                        <th>User</th>
-                        <th onclick="sortTable('balance')">Balance <i class="fas fa-sort"></i></th>
-                        <th onclick="sortTable('amount')">Amount <i class="fas fa-sort"></i></th>
-                        <th>Method</th>
-                        <th>Status</th>
-                        <th>Fraud Risk</th>
-                        <th>Memo</th>
-                        <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
-                        <th>Updated</th>
-                        <th>Mode</th>
-                    </tr>
-                </thead>
-                <tbody id="paymentsTableBody">
-                    <!-- Payments will be loaded dynamically from database -->
-                </tbody>
-            </table>
+        <div class="payments-layout">
+            <div class="payments-quick-actions">
+                <article class="payments-quick-card" id="selectedPaymentsCard" role="button" tabindex="0" aria-label="Open selected payments summary" aria-pressed="false" aria-haspopup="dialog">
+                    <div class="payments-quick-card-header">
+                        <h3>Selected Payments</h3>
+                        <span class="payments-quick-card-icon">
+                            <i class="fas fa-credit-card"></i>
+                        </span>
+                    </div>
+                    <p class="payments-quick-card-primary" id="selectedPaymentsCount">0 selected</p>
+                    <p class="payments-quick-card-secondary" id="selectedPaymentsDetail">
+                        Choose payouts to review memos or flag risk before posting.
+                    </p>
+                    <span class="payments-quick-card-hint">Tap to open summary</span>
+                </article>
+                <article class="payments-quick-card accent" id="addPaymentCard" role="button" tabindex="0" aria-label="Add a new payment" aria-haspopup="dialog">
+                    <div class="payments-quick-card-header">
+                        <h3>Add Payment</h3>
+                        <span class="payments-quick-card-icon">
+                            <i class="fas fa-plus"></i>
+                        </span>
+                    </div>
+                    <p class="payments-quick-card-primary">Record Manual Payout</p>
+                    <p class="payments-quick-card-secondary">
+                        Launch the Inter Miami pop-up to log finance handoffs.
+                    </p>
+                    <span class="payments-quick-card-hint">Tap to launch modal</span>
+                </article>
+                <article class="payments-quick-card" id="refreshPaymentsCard" role="button" tabindex="0" aria-label="Refresh payment activity" aria-haspopup="dialog" aria-pressed="false">
+                    <div class="payments-quick-card-header">
+                        <h3>Refresh Ledger</h3>
+                        <span class="payments-quick-card-icon">
+                            <i class="fas fa-sync-alt"></i>
+                        </span>
+                    </div>
+                    <p class="payments-quick-card-primary" id="paymentsRefreshStatus">Sync latest data</p>
+                    <p class="payments-quick-card-secondary">
+                        Pull current payment history and balances from the live backend.
+                    </p>
+                    <span class="payments-quick-card-hint">Tap to reload table</span>
+                </article>
+                <article class="payments-quick-card" id="exportPaymentsCard" role="button" tabindex="0" aria-label="Export payments" aria-haspopup="dialog">
+                    <div class="payments-quick-card-header">
+                        <h3>Export Payments</h3>
+                        <span class="payments-quick-card-icon">
+                            <i class="fas fa-file-export"></i>
+                        </span>
+                    </div>
+                    <p class="payments-quick-card-primary">Download CSV</p>
+                    <p class="payments-quick-card-secondary">
+                        Package finance activity for audit, tax, or reconciliation workflows.
+                    </p>
+                    <span class="payments-quick-card-hint">Tap to export data</span>
+                </article>
+            </div>
+            <div class="payments-table-panel">
+                <div class="table-container">
+                    <table class="admin-table" id="paymentsTable">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" onclick="toggleAllPayments(this)" aria-label="Select all payments"></th>
+                                <th onclick="sortTable('id')">ID <i class="fas fa-sort"></i></th>
+                                <th>User</th>
+                                <th onclick="sortTable('balance')">Balance <i class="fas fa-sort"></i></th>
+                                <th onclick="sortTable('amount')">Amount <i class="fas fa-sort"></i></th>
+                                <th>Method</th>
+                                <th>Status</th>
+                                <th>Fraud Risk</th>
+                                <th>Memo</th>
+                                <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
+                                <th>Updated</th>
+                                <th>Mode</th>
+                            </tr>
+                        </thead>
+                        <tbody id="paymentsTableBody">
+                            <!-- Payments will be loaded dynamically from database -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <!-- Pagination -->

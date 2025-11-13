@@ -1,26 +1,163 @@
 // Admin Settings Management with Full Panel Implementation
 // Note: createModal() and closeModal() are now in admin.js (shared across all pages)
 
-// Show settings section
-function showSettingsSection(section) {
-    // Update navigation
-    document.querySelectorAll('.settings-nav-item').forEach(item => {
-        item.classList.remove('active');
+let settingsProvidersCache = [];
+let settingsProvidersLoading = false;
+let lastSettingsProvidersRefreshAt = null;
+
+function attachSettingsQuickActionCard(element, handler) {
+    if (!element || typeof handler !== 'function') {
+        return;
+    }
+    element.addEventListener('click', handler);
+    element.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handler();
+        }
     });
-    event.target.closest('.settings-nav-item').classList.add('active');
-    
-    // Hide all sections
+}
+
+function setSettingsRefreshStatus(message) {
+    const statusEl = document.getElementById('settingsRefreshStatus');
+    if (statusEl) {
+        statusEl.textContent = message;
+    }
+}
+
+function updateSettingsProvidersSummary() {
+    const countEl = document.getElementById('settingsProvidersCount');
+    const detailEl = document.getElementById('settingsProvidersDetail');
+    const cardEl = document.getElementById('settingsProvidersCard');
+
+    if (!countEl || !detailEl || !cardEl) {
+        return;
+    }
+
+    const total = settingsProvidersCache.length;
+    const active = settingsProvidersCache.filter(provider => (provider.status || '').toLowerCase() === 'active').length;
+
+    if (total === 0) {
+        countEl.textContent = 'No providers';
+        detailEl.textContent = 'Connect an SMM provider to start syncing services.';
+    } else {
+        countEl.textContent = `${active} active of ${total}`;
+        if (active === total) {
+            detailEl.textContent = 'All providers are active and ready to sync services.';
+        } else if (active === 0) {
+            detailEl.textContent = 'All providers are currently inactive. Enable at least one to sync.';
+        } else {
+            const paused = total - active;
+            detailEl.textContent = `${paused} provider${paused === 1 ? '' : 's'} paused. Review status before syncing.`;
+        }
+    }
+
+    cardEl.classList.toggle('is-active', total > 0);
+    cardEl.setAttribute('aria-pressed', total > 0 ? 'true' : 'false');
+}
+
+function updateSettingsModulesSummary() {
+    const primaryEl = document.getElementById('settingsModulesStatus');
+    const detailEl = document.getElementById('settingsModulesDetail');
+    const cardEl = document.getElementById('settingsModulesCard');
+
+    if (!primaryEl || !detailEl || !cardEl) {
+        return;
+    }
+
+    const toggles = document.querySelectorAll('#modules-section input[type="checkbox"]');
+    if (toggles.length === 0) {
+        primaryEl.textContent = 'Feature controls';
+        detailEl.textContent = 'Open the modules panel to review available features.';
+        cardEl.classList.remove('is-active');
+        cardEl.setAttribute('aria-pressed', 'false');
+        return;
+    }
+
+    const enabled = Array.from(toggles).filter(toggle => toggle.checked).length;
+    const total = toggles.length;
+    primaryEl.textContent = `${enabled} of ${total} features on`;
+    detailEl.textContent = enabled === total
+        ? 'Everything is live. Toggle off modules you do not need.'
+        : 'Use quick toggles to enable or pause platform features.';
+    cardEl.classList.add('is-active');
+    cardEl.setAttribute('aria-pressed', 'true');
+}
+
+function scrollToSettingsSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (section) {
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function openSettingsProvidersPanel() {
+    showSettingsSection('providers');
+    updateSettingsProvidersSummary();
+    scrollToSettingsSection('providers-section');
+}
+
+function openAddProviderQuickAction() {
+    openSettingsProvidersPanel();
+    addProvider();
+}
+
+function openSettingsModulesPanel() {
+    showSettingsSection('modules');
+    updateSettingsModulesSummary();
+    scrollToSettingsSection('modules-section');
+}
+
+function triggerSettingsProvidersRefresh() {
+    if (settingsProvidersLoading) {
+        showNotification('Providers are already refreshing. Please wait...', 'info');
+        return;
+    }
+    loadProviders();
+}
+
+function initializeSettingsQuickActions() {
+    attachSettingsQuickActionCard(document.getElementById('settingsProvidersCard'), openSettingsProvidersPanel);
+    attachSettingsQuickActionCard(document.getElementById('settingsAddProviderCard'), openAddProviderQuickAction);
+    attachSettingsQuickActionCard(document.getElementById('settingsModulesCard'), openSettingsModulesPanel);
+    attachSettingsQuickActionCard(document.getElementById('settingsRefreshCard'), triggerSettingsProvidersRefresh);
+    updateSettingsProvidersSummary();
+    updateSettingsModulesSummary();
+    if (!lastSettingsProvidersRefreshAt) {
+        setSettingsRefreshStatus('Sync latest updates');
+    }
+}
+
+// Show settings section
+function showSettingsSection(section, navEvent) {
+    if (navEvent) {
+        navEvent.preventDefault();
+    }
+
+    const navItems = document.querySelectorAll('.settings-nav-item');
+    navItems.forEach(item => item.classList.remove('active'));
+
+    const targetNav = navEvent?.currentTarget || document.querySelector(`.settings-nav-item[data-section="${section}"]`);
+    if (targetNav) {
+        targetNav.classList.add('active');
+    }
+
     document.querySelectorAll('.settings-section').forEach(sec => {
         sec.style.display = 'none';
     });
-    
-    // Show selected section or load it
+
     const sectionElement = document.getElementById(`${section}-section`);
     if (sectionElement) {
         sectionElement.style.display = 'block';
     } else {
-        // Load section dynamically
         loadSettingsSection(section);
+    }
+
+    if (section === 'modules') {
+        updateSettingsModulesSummary();
+    }
+    if (section === 'providers') {
+        updateSettingsProvidersSummary();
     }
 }
 
@@ -54,6 +191,9 @@ function loadSettingsSection(section) {
             container.appendChild(sectionEl);
         }
         sectionEl.style.display = 'block';
+        if (section === 'modules') {
+            updateSettingsModulesSummary();
+        }
     }
 }
 
@@ -1011,6 +1151,7 @@ async function saveTicketSettings() {
 
 function toggleModule(module, enabled) {
     showNotification(`${module} module ${enabled ? 'enabled' : 'disabled'}`, 'success');
+    updateSettingsModulesSummary();
 }
 
 function addTicketCategory() {
@@ -1159,10 +1300,18 @@ function submitAddProvider(event) {
 async function loadProviders() {
     const grid = document.getElementById('providersGrid');
     if (!grid) return;
-    
+
+    settingsProvidersLoading = true;
+    const refreshCard = document.getElementById('settingsRefreshCard');
+    if (refreshCard) {
+        refreshCard.classList.add('is-active');
+        refreshCard.setAttribute('aria-pressed', 'true');
+    }
+    setSettingsRefreshStatus('Refreshing...');
+
     // Show loading state
     grid.innerHTML = '<div class="loading" style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #888;"></i><p style="margin-top: 1rem; color: #888;">Loading providers...</p></div>';
-    
+
     try {
         const response = await fetch('/.netlify/functions/providers', {
             headers: {
@@ -1170,13 +1319,20 @@ async function loadProviders() {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success && data.providers) {
-            displayProviders(data.providers);
+            settingsProvidersCache = Array.isArray(data.providers) ? data.providers : [];
+            displayProviders(settingsProvidersCache);
+            lastSettingsProvidersRefreshAt = new Date();
+            const timeText = lastSettingsProvidersRefreshAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            setSettingsRefreshStatus(`Updated ${timeText}`);
         } else {
             console.error('Failed to load providers:', data.error);
+            settingsProvidersCache = [];
+            updateSettingsProvidersSummary();
+            setSettingsRefreshStatus('Refresh failed');
             grid.innerHTML = `
                 <div class="error-state" style="text-align: center; padding: 40px;">
                     <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #ef4444; margin-bottom: 1rem;"></i>
@@ -1188,6 +1344,9 @@ async function loadProviders() {
         }
     } catch (error) {
         console.error('Error loading providers:', error);
+        settingsProvidersCache = [];
+        updateSettingsProvidersSummary();
+        setSettingsRefreshStatus('Refresh failed');
         grid.innerHTML = `
             <div class="error-state" style="text-align: center; padding: 40px;">
                 <i class="fas fa-exclamation-triangle" style="font-size: 3rem; color: #ef4444; margin-bottom: 1rem;"></i>
@@ -1196,6 +1355,12 @@ async function loadProviders() {
                 <button class="btn-primary" onclick="loadProviders()" style="margin-top: 1rem;">Retry</button>
             </div>
         `;
+    } finally {
+        settingsProvidersLoading = false;
+        if (refreshCard) {
+            refreshCard.classList.remove('is-active');
+            refreshCard.setAttribute('aria-pressed', 'false');
+        }
     }
 }
 
@@ -1204,8 +1369,10 @@ function displayProviders(providers) {
     const providersGrid = document.getElementById('providersGrid');
     
     if (!providersGrid) return;
+    settingsProvidersCache = Array.isArray(providers) ? providers : [];
+    updateSettingsProvidersSummary();
     
-    if (providers.length === 0) {
+    if (settingsProvidersCache.length === 0) {
         providersGrid.innerHTML = `
             <div class="empty-state" style="text-align: center; padding: 40px;">
                 <i class="fas fa-plug" style="font-size: 3rem; color: #888; margin-bottom: 1rem;"></i>
@@ -1216,7 +1383,7 @@ function displayProviders(providers) {
         return;
     }
     
-    providersGrid.innerHTML = providers.map(provider => `
+    providersGrid.innerHTML = settingsProvidersCache.map(provider => `
         <div class="provider-card">
             <div class="provider-header">
                 <div class="provider-info">
@@ -1662,11 +1829,8 @@ async function testProvider(providerId) {
 
 // Initialize on load
 document.addEventListener('DOMContentLoaded', () => {
-    // Show providers section by default
-    const providersSection = document.getElementById('providers-section');
-    if (providersSection) providersSection.style.display = 'block';
-    
-    // Load providers from backend
+    initializeSettingsQuickActions();
+    showSettingsSection('providers');
     loadProviders();
 });
 

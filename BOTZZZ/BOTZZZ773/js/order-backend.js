@@ -95,7 +95,8 @@ async function handleOrderSubmit(e) {
         const data = await api.createOrder(serviceId, quantity, link);
         
         if (data.success && data.order) {
-            showMessage(`Order placed successfully! Order ID: ${data.order.id}`, 'success');
+            const orderLabel = data.order.order_number || data.order.id;
+            showMessage(`Order placed successfully! Order ID: ${orderLabel}`, 'success');
             
             // Update user balance in localStorage
             const user = getCurrentUser();

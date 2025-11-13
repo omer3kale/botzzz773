@@ -2,6 +2,27 @@
 
 // Global variable to store fetched users
 let usersData = [];
+const selectedUserIds = new Set();
+
+function getUserById(userId) {
+    return usersData.find(user => user.id === userId);
+}
+
+function getUserDisplayName(user) {
+    if (!user) {
+        return '';
+    }
+    if (user.username) {
+        return user.username;
+    }
+    if (user.email) {
+        return user.email;
+    }
+    if (user.id) {
+        return `User ${user.id.substring(0, 8)}`;
+    }
+    return 'User';
+}
 
 // Populate users table from backend
 async function populateUsersTable() {
@@ -30,12 +51,14 @@ async function populateUsersTable() {
         if (!response.ok) {
             throw new Error(`Failed to fetch users: ${response.status}`);
         }
-        
+
         const result = await response.json();
         usersData = result.users || [];
+        pruneSelectedUserIds();
         
         if (usersData.length === 0) {
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #888;">No users found</td></tr>';
+            updateSelectedUsersSummary();
             return;
         }
         
@@ -51,8 +74,8 @@ async function populateUsersTable() {
             const status = (user.status || 'active').charAt(0).toUpperCase() + (user.status || 'active').slice(1);
             
             return `
-                <tr>
-                    <td><input type="checkbox" class="user-checkbox"></td>
+                <tr data-user-id="${user.id}">
+                    <td><input type="checkbox" class="user-checkbox" data-user-id="${user.id}" aria-label="Select user ${user.id}"></td>
                     <td>${user.id.substring(0, 8)}...</td>
                     <td>${user.username}</td>
                     <td>${user.email}</td>
@@ -82,12 +105,170 @@ async function populateUsersTable() {
             `;
         }).join('');
         
+        restoreUserSelectionState();
+        bindUserSelectionEvents();
+        updateSelectedUsersSummary();
+        
         console.log(`✅ Loaded ${usersData.length} users from database`);
         
     } catch (error) {
         console.error('Error fetching users:', error);
         tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #ff4444;">Error loading users: ${error.message}</td></tr>`;
     }
+}
+
+function pruneSelectedUserIds() {
+    if (selectedUserIds.size === 0) {
+        return;
+    }
+    const validIds = new Set(usersData.map(user => user.id));
+    for (const id of Array.from(selectedUserIds)) {
+        if (!validIds.has(id)) {
+            selectedUserIds.delete(id);
+        }
+    }
+}
+
+function bindUserSelectionEvents() {
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', handleUserSelectionChange);
+    });
+}
+
+function handleUserSelectionChange(event) {
+    const checkbox = event?.target;
+    if (!checkbox || !checkbox.dataset.userId) {
+        return;
+    }
+
+    const userId = checkbox.dataset.userId;
+    if (checkbox.checked) {
+        selectedUserIds.add(userId);
+    } else {
+        selectedUserIds.delete(userId);
+    }
+
+    const row = checkbox.closest('tr');
+    if (row) {
+        row.classList.toggle('is-selected', checkbox.checked);
+    }
+
+    updateSelectedUsersSummary();
+}
+
+function restoreUserSelectionState() {
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    checkboxes.forEach(checkbox => {
+        const userId = checkbox.dataset.userId;
+        const shouldSelect = selectedUserIds.has(userId);
+        checkbox.checked = shouldSelect;
+        const row = checkbox.closest('tr');
+        if (row) {
+            row.classList.toggle('is-selected', shouldSelect);
+        }
+    });
+}
+
+function updateSelectedUsersSummary() {
+    const countEl = document.getElementById('selectedUsersCount');
+    const detailEl = document.getElementById('selectedUsersDetail');
+    const cardEl = document.getElementById('selectedUsersCard');
+
+    if (!countEl || !detailEl || !cardEl) {
+        return;
+    }
+
+    const count = selectedUserIds.size;
+    countEl.textContent = `${count} selected`;
+
+    if (count === 0) {
+        detailEl.textContent = 'Choose a user in the table to unlock quick actions.';
+    } else {
+        const names = [];
+        selectedUserIds.forEach(id => {
+            const displayName = getUserDisplayName(getUserById(id));
+            if (displayName) {
+                names.push(displayName);
+            }
+        });
+        const preview = names.slice(0, 2).filter(Boolean).join(', ');
+        const overflow = names.length > 2 ? ` +${names.length - 2}` : '';
+        detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+    }
+
+    cardEl.classList.toggle('is-active', count > 0);
+    cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
+    syncMasterToggleState();
+}
+
+function syncMasterToggleState() {
+    const masterToggle = document.querySelector('th input[type="checkbox"][aria-label="Select all users"]');
+    if (!masterToggle) {
+        return;
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll('.user-checkbox'));
+    if (checkboxes.length === 0) {
+        masterToggle.checked = false;
+        masterToggle.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = checkboxes.filter(cb => cb.checked).length;
+    masterToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
+    masterToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+}
+
+function openSelectedUserModal() {
+    if (selectedUserIds.size === 0) {
+        showNotification('Select a user from the table first', 'error');
+        return;
+    }
+    const iterator = selectedUserIds.values();
+    const selectedId = iterator.next().value;
+    if (selectedId) {
+        viewUser(selectedId);
+    }
+}
+
+function openAddUserQuickAction() {
+    addUser();
+}
+
+function attachQuickActionCard(element, handler) {
+    if (!element || typeof handler !== 'function') {
+        return;
+    }
+
+    element.addEventListener('click', handler);
+    element.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handler();
+        }
+    });
+}
+
+function initializeUsersQuickActions() {
+    attachQuickActionCard(document.getElementById('selectedUsersCard'), openSelectedUserModal);
+    attachQuickActionCard(document.getElementById('addUserCard'), openAddUserQuickAction);
+    updateSelectedUsersSummary();
+}
+
+function toggleAllUsers(masterCheckbox) {
+    if (!masterCheckbox) {
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+    const shouldSelectAll = masterCheckbox.checked;
+    masterCheckbox.indeterminate = false;
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = shouldSelectAll;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 }
 
 // Modal Helper Functions
@@ -478,6 +659,7 @@ function confirmDeleteUser(userId) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
+    initializeUsersQuickActions();
     populateUsersTable();
     handleSearch('userSearch', 'usersTable');
 });

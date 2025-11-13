@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Page Test - BOTZZZ773</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            margin-bottom: 24px;
+        }
+        h1 {
+            color: #1e293b;
+            margin-bottom: 8px;
+            font-size: 32px;
+        }
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 32px;
+            font-size: 16px;
+        }
+        .test-section {
+            margin-bottom: 32px;
+            padding-bottom: 32px;
+            border-bottom: 2px solid #f1f5f9;
+        }
+        .test-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        h2 {
+            color: #334155;
+            font-size: 20px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        .status.pending {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .test-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-right: 12px;
+            margin-bottom: 12px;
+        }
+        .test-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        .test-btn:active {
+            transform: translateY(0);
+        }
+        .test-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .log {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .log-entry {
+            margin-bottom: 4px;
+        }
+        .log-entry.success {
+            color: #86efac;
+        }
+        .log-entry.error {
+            color: #fca5a5;
+        }
+        .log-entry.info {
+            color: #93c5fd;
+        }
+        .log-entry.warn {
+            color: #fde047;
+        }
+        .metric {
+            display: inline-block;
+            background: #f1f5f9;
+            padding: 8px 16px;
+            border-radius: 8px;
+            margin-right: 12px;
+            margin-bottom: 8px;
+        }
+        .metric-label {
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .metric-value {
+            color: #1e293b;
+            font-size: 24px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .checklist {
+            list-style: none;
+            padding: 0;
+        }
+        .checklist li {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f8fafc;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .checklist li.checked {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .checklist li.unchecked {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .icon {
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>🧪 Order Page Test Suite</h1>
+            <p class="subtitle">Automated testing for order.html service loading & functionality</p>
+
+            <!-- Test 1: Authentication Check -->
+            <div class="test-section">
+                <h2>🔐 Test 1: Authentication Status</h2>
+                <div id="authStatus" class="status pending">⏳ Pending</div>
+                <button class="test-btn" onclick="testAuth()">Run Auth Test</button>
+                <div id="authLog" class="log" style="display: none;"></div>
+            </div>
+
+            <!-- Test 2: Service API Connectivity -->
+            <div class="test-section">
+                <h2>🌐 Test 2: Services API Connectivity</h2>
+                <div id="apiStatus" class="status pending">⏳ Pending</div>
+                <button class="test-btn" onclick="testServicesAPI()">Test Services API</button>
+                <div id="apiLog" class="log" style="display: none;"></div>
+            </div>
+
+            <!-- Test 3: Service Dropdown Population -->
+            <div class="test-section">
+                <h2>📋 Test 3: Service Dropdown Loading</h2>
+                <div id="dropdownStatus" class="status pending">⏳ Pending</div>
+                <button class="test-btn" onclick="testDropdownLoading()">Test Dropdown</button>
+                <div id="dropdownLog" class="log" style="display: none;"></div>
+                
+                <div style="margin-top: 16px;">
+                    <label for="testSelect" style="display: block; margin-bottom: 8px; font-weight: 600; color: #334155;">Service Dropdown (Live):</label>
+                    <select id="testSelect" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid #e2e8f0; font-size: 14px;">
+                        <option value="">Loading services...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Test 4: Service Data Validation -->
+            <div class="test-section">
+                <h2>✅ Test 4: Service Data Validation</h2>
+                <div id="validationStatus" class="status pending">⏳ Pending</div>
+                <button class="test-btn" onclick="testServiceDataValidation()">Validate Service Data</button>
+                <div id="validationLog" class="log" style="display: none;"></div>
+            </div>
+
+            <!-- Test 5: Order Form Ready State -->
+            <div class="test-section">
+                <h2>📝 Test 5: Order Form Ready State</h2>
+                <div id="formStatus" class="status pending">⏳ Pending</div>
+                <button class="test-btn" onclick="testFormReady()">Check Form Ready</button>
+                <div id="formLog" class="log" style="display: none;"></div>
+            </div>
+
+            <!-- Run All Tests -->
+            <div class="test-section">
+                <h2>🚀 Run All Tests</h2>
+                <button class="test-btn" onclick="runAllTests()" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">▶️ Run All Tests</button>
+                <button class="test-btn" onclick="clearAllLogs()" style="background: #64748b;">🗑️ Clear Logs</button>
+            </div>
+
+            <!-- Summary -->
+            <div class="test-section">
+                <h2>📊 Test Summary</h2>
+                <div id="summaryMetrics">
+                    <div class="metric">
+                        <div class="metric-label">Total Tests</div>
+                        <div class="metric-value" id="totalTests">5</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Passed</div>
+                        <div class="metric-value" id="passedTests" style="color: #059669;">0</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Failed</div>
+                        <div class="metric-value" id="failedTests" style="color: #dc2626;">0</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Services Found</div>
+                        <div class="metric-value" id="serviceCount">-</div>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 24px; margin-bottom: 12px; color: #334155;">Deployment Checklist:</h3>
+                <ul class="checklist" id="deploymentChecklist">
+                    <li><span class="icon">⏹️</span> Authentication working</li>
+                    <li><span class="icon">⏹️</span> Services API responding</li>
+                    <li><span class="icon">⏹️</span> Dropdown populates correctly</li>
+                    <li><span class="icon">⏹️</span> Service data is valid</li>
+                    <li><span class="icon">⏹️</span> Order form is ready</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let testResults = {
+            auth: null,
+            api: null,
+            dropdown: null,
+            validation: null,
+            form: null
+        };
+
+        let servicesData = [];
+
+        function log(id, message, type = 'info') {
+            const logEl = document.getElementById(id);
+            logEl.style.display = 'block';
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${timestamp}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function setStatus(id, status, text) {
+            const statusEl = document.getElementById(id);
+            statusEl.className = `status ${status}`;
+            const icon = status === 'success' ? '✅' : status === 'error' ? '❌' : '⏳';
+            statusEl.textContent = `${icon} ${text}`;
+        }
+
+        async function testAuth() {
+            const testId = 'authLog';
+            const statusId = 'authStatus';
+            
+            log(testId, 'Starting authentication test...', 'info');
+            
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            
+            if (!token) {
+                log(testId, 'No token found in localStorage', 'error');
+                setStatus(statusId, 'error', 'Not authenticated');
+                testResults.auth = false;
+                updateSummary();
+                return false;
+            }
+            
+            log(testId, 'Token found: ' + token.substring(0, 20) + '...', 'success');
+            
+            if (!user) {
+                log(testId, 'No user data found in localStorage', 'warn');
+                setStatus(statusId, 'error', 'User data missing');
+                testResults.auth = false;
+                updateSummary();
+                return false;
+            }
+            
+            try {
+                const userData = JSON.parse(user);
+                log(testId, 'User data parsed: ' + userData.username, 'success');
+                log(testId, 'User role: ' + (userData.role || 'customer'), 'info');
+                setStatus(statusId, 'success', 'Authenticated');
+                testResults.auth = true;
+                updateSummary();
+                return true;
+            } catch (error) {
+                log(testId, 'Failed to parse user data: ' + error.message, 'error');
+                setStatus(statusId, 'error', 'Invalid user data');
+                testResults.auth = false;
+                updateSummary();
+                return false;
+            }
+        }
+
+        async function testServicesAPI() {
+            const testId = 'apiLog';
+            const statusId = 'apiStatus';
+            
+            log(testId, 'Starting Services API test...', 'info');
+            
+            const token = localStorage.getItem('token');
+            const headers = { 'Content-Type': 'application/json' };
+            
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+                log(testId, 'Using authenticated request', 'info');
+            } else {
+                log(testId, 'No token - using unauthenticated request', 'warn');
+            }
+            
+            try {
+                log(testId, 'Fetching /.netlify/functions/services...', 'info');
+                const startTime = Date.now();
+                
+                const response = await fetch('/.netlify/functions/services', {
+                    method: 'GET',
+                    headers
+                });
+                
+                const elapsed = Date.now() - startTime;
+                log(testId, `Response received in ${elapsed}ms`, 'info');
+                log(testId, `Status: ${response.status} ${response.statusText}`, 'info');
+                
+                const rawBody = await response.text();
+                log(testId, `Response body length: ${rawBody.length} bytes`, 'info');
+                
+                let data;
+                try {
+                    data = rawBody ? JSON.parse(rawBody) : {};
+                } catch (parseError) {
+                    log(testId, 'Failed to parse JSON: ' + parseError.message, 'error');
+                    log(testId, 'Raw body: ' + rawBody.substring(0, 200), 'error');
+                    setStatus(statusId, 'error', 'Invalid JSON response');
+                    testResults.api = false;
+                    updateSummary();
+                    return false;
+                }
+                
+                if (!response.ok) {
+                    log(testId, 'API error: ' + (data.error || 'Unknown error'), 'error');
+                    setStatus(statusId, 'error', `API error ${response.status}`);
+                    testResults.api = false;
+                    updateSummary();
+                    return false;
+                }
+                
+                const services = data.services || [];
+                log(testId, `Services returned: ${services.length}`, 'success');
+                
+                servicesData = services;
+                document.getElementById('serviceCount').textContent = services.length;
+                
+                if (services.length === 0) {
+                    log(testId, 'No services available (expected if none are active)', 'warn');
+                } else {
+                    log(testId, 'Sample service: ' + JSON.stringify(services[0], null, 2), 'info');
+                }
+                
+                setStatus(statusId, 'success', `API OK (${services.length} services)`);
+                testResults.api = true;
+                updateSummary();
+                return true;
+                
+            } catch (error) {
+                log(testId, 'Fetch error: ' + error.message, 'error');
+                setStatus(statusId, 'error', 'Network error');
+                testResults.api = false;
+                updateSummary();
+                return false;
+            }
+        }
+
+        async function testDropdownLoading() {
+            const testId = 'dropdownLog';
+            const statusId = 'dropdownStatus';
+            const selectEl = document.getElementById('testSelect');
+            
+            log(testId, 'Starting dropdown loading test...', 'info');
+            
+            if (!servicesData || servicesData.length === 0) {
+                log(testId, 'No services data - running API test first...', 'info');
+                const apiSuccess = await testServicesAPI();
+                if (!apiSuccess) {
+                    log(testId, 'API test failed - cannot populate dropdown', 'error');
+                    setStatus(statusId, 'error', 'API prerequisite failed');
+                    testResults.dropdown = false;
+                    updateSummary();
+                    return false;
+                }
+            }
+            
+            if (servicesData.length === 0) {
+                log(testId, 'No services available to populate dropdown', 'warn');
+                selectEl.innerHTML = '<option value="">No services available</option>';
+                selectEl.disabled = true;
+                setStatus(statusId, 'success', 'No services (expected)');
+                testResults.dropdown = true;
+                updateSummary();
+                return true;
+            }
+            
+            log(testId, `Populating dropdown with ${servicesData.length} services...`, 'info');
+            
+            // Group by category
+            const grouped = {};
+            servicesData.forEach(service => {
+                const category = (service.category || 'Other').toLowerCase();
+                const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
+                if (!grouped[categoryName]) {
+                    grouped[categoryName] = [];
+                }
+                grouped[categoryName].push(service);
+            });
+            
+            log(testId, `Categories found: ${Object.keys(grouped).length}`, 'info');
+            
+            let html = '<option value="">Select a service</option>';
+            Object.keys(grouped).sort().forEach(categoryName => {
+                html += `<optgroup label="${categoryName}">`;
+                grouped[categoryName].forEach(service => {
+                    const rate = Number(service.rate || 0).toFixed(2);
+                    const publicId = service.public_id || service.publicId;
+                    const labelId = publicId ? `#${publicId}` : 'ID';
+                    html += `<option value="${service.id}">${labelId} · ${service.name} - $${rate}/1k</option>`;
+                });
+                html += '</optgroup>';
+            });
+            
+            selectEl.innerHTML = html;
+            selectEl.disabled = false;
+            
+            log(testId, 'Dropdown populated successfully', 'success');
+            log(testId, `Total options: ${selectEl.options.length - 1}`, 'info');
+            setStatus(statusId, 'success', `Loaded ${servicesData.length} services`);
+            testResults.dropdown = true;
+            updateSummary();
+            return true;
+        }
+
+        async function testServiceDataValidation() {
+            const testId = 'validationLog';
+            const statusId = 'validationStatus';
+            
+            log(testId, 'Starting service data validation...', 'info');
+            
+            if (!servicesData || servicesData.length === 0) {
+                log(testId, 'No services data - running API test first...', 'info');
+                const apiSuccess = await testServicesAPI();
+                if (!apiSuccess || servicesData.length === 0) {
+                    log(testId, 'No services to validate', 'warn');
+                    setStatus(statusId, 'success', 'No data to validate');
+                    testResults.validation = true;
+                    updateSummary();
+                    return true;
+                }
+            }
+            
+            let validCount = 0;
+            let invalidCount = 0;
+            let issues = [];
+            
+            servicesData.forEach((service, index) => {
+                let hasIssue = false;
+                
+                if (!service.id) {
+                    issues.push(`Service ${index}: Missing ID`);
+                    hasIssue = true;
+                }
+                if (!service.name) {
+                    issues.push(`Service ${index}: Missing name`);
+                    hasIssue = true;
+                }
+                if (service.rate === undefined || service.rate === null) {
+                    issues.push(`Service ${index}: Missing rate`);
+                    hasIssue = true;
+                }
+                if (!service.category) {
+                    issues.push(`Service ${index}: Missing category`);
+                    hasIssue = true;
+                }
+                
+                if (hasIssue) {
+                    invalidCount++;
+                } else {
+                    validCount++;
+                }
+            });
+            
+            log(testId, `Valid services: ${validCount}`, 'success');
+            log(testId, `Invalid services: ${invalidCount}`, invalidCount > 0 ? 'warn' : 'info');
+            
+            if (issues.length > 0) {
+                log(testId, 'Issues found:', 'warn');
+                issues.forEach(issue => log(testId, '  - ' + issue, 'warn'));
+            }
+            
+            const successRate = validCount / servicesData.length * 100;
+            log(testId, `Validation success rate: ${successRate.toFixed(1)}%`, 'info');
+            
+            if (successRate >= 95) {
+                setStatus(statusId, 'success', `${validCount}/${servicesData.length} valid`);
+                testResults.validation = true;
+            } else {
+                setStatus(statusId, 'error', `Only ${successRate.toFixed(0)}% valid`);
+                testResults.validation = false;
+            }
+            
+            updateSummary();
+            return testResults.validation;
+        }
+
+        async function testFormReady() {
+            const testId = 'formLog';
+            const statusId = 'formStatus';
+            
+            log(testId, 'Checking order form ready state...', 'info');
+            
+            const checks = [
+                { name: 'Authentication', test: () => testResults.auth },
+                { name: 'Services API', test: () => testResults.api },
+                { name: 'Dropdown loaded', test: () => testResults.dropdown },
+                { name: 'Data valid', test: () => testResults.validation }
+            ];
+            
+            let allPassed = true;
+            checks.forEach(check => {
+                const passed = check.test();
+                if (passed === null) {
+                    log(testId, `${check.name}: Not tested yet`, 'warn');
+                    allPassed = false;
+                } else if (passed) {
+                    log(testId, `${check.name}: ✅ PASS`, 'success');
+                } else {
+                    log(testId, `${check.name}: ❌ FAIL`, 'error');
+                    allPassed = false;
+                }
+            });
+            
+            if (allPassed && checks.every(c => c.test() !== null)) {
+                log(testId, 'Order form is READY for production! 🚀', 'success');
+                setStatus(statusId, 'success', 'Ready for deployment');
+                testResults.form = true;
+            } else {
+                log(testId, 'Order form is NOT ready - fix issues first', 'error');
+                setStatus(statusId, 'error', 'Not ready');
+                testResults.form = false;
+            }
+            
+            updateSummary();
+            return testResults.form;
+        }
+
+        async function runAllTests() {
+            clearAllLogs();
+            await testAuth();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testServicesAPI();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testDropdownLoading();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testServiceDataValidation();
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testFormReady();
+        }
+
+        function clearAllLogs() {
+            ['authLog', 'apiLog', 'dropdownLog', 'validationLog', 'formLog'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+                document.getElementById(id).style.display = 'none';
+            });
+            
+            ['authStatus', 'apiStatus', 'dropdownStatus', 'validationStatus', 'formStatus'].forEach(id => {
+                setStatus(id, 'pending', 'Pending');
+            });
+            
+            testResults = { auth: null, api: null, dropdown: null, validation: null, form: null };
+            updateSummary();
+        }
+
+        function updateSummary() {
+            const results = Object.values(testResults);
+            const passed = results.filter(r => r === true).length;
+            const failed = results.filter(r => r === false).length;
+            
+            document.getElementById('passedTests').textContent = passed;
+            document.getElementById('failedTests').textContent = failed;
+            
+            const checklist = document.getElementById('deploymentChecklist').children;
+            const checks = ['auth', 'api', 'dropdown', 'validation', 'form'];
+            
+            checks.forEach((check, index) => {
+                const item = checklist[index];
+                const result = testResults[check];
+                
+                if (result === true) {
+                    item.className = 'checked';
+                    item.querySelector('.icon').textContent = '✅';
+                } else if (result === false) {
+                    item.className = 'unchecked';
+                    item.querySelector('.icon').textContent = '❌';
+                } else {
+                    item.className = '';
+                    item.querySelector('.icon').textContent = '⏹️';
+                }
+            });
+        }
+
+        // Auto-run on load if authenticated
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                console.log('Auto-running tests...');
+                setTimeout(() => runAllTests(), 1000);
+            } else {
+                console.log('Not authenticated - tests require sign-in first');
+                alert('Please sign in first to run tests. Visit signin.html then come back here.');
+            }
+        });
+    </script>
+</body>
+</html>

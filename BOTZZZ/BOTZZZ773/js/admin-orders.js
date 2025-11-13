@@ -1,11 +1,84 @@
 // Admin Orders Management with Real Modals
 
 let servicesCache = [];
+let ordersCache = [];
 let ordersAutoRefreshTimer = null;
 let lastOrderSyncTime = 0;
 let ordersSyncInFlight = false;
 const ORDERS_SYNC_MIN_INTERVAL = 30000; // 30 seconds
 const ORDERS_AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
+const DEFAULT_ORDER_REFERENCE_BASE = 7000000;
+let highestOrderIdHint = DEFAULT_ORDER_REFERENCE_BASE;
+const selectedOrderIds = new Set();
+const servicesOptionsState = {
+    lastUpdated: null,
+    hasServices: false,
+    error: null
+};
+
+function getOrderById(orderId) {
+    if (orderId === undefined || orderId === null) return undefined;
+    const lookup = String(orderId);
+    return ordersCache.find(order => {
+        if (String(order.id) === lookup) return true;
+        if (formatProviderOrderId(order.provider_order_id) === formatProviderOrderId(lookup)) return true;
+        if (order.provider_order_id && String(order.provider_order_id) === lookup) return true;
+        if (order.link && String(order.link) === lookup) return true;
+        return false;
+    });
+}
+
+function getOrderDisplayName(order) {
+    if (!order) return '';
+    const orderId = order.id !== undefined && order.id !== null ? `#${order.id}` : '';
+    const providerRef = formatProviderOrderId(order.provider_order_id);
+    if (orderId && providerRef) {
+        return `${orderId} → ${providerRef}`;
+    }
+    if (orderId) {
+        return orderId;
+    }
+    if (providerRef) {
+        return providerRef;
+    }
+    return 'Order';
+}
+
+function generateInternalOrderReference() {
+    const base = Math.max(highestOrderIdHint, DEFAULT_ORDER_REFERENCE_BASE);
+    const randomOffset = Math.floor(Math.random() * 9000) + 1000;
+    return `#${base + randomOffset}`;
+}
+
+function buildOrderSelectionKey(order, index = 0) {
+    if (!order) {
+        return `order-${index}`;
+    }
+
+    const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
+    if (orderIdString) {
+        return orderIdString;
+    }
+
+    const providerFormatted = formatProviderOrderId(order.provider_order_id);
+    if (providerFormatted) {
+        return providerFormatted;
+    }
+
+    if (order.provider_order_id) {
+        return String(order.provider_order_id);
+    }
+
+    if (order.link) {
+        return String(order.link);
+    }
+
+    if (order.created_at) {
+        return String(order.created_at);
+    }
+
+    return `order-${index}`;
+}
 
 function toNumberOrNull(value) {
     if (value === undefined || value === null || value === '') return null;
@@ -30,6 +103,13 @@ function truncateText(text, maxLength = 48) {
         return normalized;
     }
     return `${normalized.substring(0, maxLength)}...`;
+}
+
+function formatProviderOrderId(value) {
+    if (value === undefined || value === null) return null;
+    const normalized = String(value).trim();
+    if (!normalized) return null;
+    return normalized.startsWith('#') ? normalized : `#${normalized}`;
 }
 
 function getStatusKey(status) {
@@ -98,6 +178,215 @@ function formatRelativeTime(timestamp) {
     return `Synced ${diffDays}d ago`;
 }
 
+// Resolve provider information from the order payload regardless of shape
+function resolveOrderProvider(order, orderService) {
+    const service = orderService || order?.service || order?.services || null;
+    const providerCandidates = [
+        order?.provider,
+        order?.providers,
+        order?.provider_info,
+        order?.providerDetails,
+        service?.provider,
+        service?.providers
+    ];
+
+    let providerObject = null;
+    let rawName = null;
+
+    for (const candidate of providerCandidates) {
+        if (!candidate) {
+            continue;
+        }
+
+        if (Array.isArray(candidate)) {
+            for (const entry of candidate) {
+                if (!entry) {
+                    continue;
+                }
+                if (typeof entry === 'object') {
+                    providerObject = entry;
+                    break;
+                }
+                if (!rawName && typeof entry === 'string') {
+                    rawName = entry.trim();
+                }
+            }
+
+            if (providerObject) {
+                break;
+            }
+            continue;
+        }
+
+        if (typeof candidate === 'object') {
+            providerObject = candidate;
+            break;
+        }
+
+        if (typeof candidate === 'string') {
+            rawName = candidate.trim();
+            break;
+        }
+    }
+
+    const nameCandidates = [
+        rawName,
+        providerObject?.name,
+        providerObject?.providerName,
+        providerObject?.title,
+        providerObject?.label,
+        order?.provider_name,
+        order?.providerName,
+        service?.provider_name,
+        service?.providerName
+    ];
+
+    const providerName = nameCandidates.find(value => typeof value === 'string' && value.trim().length > 0)?.trim() || 'Unknown Provider';
+
+    return {
+        provider: providerObject,
+        providerName
+    };
+}
+
+// Build consistent provider order ID markup with graceful fallback
+function buildProviderOrderIdMarkup(providerName, providerOrderId) {
+    const safeName = providerName && providerName.trim().length > 0 ? providerName.trim() : 'Unknown Provider';
+
+    if (providerOrderId) {
+        const label = truncateText(String(providerOrderId), 30);
+        const title = escapeHtml(String(providerOrderId));
+        return `<span class="order-id-provider" title="${title}"><strong>${escapeHtml(safeName)}:</strong> ${escapeHtml(label)}</span>`;
+    }
+
+    return `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(safeName)}:</strong> Not submitted</span>`;
+}
+
+// Normalize order identifiers for consistent display
+function resolveOrderIdentifiers(order, orderService = null) {
+    const service = orderService || order?.service || order?.services || null;
+    const uuidRaw = order?.id ? String(order.id) : null;
+    const candidateValues = [
+        order?.order_number,
+        order?.customer_order_number,
+        order?.customer_order_id,
+        order?.display_id,
+    order?.public_id,
+        order?.reference,
+        order?.external_order_id,
+        order?.external_id
+    ];
+
+    let customerFacing = candidateValues.find(value => {
+        if (value === undefined || value === null) {
+            return false;
+        }
+        if (typeof value === 'number') {
+            return Number.isFinite(value);
+        }
+        if (typeof value === 'string') {
+            return value.trim().length > 0;
+        }
+        return false;
+    });
+
+    if (typeof customerFacing === 'number') {
+        customerFacing = String(customerFacing);
+    }
+
+    const cleanUuidShort = uuidRaw
+        ? uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase()
+        : null;
+
+    const primaryLabel = customerFacing
+        ? `#${escapeHtml(String(customerFacing).trim())}`
+        : cleanUuidShort
+            ? `#${escapeHtml(cleanUuidShort)}`
+            : '#—';
+
+    // Prioritize provider_order_id (the actual order ID from the provider) over provider_service_id
+    const providerOrderIdCandidates = [
+        order?.provider_order_id,
+        order?.providerOrderId,
+        order?.external_order_id,
+        order?.meta?.provider_order_id
+    ];
+
+    const providerOrderId = providerOrderIdCandidates.find(value => {
+        if (value === undefined || value === null) {
+            return false;
+        }
+        const stringValue = String(value).trim();
+        return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
+    });
+
+    const internalLabel = providerOrderId
+        ? `<span class="cell-secondary cell-muted" title="Provider order identifier">Provider Order: ${escapeHtml(String(providerOrderId).trim())}</span>`
+        : uuidRaw
+            ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
+            : '';
+
+    return { primaryLabel, internalLabel };
+}
+
+function resolveProviderStatus(order) {
+    const candidates = [
+        order?.provider_status,
+        order?.providerStatus,
+        order?.provider_status_label,
+        order?.provider_status_text,
+        order?.provider_status_display,
+        order?.provider_status_raw,
+        order?.status_provider,
+        order?.statusProvider,
+        order?.status_provider_label,
+        order?.provider_statuses,
+        order?.providerStatusText,
+        order?.provider_status_detail,
+        order?.service?.provider_status,
+        order?.service?.providerStatus,
+        order?.provider?.status,
+        order?.provider?.provider_status,
+        order?.meta?.provider_status,
+        order?.sync_status?.provider,
+        order?.status_history?.provider_status,
+        order?.status_history?.provider
+    ];
+
+    for (const value of candidates) {
+        if (!value) {
+            continue;
+        }
+
+        if (typeof value === 'string' && value.trim().length > 0) {
+            return value.trim();
+        }
+
+        if (typeof value === 'object') {
+            if (Array.isArray(value)) {
+                const first = value.find(entry => typeof entry === 'string' && entry.trim().length > 0);
+                if (first) {
+                    return first.trim();
+                }
+                const firstObject = value.find(entry => entry && typeof entry === 'object' && typeof entry.status === 'string');
+                if (firstObject) {
+                    return firstObject.status.trim();
+                }
+            } else if (typeof value.status === 'string' && value.status.trim().length > 0) {
+                return value.status.trim();
+            } else if (typeof value.label === 'string' && value.label.trim().length > 0) {
+                return value.label.trim();
+            }
+        }
+    }
+
+    if (order?.status) {
+        return String(order.status).trim();
+    }
+
+    return 'processing';
+}
+
 function updateOrdersSyncStatus(message, state = 'pending') {
     const statusEl = document.getElementById('ordersSyncStatus');
     const dotEl = document.getElementById('ordersSyncDot');
@@ -114,6 +403,199 @@ function updateOrdersSyncStatus(message, state = 'pending') {
             dotEl.classList.add('sync-error');
         }
     }
+}
+
+function pruneSelectedOrderIds() {
+    if (selectedOrderIds.size === 0) {
+        return;
+    }
+    const validIds = new Set();
+    ordersCache.forEach((order, index) => {
+        if (order.id !== undefined && order.id !== null) {
+            validIds.add(String(order.id));
+        }
+        const selectionKey = buildOrderSelectionKey(order, index);
+        if (selectionKey) {
+            validIds.add(selectionKey);
+        }
+        const providerFormatted = formatProviderOrderId(order.provider_order_id);
+        if (providerFormatted) {
+            validIds.add(providerFormatted);
+        }
+        if (order.provider_order_id) {
+            validIds.add(String(order.provider_order_id));
+        }
+        if (order.link) {
+            validIds.add(String(order.link));
+        }
+    });
+    for (const id of Array.from(selectedOrderIds)) {
+        if (!validIds.has(String(id))) {
+            selectedOrderIds.delete(id);
+        }
+    }
+}
+
+function bindOrderSelectionEvents() {
+    document.querySelectorAll('.order-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', handleOrderSelectionChange);
+    });
+}
+
+function handleOrderSelectionChange(event) {
+    const checkbox = event?.target;
+    if (!checkbox || !checkbox.dataset.orderId) {
+        return;
+    }
+
+    const orderId = checkbox.dataset.orderId;
+    if (checkbox.checked) {
+        selectedOrderIds.add(orderId);
+    } else {
+        selectedOrderIds.delete(orderId);
+    }
+
+    const row = checkbox.closest('tr');
+    if (row) {
+        row.classList.toggle('is-selected', checkbox.checked);
+    }
+
+    updateSelectedOrdersSummary();
+}
+
+function restoreOrderSelectionState() {
+    document.querySelectorAll('.order-checkbox').forEach(checkbox => {
+        const isSelected = selectedOrderIds.has(checkbox.dataset.orderId);
+        checkbox.checked = isSelected;
+        const row = checkbox.closest('tr');
+        if (row) {
+            row.classList.toggle('is-selected', isSelected);
+        }
+    });
+}
+
+function updateSelectedOrdersSummary() {
+    const countEl = document.getElementById('selectedOrdersCount');
+    const detailEl = document.getElementById('selectedOrdersDetail');
+    const cardEl = document.getElementById('selectedOrdersCard');
+
+    const count = selectedOrderIds.size;
+
+    if (countEl) {
+        countEl.textContent = `${count} selected`;
+    }
+
+    if (detailEl) {
+        if (count === 0) {
+            detailEl.textContent = 'Pick orders to inspect provider IDs or edit quickly.';
+        } else {
+            const names = [];
+            selectedOrderIds.forEach(id => {
+                const label = getOrderDisplayName(getOrderById(id));
+                if (label) {
+                    names.push(label);
+                }
+            });
+            const preview = names.slice(0, 2).filter(Boolean).join(', ');
+            const overflow = names.length > 2 ? ` +${names.length - 2}` : '';
+            detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+        }
+    }
+
+    if (cardEl) {
+        const isActive = count > 0;
+        cardEl.classList.toggle('is-active', isActive);
+        cardEl.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    syncOrdersMasterToggle();
+}
+
+function syncOrdersMasterToggle() {
+    const masterToggle = document.querySelector('th input[type="checkbox"][aria-label="Select all orders"]');
+    if (!masterToggle) {
+        return;
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll('.order-checkbox'));
+    if (checkboxes.length === 0) {
+        masterToggle.checked = false;
+        masterToggle.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = checkboxes.filter(cb => cb.checked).length;
+    masterToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
+    masterToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+}
+
+function openSelectedOrderModal() {
+    if (selectedOrderIds.size === 0) {
+        showNotification('Select an order from the table first', 'error');
+        return;
+    }
+    const iterator = selectedOrderIds.values();
+    const selectionKey = iterator.next().value;
+    if (!selectionKey) {
+        return;
+    }
+
+    const order = getOrderById(selectionKey);
+    if (order && order.id !== undefined && order.id !== null) {
+        viewOrder(order.id);
+    } else {
+        viewOrder(selectionKey);
+    }
+}
+
+function openAddOrderQuickAction() {
+    showAddOrderModal();
+}
+
+function openSyncOrdersQuickAction() {
+    manualOrdersSync();
+}
+
+function openExportOrdersQuickAction() {
+    exportData('csv');
+}
+
+function attachOrderQuickActionCard(element, handler) {
+    if (!element || typeof handler !== 'function') {
+        return;
+    }
+
+    element.addEventListener('click', handler);
+    element.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handler();
+        }
+    });
+}
+
+function initializeOrdersQuickActions() {
+    attachOrderQuickActionCard(document.getElementById('selectedOrdersCard'), openSelectedOrderModal);
+    attachOrderQuickActionCard(document.getElementById('addOrderCard'), openAddOrderQuickAction);
+    attachOrderQuickActionCard(document.getElementById('syncOrdersCard'), openSyncOrdersQuickAction);
+    attachOrderQuickActionCard(document.getElementById('exportOrdersCard'), openExportOrdersQuickAction);
+    updateSelectedOrdersSummary();
+}
+
+function toggleAllOrders(masterCheckbox) {
+    if (!masterCheckbox) {
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('.order-checkbox');
+    const shouldSelectAll = masterCheckbox.checked;
+    masterCheckbox.indeterminate = false;
+
+    selectedOrderIds.clear();
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = shouldSelectAll;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 }
 
 async function syncOrderStatuses({ silent = false, force = false } = {}) {
@@ -144,6 +626,7 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
     updateOrdersSyncStatus('Syncing provider statuses...', 'pending');
 
     try {
+        console.log('[SYNC] Starting order status sync...');
         const response = await fetch('/.netlify/functions/orders', {
             method: 'POST',
             headers: {
@@ -153,10 +636,19 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
             body: JSON.stringify({ action: 'sync-status' })
         });
 
-        const result = await response.json();
+        console.log('[SYNC] Response status:', response.status);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[SYNC] API error response:', errorText);
+            throw new Error(`Sync failed (${response.status}): ${errorText}`);
+        }
 
-        if (!response.ok || result.error) {
-            throw new Error(result.error || 'Provider sync failed');
+        const result = await response.json();
+        console.log('[SYNC] Sync result:', result);
+
+        if (result.error) {
+            throw new Error(result.error);
         }
 
         lastOrderSyncTime = Date.now();
@@ -167,13 +659,15 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
             showNotification(`Synced ${result.updated || 0} orders with providers`, 'success');
         }
 
+        console.log('[SYNC] Sync completed successfully');
         return {
             success: true,
             updated: result.updated || 0,
             results: result.results || []
         };
     } catch (error) {
-        console.error('Order sync error:', error);
+        console.error('[SYNC] Order sync error:', error);
+        console.error('[SYNC] Error stack:', error.stack);
         const message = error.message || 'Failed to sync provider statuses';
         updateOrdersSyncStatus(message, 'error');
         if (!silent) {
@@ -423,6 +917,15 @@ function confirmCancelOrder(orderId) {
 // Add Order Modal
 async function showAddOrderModal() {
     const servicesOptions = await getServicesOptions();
+    const serviceSelectDisabled = !servicesOptionsState.hasServices;
+    const serviceSelectAttributes = serviceSelectDisabled ? ' disabled' : '';
+    const internalReferenceValue = escapeHtml(generateInternalOrderReference());
+    const servicesHelpMarkup = servicesOptionsState.error
+        ? '<small style="color: #f87171;">Failed to load services. Refresh or check Netlify functions.</small>'
+        : (serviceSelectDisabled
+            ? '<small style="color: #94a3b8;">No active services available. Create a service before ordering.</small>'
+            : '');
+    const submitDisabledAttr = servicesOptionsState.error || serviceSelectDisabled ? ' disabled' : '';
     
     const content = `
         <form id="addOrderForm" onsubmit="submitAddOrder(event)" class="admin-form">
@@ -439,9 +942,10 @@ async function showAddOrderModal() {
             </div>
             <div class="form-group">
                 <label>Service *</label>
-                <select name="service" required>
+                <select name="service" id="addOrderServiceSelect" required${serviceSelectAttributes}>
                     ${servicesOptions}
                 </select>
+                ${servicesHelpMarkup}
             </div>
             <div class="form-group">
                 <label>Link/Username *</label>
@@ -457,6 +961,18 @@ async function showAddOrderModal() {
                     <input type="number" name="charge" placeholder="12.50" min="0" step="0.01">
                 </div>
             </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Internal Order Reference</label>
+                    <input type="text" name="internalReference" value="${internalReferenceValue}" readonly>
+                    <small style="color: #94a3b8;">Auto-generated BOTZZZ ID (#7000000+ series)</small>
+                </div>
+                <div class="form-group">
+                    <label>Provider Order ID</label>
+                    <input type="text" name="providerOrderId" placeholder="#123456789" autocomplete="off">
+                    <small style="color: #94a3b8;">Optional: map to provider ticket for faster lookup.</small>
+                </div>
+            </div>
             <div class="form-group">
                 <label>Mode</label>
                 <select name="mode">
@@ -469,7 +985,7 @@ async function showAddOrderModal() {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="addOrderForm" class="btn-primary">
+        <button type="submit" form="addOrderForm" class="btn-primary"${submitDisabledAttr}>
             <i class="fas fa-plus"></i> Create Order
         </button>
     `;
@@ -479,6 +995,12 @@ async function showAddOrderModal() {
 
 function submitAddOrder(event) {
     event.preventDefault();
+
+    if (!servicesOptionsState.hasServices) {
+        showNotification('Services are unavailable. Sync or add services before creating an order.', 'error');
+        return;
+    }
+
     const formData = new FormData(event.target);
     const orderData = Object.fromEntries(formData);
     
@@ -531,6 +1053,7 @@ function confirmExport(format) {
 
 // Initialize search
 document.addEventListener('DOMContentLoaded', async () => {
+    initializeOrdersQuickActions();
     if (typeof handleSearch === 'function') {
         handleSearch('orderSearch', 'ordersTable');
     }
@@ -571,16 +1094,26 @@ function applyFilters() {
 // Load real orders from database
 async function loadOrders({ skipSync = false } = {}) {
     const tbody = document.getElementById('ordersTableBody');
-    if (!tbody) return;
+    if (!tbody) {
+        console.error('[ORDERS] Table body element not found!');
+        return;
+    }
 
     tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</td></tr>';
 
     try {
         if (!skipSync) {
+            console.log('[ORDERS] Syncing order statuses first...');
             await syncOrderStatuses({ silent: true });
         }
 
         const token = localStorage.getItem('token');
+        if (!token) {
+            console.error('[ORDERS] No auth token found!');
+            throw new Error('Not authenticated');
+        }
+
+        console.log('[ORDERS] Fetching orders from API...');
         const response = await fetch('/.netlify/functions/orders', {
             method: 'GET',
             headers: {
@@ -589,17 +1122,27 @@ async function loadOrders({ skipSync = false } = {}) {
             }
         });
 
-        const data = await response.json();
+        console.log('[ORDERS] API response status:', response.status);
         
-        if (data.orders && data.orders.length > 0) {
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[ORDERS] API error response:', errorText);
+            throw new Error(`API returned ${response.status}: ${errorText}`);
+        }
+
+        const data = await response.json();
+        ordersCache = Array.isArray(data.orders) ? data.orders : [];
+        pruneSelectedOrderIds();
+
+        if (ordersCache.length > 0) {
             tbody.innerHTML = '';
 
             let mostRecentSync = lastOrderSyncTime;
 
-            data.orders.forEach(order => {
+            ordersCache.forEach((order, index) => {
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const orderStatusKey = getStatusKey(order.status);
-                const providerStatusRaw = order.provider_status || order.status;
+                const providerStatusRaw = resolveProviderStatus(order);
                 const providerStatusKey = getStatusKey(providerStatusRaw);
                 const providerStatusLabel = formatStatusLabel(providerStatusRaw);
                 const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
@@ -607,12 +1150,18 @@ async function loadOrders({ skipSync = false } = {}) {
                     mostRecentSync = lastSync;
                 }
 
-                const orderIdDisplay = escapeHtml(String(order.id));
-                const providerOrderLabel = order.provider_order_id ? truncateText(order.provider_order_id, 30) : '';
-                const providerOrderTitle = order.provider_order_id ? escapeHtml(order.provider_order_id) : '';
-                const providerOrderMarkup = order.provider_order_id
+                const orderUser = order.user || order.users || null;
+                const orderService = order.service || order.services || null;
+                const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
+                const orderIdDisplay = escapeHtml(orderIdString);
+                const orderPrimaryLabel = orderIdString ? `#${orderIdDisplay}` : 'Pending ID';
+                const formattedProviderOrderId = formatProviderOrderId(order.provider_order_id);
+                const providerOrderLabel = formattedProviderOrderId ? truncateText(formattedProviderOrderId, 30) : '';
+                const providerOrderTitle = formattedProviderOrderId ? escapeHtml(formattedProviderOrderId) : '';
+                const providerOrderMarkup = formattedProviderOrderId
                     ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider: ${escapeHtml(providerOrderLabel)}</span>`
                     : '<span class="order-id-provider order-id-missing">Provider: Not submitted</span>';
+
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
@@ -627,8 +1176,6 @@ async function loadOrders({ skipSync = false } = {}) {
                 const remains = remainsValue !== null ? remainsValue : 'N/A';
                 const quantity = quantityValue !== null ? quantityValue : 'N/A';
 
-                const orderUser = order.user || order.users || null;
-                const orderService = order.service || order.services || null;
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null)
@@ -651,15 +1198,22 @@ async function loadOrders({ skipSync = false } = {}) {
                 `;
 
                 const lastSyncLabel = formatRelativeTime(order.last_status_sync);
+                    const providerIdSecondaryLabel = formattedProviderOrderId
+                        ? `Provider ID: ${formattedProviderOrderId}`
+                        : 'Provider ID: Pending';
+                    const providerIdSecondaryTitle = escapeHtml(lastSyncLabel);
+                const ariaLabelId = orderIdString ? `Select order #${orderIdString}` : 'Select order';
+                const selectionKeyRaw = buildOrderSelectionKey(order, index);
+                const orderSelectionAttr = escapeHtml(selectionKeyRaw);
 
                 const actions = buildOrderActions(order);
 
                 const row = `
-                    <tr data-status="${orderStatusKey}">
-                        <td><input type="checkbox" class="order-checkbox"></td>
+                    <tr data-status="${orderStatusKey}" data-order-id="${orderSelectionAttr}">
+                        <td><input type="checkbox" class="order-checkbox" data-order-id="${orderSelectionAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="order-id-cell">
-                                <span class="order-id-primary">#${orderIdDisplay}</span>
+                                <span class="order-id-primary">${orderPrimaryLabel}</span>
                                 ${providerOrderMarkup}
                             </div>
                         </td>
@@ -679,7 +1233,7 @@ async function loadOrders({ skipSync = false } = {}) {
                             <div class="cell-stack">
                                 <span class="status-badge ${orderStatusKey}">${escapeHtml(formatStatusLabel(order.status))}</span>
                                 ${providerStatusMarkup}
-                                <span class="cell-secondary cell-muted">${escapeHtml(lastSyncLabel)}</span>
+                                    <span class="cell-secondary cell-muted"${providerIdSecondaryTitle ? ` title="${providerIdSecondaryTitle}"` : ''}>${escapeHtml(providerIdSecondaryLabel)}</span>
                             </div>
                         </td>
                         <td>${escapeHtml(String(remains))}</td>
@@ -696,7 +1250,16 @@ async function loadOrders({ skipSync = false } = {}) {
                     </tr>
                 `;
                 tbody.insertAdjacentHTML('beforeend', row);
+
+                const numericOrderId = toNumberOrNull(order.id);
+                if (numericOrderId !== null && numericOrderId > highestOrderIdHint) {
+                    highestOrderIdHint = numericOrderId;
+                }
             });
+
+            restoreOrderSelectionState();
+            bindOrderSelectionEvents();
+            updateSelectedOrdersSummary();
 
             if (mostRecentSync > 0) {
                 lastOrderSyncTime = mostRecentSync;
@@ -705,16 +1268,29 @@ async function loadOrders({ skipSync = false } = {}) {
 
             const paginationInfo = document.getElementById('paginationInfo');
             if (paginationInfo) {
-                const count = data.orders.length;
+                const count = ordersCache.length;
                 paginationInfo.textContent = `Showing ${count > 0 ? '1' : '0'}-${Math.min(count, 50)} of ${count}`;
             }
         } else {
+            console.log('[ORDERS] No orders found in response');
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
+            ordersCache = [];
+            selectedOrderIds.clear();
+            updateSelectedOrdersSummary();
         }
     } catch (error) {
-        console.error('Load orders error:', error);
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load orders. Please refresh the page.</td></tr>';
+        console.error('[ORDERS] Load orders error:', error);
+        console.error('[ORDERS] Error stack:', error.stack);
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">
+            Failed to load orders: ${error.message}<br>
+            <button class="btn-secondary" onclick="loadOrders({ skipSync: true })" style="margin-top: 12px;">
+                <i class="fas fa-redo"></i> Retry
+            </button>
+        </td></tr>`;
         updateOrdersSyncStatus('Failed to load orders', 'error');
+        ordersCache = [];
+        selectedOrderIds.clear();
+        updateSelectedOrdersSummary();
     }
 }
 
@@ -742,6 +1318,9 @@ function buildOrderActions(order) {
 // Helper function to get services options
 async function getServicesOptions() {
     if (servicesCache.length > 0) {
+        servicesOptionsState.hasServices = servicesCache.length > 0;
+        servicesOptionsState.error = null;
+        servicesOptionsState.lastUpdated = Date.now();
         return buildServicesOptionsHTML(servicesCache);
     }
     
@@ -756,10 +1335,21 @@ async function getServicesOptions() {
         });
         
         const data = await response.json();
+        if (!response.ok || data.error) {
+            throw new Error(data.error || `Failed to fetch services (${response.status})`);
+        }
+
         servicesCache = data.services || [];
+        servicesOptionsState.hasServices = servicesCache.length > 0;
+        servicesOptionsState.error = null;
+        servicesOptionsState.lastUpdated = Date.now();
         return buildServicesOptionsHTML(servicesCache);
     } catch (error) {
         console.error('Failed to load services:', error);
+        servicesCache = [];
+        servicesOptionsState.hasServices = false;
+        servicesOptionsState.error = error instanceof Error ? error.message : String(error);
+        servicesOptionsState.lastUpdated = Date.now();
         return '<option value="">Failed to load services</option>';
     }
 }

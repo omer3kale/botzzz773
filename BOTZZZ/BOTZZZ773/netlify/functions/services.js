@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const PUBLIC_ID_BASE = 7000;
 
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -35,6 +36,94 @@ function calculateMarkup(providerRate, retailRate) {
   return Number(markup.toFixed(2));
 }
 
+async function fetchMaxExistingPublicId() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('services')
+      .select('public_id')
+      .not('public_id', 'is', null)
+      .order('public_id', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    if (Array.isArray(data) && data.length > 0) {
+      const numeric = toNumberOrNull(data[0]?.public_id);
+      if (numeric !== null) {
+        return Math.max(PUBLIC_ID_BASE - 1, numeric);
+      }
+    }
+
+    return PUBLIC_ID_BASE - 1;
+  } catch (error) {
+    console.error('Failed to fetch max public ID:', error);
+    return PUBLIC_ID_BASE - 1;
+  }
+}
+
+async function generateNextPublicId() {
+  const maxId = await fetchMaxExistingPublicId();
+  return maxId + 1;
+}
+
+async function ensurePublicIdsForAdmin(services = []) {
+  if (!Array.isArray(services) || services.length === 0) {
+    return services;
+  }
+
+  const needsAssignment = services.some(service => {
+    const numeric = toNumberOrNull(service?.public_id);
+    return numeric === null || numeric < PUBLIC_ID_BASE;
+  });
+
+  let maxPublicId = services.reduce((max, service) => {
+    const numeric = toNumberOrNull(service?.public_id);
+    return numeric !== null ? Math.max(max, numeric) : max;
+  }, PUBLIC_ID_BASE - 1);
+
+  if (!needsAssignment) {
+    services.forEach(service => {
+      const numeric = toNumberOrNull(service?.public_id);
+      if (numeric !== null) {
+        service.public_id = numeric;
+      }
+    });
+    return services;
+  }
+
+  if (maxPublicId < PUBLIC_ID_BASE - 1) {
+    maxPublicId = await fetchMaxExistingPublicId();
+  }
+
+  const updates = [];
+
+  services.forEach(service => {
+    const numeric = toNumberOrNull(service?.public_id);
+    if (numeric === null || numeric < PUBLIC_ID_BASE) {
+      maxPublicId = Math.max(maxPublicId, PUBLIC_ID_BASE - 1) + 1;
+      service.public_id = maxPublicId;
+      updates.push({ id: service.id, public_id: maxPublicId });
+    } else {
+      service.public_id = numeric;
+    }
+  });
+
+  for (const update of updates) {
+    const { error } = await supabaseAdmin
+      .from('services')
+      .update({ public_id: update.public_id })
+      .eq('id', update.id);
+
+    if (error) {
+      console.error('Failed to assign public ID for service', update.id, error);
+    }
+  }
+
+  return services;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -54,7 +143,7 @@ exports.handler = async (event) => {
 
     switch (event.httpMethod) {
       case 'GET':
-        return await handleGetServices(user, headers);
+        return await handleGetServices(event, user, headers);
       case 'POST':
         return await handleCreateService(user, body, headers);
       case 'PUT':
@@ -78,19 +167,29 @@ exports.handler = async (event) => {
   }
 };
 
-async function handleGetServices(user, headers) {
+async function handleGetServices(event, user, headers) {
   try {
-    const isAdmin = Boolean(user && user.role === 'admin');
+    const queryParams = event?.queryStringParameters || {};
+    const audienceParam = (queryParams.audience || queryParams.scope || '').toLowerCase();
+    const forceCustomerScope = audienceParam === 'customer';
+
+    const isAdminUser = user && user.role === 'admin' && !forceCustomerScope;
+    const client = isAdminUser ? supabaseAdmin : supabase;
 
     let query = supabaseAdmin
       .from('services')
       .select(`
         *,
-        provider:providers(id, name, status, markup)
+        provider:providers!inner(id, name, status, markup)
       `);
 
-    if (!isAdmin) {
-      query = query.eq('status', 'active');
+    if (!isAdminUser) {
+      // For customer scope (default) only show services explicitly active and from active providers
+      query = query
+        .eq('status', 'active')
+        .eq('provider.status', 'active');
+      // Only expose services that have a public customer-facing identifier assigned
+      query = query.not('public_id', 'is', null);
     }
 
     query = query
@@ -108,16 +207,23 @@ async function handleGetServices(user, headers) {
       };
     }
 
-    let servicesList = Array.isArray(services) ? services : [];
+    let normalizedServices = Array.isArray(services) ? services : [];
 
-    if (!servicesList.length) {
-      servicesList = await fetchServicesFromProviders();
+    if (isAdminUser) {
+      normalizedServices = await ensurePublicIdsForAdmin(normalizedServices);
+    } else {
+      normalizedServices.forEach(service => {
+        const numeric = toNumberOrNull(service?.public_id);
+        if (numeric !== null) {
+          service.public_id = numeric;
+        }
+      });
     }
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: servicesList })
+      body: JSON.stringify({ services: normalizedServices })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -257,7 +363,7 @@ async function handleCreateService(user, data, headers) {
       description,
       rate,
       price,
-      provider_rate,
+  provider_rate,
       providerRate,
       retail_rate,
       retailRate,
@@ -268,7 +374,9 @@ async function handleCreateService(user, data, headers) {
       max_quantity,
       maxOrder,
       type,
-      status
+      status,
+      public_id,
+      publicId
     } = data;
 
     if (!name || !category) {
@@ -294,6 +402,12 @@ async function handleCreateService(user, data, headers) {
     const minQty = min_quantity ?? minOrder ?? 10;
     const maxQty = max_quantity ?? maxOrder ?? 100000;
 
+    let resolvedPublicId = toNumberOrNull(public_id ?? publicId);
+    if (resolvedPublicId === null || resolvedPublicId < PUBLIC_ID_BASE) {
+      resolvedPublicId = await generateNextPublicId();
+    }
+    resolvedPublicId = Math.trunc(resolvedPublicId);
+
     const { data: service, error } = await supabaseAdmin
       .from('services')
       .insert({
@@ -309,7 +423,8 @@ async function handleCreateService(user, data, headers) {
         min_quantity: minQty,
         max_quantity: maxQty,
         type: type || 'service',
-        status: status || 'active'
+        status: status || 'active',
+        public_id: resolvedPublicId
       })
       .select()
       .single();
@@ -372,7 +487,9 @@ async function handleUpdateService(user, data, headers) {
       providerId,
       provider_id,
       providerServiceId,
-      provider_service_id
+      provider_service_id,
+      public_id,
+      publicId
     } = data;
 
     if (!serviceId) {
@@ -451,6 +568,16 @@ async function handleUpdateService(user, data, headers) {
     const resolvedProviderServiceId = providerServiceId !== undefined ? providerServiceId : provider_service_id;
     if (resolvedProviderServiceId !== undefined) {
       updates.provider_service_id = resolvedProviderServiceId || null;
+    }
+
+    const hasPublicIdField = Object.prototype.hasOwnProperty.call(data, 'public_id') ||
+      Object.prototype.hasOwnProperty.call(data, 'publicId');
+
+    if (hasPublicIdField) {
+      const incomingPublicId = toNumberOrNull(public_id ?? publicId);
+      if (incomingPublicId !== null && incomingPublicId >= PUBLIC_ID_BASE) {
+        updates.public_id = Math.trunc(incomingPublicId);
+      }
     }
 
     const { data: service, error } = await supabaseAdmin
@@ -581,6 +708,8 @@ async function handleDuplicateService(data, headers) {
       };
     }
 
+    const newPublicId = await generateNextPublicId();
+
     // Create duplicate with modified name
     const { data: newService, error: insertError } = await supabaseAdmin
       .from('services')
@@ -597,7 +726,8 @@ async function handleDuplicateService(data, headers) {
         min_quantity: originalService.min_quantity,
         max_quantity: originalService.max_quantity,
         type: originalService.type,
-        status: 'inactive' // New duplicates start as inactive
+        status: 'inactive', // New duplicates start as inactive
+        public_id: newPublicId
       })
       .select()
       .single();

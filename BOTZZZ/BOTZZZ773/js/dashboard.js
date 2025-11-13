@@ -158,48 +158,160 @@
     // SERVICES DATA - LOADED FROM DATABASE
     // ==========================================
     let servicesData = {};
+    let categoryLabels = {};
+
+    const CATEGORY_ICON_MAP = {
+        instagram: '📷',
+        tiktok: '🎵',
+        youtube: '▶️',
+        twitter: '🐦',
+        x: '🐦',
+        facebook: '👍',
+        telegram: '✈️',
+        spotify: '🎧',
+        soundcloud: '🎶',
+        snapchat: '👻',
+        threads: '🧵',
+        linkedin: '💼',
+        pinterest: '📌',
+        twitch: '🎮',
+        other: '⭐'
+    };
+
+    function slugifyCategory(rawValue) {
+        return rawValue
+            .toString()
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            || 'other';
+    }
+
+    function formatCategoryLabel(rawValue) {
+        return rawValue
+            .toString()
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    }
+
+    function getCategoryIcon(slug) {
+        const baseSlug = slug.split('-')[0];
+        return CATEGORY_ICON_MAP[baseSlug] || CATEGORY_ICON_MAP.other;
+    }
+
+    function populateCategoryOptions() {
+        if (!categorySelect) {
+            return;
+        }
+
+        const previousValue = categorySelect.value;
+        categorySelect.innerHTML = '<option value="" disabled selected>Select a category</option>';
+        if (serviceSelect) {
+            serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
+        }
+
+        const sortedCategories = Object.entries(categoryLabels)
+            .sort(([, labelA], [, labelB]) => labelA.localeCompare(labelB));
+
+        sortedCategories.forEach(([slug, label]) => {
+            const option = document.createElement('option');
+            option.value = slug;
+            option.textContent = `${getCategoryIcon(slug)} ${label}`;
+            categorySelect.appendChild(option);
+        });
+
+        if (previousValue && servicesData[previousValue]) {
+            categorySelect.value = previousValue;
+        }
+    }
 
     // Load services from database
     async function loadServicesFromDatabase() {
         try {
-            const response = await fetch('/.netlify/functions/services');
-            const data = await response.json();
+            const response = await fetch('/.netlify/functions/services?audience=customer', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            const rawBody = await response.text();
+            let data;
+            try {
+                data = rawBody ? JSON.parse(rawBody) : {};
+            } catch (parseError) {
+                console.error('[DASHBOARD] Failed to parse services response:', parseError, rawBody);
+                throw new Error('Received invalid response while loading services');
+            }
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn('[DASHBOARD] Services request unauthorized. Response:', data);
+                throw new Error('Unauthorized access to services');
+            }
             
             if (Array.isArray(data.services)) {
-                // Categorize services
-                servicesData = {};
-                data.services.forEach(service => {
-                    const category = (service.category || 'other').toLowerCase();
-                    const publicId = Number(service.public_id ?? service.publicId);
-                    const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
-                    const maxQuantity = Number(service.max_quantity ?? service.max_order ?? 10000) || 10000;
-                    if (!servicesData[category]) {
-                        servicesData[category] = [];
-                    }
-                    servicesData[category].push({
-                        id: service.id.toString(),
-                        publicId: Number.isFinite(publicId) ? publicId : null,
-                        provider_service_id: service.provider_service_id || 'N/A',
-                        name: service.name,
-                        price: parseFloat(service.rate),
-                        min: minQuantity,
-                        max: maxQuantity,
-                        avgTime: service.avg_time || 'Not specified',
-                        description: service.description || ''
+                const services = data.services;
+
+                if (services.length > 0) {
+                    // Categorize services
+                    servicesData = {};
+                    categoryLabels = {};
+                    services.forEach(service => {
+                        const rawCategory = service.category || 'Other';
+                        const categorySlug = slugifyCategory(rawCategory);
+                        const categoryLabel = formatCategoryLabel(rawCategory);
+
+                        categoryLabels[categorySlug] = categoryLabel;
+
+                        if (!servicesData[categorySlug]) {
+                            servicesData[categorySlug] = [];
+                        }
+                        const rawPublicId = service.public_id ?? service.publicId;
+                        const publicId = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
+                            ? null
+                            : Number(rawPublicId);
+                        const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
+                        const maxQuantity = Number(service.max_quantity ?? service.max_order ?? 10000) || 10000;
+                        servicesData[categorySlug].push({
+                            id: service.id.toString(),
+                            publicId: Number.isFinite(publicId) ? publicId : null,
+                            provider_service_id: service.provider_service_id || 'N/A',
+                            name: service.name,
+                            price: parseFloat(service.rate),
+                            min: minQuantity,
+                            max: maxQuantity,
+                            avgTime: service.avg_time || 'Not specified',
+                            description: service.description || '',
+                            categoryLabel,
+                            categorySlug
+                        });
                     });
-                });
-                
-                console.log('Services loaded successfully:', Object.keys(servicesData).length, 'categories');
-                return true;
+                    
+                    console.log('Services loaded successfully:', Object.keys(servicesData).length, 'categories');
+                    populateCategoryOptions();
+                    return true;
+                } else {
+                    console.warn('[DASHBOARD] No customer-visible services returned.');
+                    showToast('No services are currently available. Please contact support.', 'error');
+                    populateCategoryOptions();
+                    return false;
+                }
             } else {
-                console.error('Failed to load services:', data.error);
-                // When API responds without a services array, surface a clear error
                 console.error('Failed to load services:', data.error || 'No services array in response');
+                showToast('Failed to load services. Please refresh the page.', 'error');
+                populateCategoryOptions();
                 return false;
             }
         } catch (error) {
             console.error('Error loading services:', error);
             showToast('Failed to load services. Please refresh the page.', 'error');
+            populateCategoryOptions();
             return false;
         }
     }
@@ -221,14 +333,15 @@
     // Populate services based on category
     if (categorySelect && serviceSelect) {
         categorySelect.addEventListener('change', (e) => {
-            const category = e.target.value.toLowerCase();
+            const category = e.target.value;
             serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
             
             if (category && servicesData[category]) {
                 servicesData[category].forEach(service => {
                     const option = document.createElement('option');
                     option.value = service.id;
-                    const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
+                    const hasPublicId = Number.isFinite(service.publicId);
+                    const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
                     option.textContent = `[${labelId}] ${service.name}`;
                     option.dataset.price = service.price;
                     option.dataset.min = service.min;
@@ -236,7 +349,7 @@
                     option.dataset.avgTime = service.avgTime;
                     option.dataset.description = service.description;
                     option.dataset.serviceName = service.name;
-                    if (service.publicId) {
+                    if (hasPublicId) {
                         option.dataset.publicId = service.publicId;
                     }
                     serviceSelect.appendChild(option);
@@ -263,7 +376,7 @@
                     min: Number.isFinite(minValue) ? minValue : 0,
                     max: Number.isFinite(maxValue) ? maxValue : Infinity,
                     avgTime: option.dataset.avgTime,
-                    publicId: option.dataset.publicId ? option.dataset.publicId : null
+                    publicId: option.dataset.publicId ? Number(option.dataset.publicId) : null
                 };
 
                 // Update quantity limits
@@ -290,7 +403,9 @@
 
                 // Show service info
                 if (serviceInfo) {
-                    const serviceLabel = selectedService.publicId ? `#${selectedService.publicId}` : selectedService.id;
+                    const serviceLabel = Number.isFinite(selectedService.publicId)
+                        ? `#${selectedService.publicId}`
+                        : 'ID Pending';
                     serviceInfo.innerHTML = `
                         <strong>Service ID:</strong> ${serviceLabel} | 
                         <strong>Price:</strong> $${selectedService.price.toFixed(4)} per 1000 | 
@@ -371,16 +486,18 @@
             serviceSelect.innerHTML = '<option value="" disabled selected>Search results...</option>';
             results.forEach(service => {
                 const option = document.createElement('option');
-                const labelId = service.publicId ? `#${service.publicId}` : `PID ${service.provider_service_id}`;
+                const hasPublicId = Number.isFinite(service.publicId);
+                const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
                 option.value = service.id;
-                option.textContent = `[${labelId}] [${service.category.toUpperCase()}] ${service.name}`;
+                const categoryDisplay = `${getCategoryIcon(service.categorySlug)} ${service.categoryLabel}`;
+                option.textContent = `[${labelId}] [${categoryDisplay}] ${service.name}`;
                 option.dataset.price = service.price;
                 option.dataset.min = service.min;
                 option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
                 option.dataset.avgTime = service.avgTime;
                 option.dataset.description = service.description;
                 option.dataset.serviceName = service.name;
-                if (service.publicId) {
+                if (hasPublicId) {
                     option.dataset.publicId = service.publicId;
                 }
                 serviceSelect.appendChild(option);

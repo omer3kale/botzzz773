@@ -656,8 +656,12 @@ section {
     font-size: 2rem;
     font-weight: 800;
     margin-bottom: var(--spacing-lg);
-    padding-bottom: var(--spacing-sm);
+    padding: var(--spacing-xs) var(--spacing-md);
+    background: var(--bg-black);
+    color: var(--text-white);
+    display: inline-block;
     border-bottom: 2px solid var(--primary-pink);
+    border-radius: var(--radius-sm);
 }
 
 .service-subcategory {
