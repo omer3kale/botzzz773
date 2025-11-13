@@ -267,7 +267,7 @@ async function handleGetOrders(user, headers) {
       .select(`
         *,
         user:users(id, email, username),
-        service:services(id, name, category, rate, provider:providers(id, name))
+        service:services(id, name, category, rate, public_id, provider_service_id, provider_id, provider:providers(id, name))
       `)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -545,8 +545,17 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // ============= STEP 4: CREATE ORDER IN DATABASE =============
-    // Generate compact order number that respects VARCHAR(20) limit
-    const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+    // Generate sequential order number leveraging database sequence, fallback to legacy format on failure
+    let orderNumber = null;
+    const { data: generatedOrderNumber, error: generateOrderNumberError } = await supabaseAdmin.rpc('generate_order_number');
+
+    if (generateOrderNumberError) {
+      console.error('[ORDER] Failed to generate sequential order number using database function:', generateOrderNumberError);
+      orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+    } else {
+      orderNumber = String(generatedOrderNumber);
+    }
+
     console.log(`[ORDER] Creating order with number: ${orderNumber}`);
 
     const orderInsertBase = {
@@ -1057,51 +1066,91 @@ async function handleCancelOrder(user, data, headers) {
 async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
   const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
 
-  let query = supabaseAdmin
+  let ordersQuery = supabaseAdmin
     .from('orders')
-    .select(`
-      id,
-      provider_order_id,
-      status,
-      provider_status,
-      provider_cost,
-      start_count,
-      remains,
-      quantity,
-      last_status_sync,
-      service:services(
-        id,
-        provider_rate,
-        retail_rate,
-        markup_percentage,
-        provider:providers(id, name, api_url, api_key)
-      )
-    `)
+    .select('id, service_id, provider_order_id, status, provider_status, provider_cost, start_count, remains, quantity, last_status_sync')
     .not('provider_order_id', 'is', null);
 
   if (orderIds && orderIds.length > 0) {
-    query = query.in('id', orderIds);
+    ordersQuery = ordersQuery.in('id', orderIds);
   } else {
-    query = query.in('status', statusesToSync);
+    ordersQuery = ordersQuery.in('status', statusesToSync);
   }
 
-  const { data: ordersToSync, error } = await query.limit(limit);
+  const { data: ordersToSync, error: ordersError } = await ordersQuery.limit(limit);
 
-  if (error) {
-    const syncError = new Error(`[ORDER SYNC] Failed to load orders for sync: ${error.message}`);
-    syncError.cause = error;
-    throw syncError;
+  if (ordersError) {
+    console.error('[ORDER SYNC] Failed to load orders for sync:', ordersError);
+    return {
+      success: false,
+      updated: 0,
+      results: [],
+      error: `Failed to load orders for sync: ${ordersError.message}`
+    };
   }
 
   if (!ordersToSync || ordersToSync.length === 0) {
     return { success: true, updated: 0, results: [] };
   }
 
+  const serviceIds = Array.from(new Set(ordersToSync.map((order) => order.service_id).filter(Boolean)));
+  const servicesMap = new Map();
+  const providerMap = new Map();
+
+  if (serviceIds.length > 0) {
+    const { data: servicesData, error: servicesError } = await supabaseAdmin
+      .from('services')
+      .select('id, provider_id, provider_service_id')
+      .in('id', serviceIds);
+
+    if (servicesError) {
+      console.error('[ORDER SYNC] Failed to load services for sync:', servicesError);
+      return {
+        success: false,
+        updated: 0,
+        results: [],
+        error: `Failed to load services for sync: ${servicesError.message}`
+      };
+    }
+
+    const servicesDataArray = servicesData || [];
+
+    servicesDataArray.forEach((service) => {
+      servicesMap.set(service.id, service);
+    });
+
+    const providerIds = Array.from(new Set(servicesDataArray.map((service) => service.provider_id).filter(Boolean)));
+
+    if (providerIds.length > 0) {
+      const { data: providersData, error: providersError } = await supabaseAdmin
+        .from('providers')
+        .select('id, name, api_url, api_key')
+        .in('id', providerIds);
+
+      if (providersError) {
+        console.error('[ORDER SYNC] Failed to load providers for sync:', providersError);
+        return {
+          success: false,
+          updated: 0,
+          results: [],
+          error: `Failed to load providers for sync: ${providersError.message}`
+        };
+      }
+
+      (providersData || []).forEach((provider) => {
+        providerMap.set(provider.id, provider);
+      });
+    }
+  }
+
   const results = [];
   const nowIso = new Date().toISOString();
 
   for (const order of ordersToSync) {
-    if (!order.service || !order.service.provider || !order.service.provider.api_url) {
+    const service = order.service_id ? servicesMap.get(order.service_id) : null;
+    const provider = service && service.provider_id ? providerMap.get(service.provider_id) : null;
+
+    if (!service || !provider || !provider.api_url || !provider.api_key) {
       results.push({
         orderId: order.id,
         providerOrderId: order.provider_order_id,
@@ -1112,7 +1161,7 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     }
 
     try {
-      const statusResponse = await fetchProviderOrderStatus(order.service.provider, order.provider_order_id);
+      const statusResponse = await fetchProviderOrderStatus(provider, order.provider_order_id);
 
       const providerStatusRaw = statusResponse.status || order.provider_status || 'processing';
       const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
@@ -1195,6 +1244,14 @@ async function handleSyncOrderStatuses(user, data, headers) {
     const limit = Number.isFinite(data.limit) ? data.limit : 100;
     const result = await performOrderStatusSync({ orderIds, limit });
 
+    if (!result.success) {
+      return {
+        statusCode: 502,
+        headers,
+        body: JSON.stringify(result)
+      };
+    }
+
     return {
       statusCode: 200,
       headers,
@@ -1205,7 +1262,7 @@ async function handleSyncOrderStatuses(user, data, headers) {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Failed to sync order statuses' })
+      body: JSON.stringify({ error: 'Failed to sync order statuses', details: error.message })
     };
   }
 }

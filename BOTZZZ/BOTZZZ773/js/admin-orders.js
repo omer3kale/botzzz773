@@ -183,7 +183,8 @@ function buildProviderOrderIdMarkup(providerName, providerOrderId) {
 }
 
 // Normalize order identifiers for consistent display
-function resolveOrderIdentifiers(order) {
+function resolveOrderIdentifiers(order, orderService = null) {
+    const service = orderService || order?.service || order?.services || null;
     const uuidRaw = order?.id ? String(order.id) : null;
     const candidateValues = [
         order?.order_number,
@@ -191,6 +192,7 @@ function resolveOrderIdentifiers(order) {
         order?.customer_order_id,
         order?.display_id,
         order?.public_id,
+        service?.public_id,
         order?.reference,
         order?.external_order_id,
         order?.external_id
@@ -223,9 +225,31 @@ function resolveOrderIdentifiers(order) {
             ? `#${escapeHtml(cleanUuidShort)}`
             : '#—';
 
-    const internalLabel = uuidRaw
-        ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
-        : '';
+    const providerServiceCandidates = [
+        order?.provider_service_id,
+        order?.providerServiceId,
+        order?.provider_order_id,
+        service?.provider_service_id,
+        service?.providerServiceId,
+        service?.provider?.service_id,
+        service?.provider?.provider_service_id,
+        order?.meta?.provider_service_id,
+        order?.meta?.providerServiceId
+    ];
+
+    const providerServiceId = providerServiceCandidates.find(value => {
+        if (value === undefined || value === null) {
+            return false;
+        }
+        const stringValue = String(value).trim();
+        return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
+    });
+
+    const internalLabel = providerServiceId
+        ? `<span class="cell-secondary cell-muted" title="Provider service identifier">Provider Service: ${escapeHtml(String(providerServiceId).trim())}</span>`
+        : uuidRaw
+            ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
+            : '';
 
     return { primaryLabel, internalLabel };
 }
@@ -843,7 +867,7 @@ async function loadOrders({ skipSync = false } = {}) {
                 console.log('Provider order ID:', order.provider_order_id);
                 console.log('═══════════════════════════════════════');
 
-                const { primaryLabel: orderPrimaryLabel, internalLabel: orderInternalLabel } = resolveOrderIdentifiers(order);
+                const { primaryLabel: orderPrimaryLabel, internalLabel: orderInternalLabel } = resolveOrderIdentifiers(order, orderService);
                 // ALWAYS show provider info, even if no provider_order_id
                 const providerOrderMarkup = buildProviderOrderIdMarkup(providerName, order.provider_order_id);
 
