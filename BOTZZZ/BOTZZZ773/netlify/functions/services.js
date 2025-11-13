@@ -210,6 +210,9 @@ async function handleGetServices(event, user, headers) {
     if (error) {
       console.error('Get services error:', error);
       const errorPayload = { error: 'Failed to fetch services' };
+      if (!error.message) {
+        errorPayload.reason = String(error);
+      }
       if (error.message) {
         errorPayload.reason = error.message;
       }
