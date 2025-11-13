@@ -1068,7 +1068,7 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
 
   let ordersQuery = supabaseAdmin
     .from('orders')
-    .select('id, service_id, provider_order_id, status, provider_status, provider_cost, start_count, remains, quantity, last_status_sync')
+    .select('id, service_id, provider_order_id, status')
     .not('provider_order_id', 'is', null);
 
   if (orderIds && orderIds.length > 0) {
@@ -1163,10 +1163,9 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     try {
       const statusResponse = await fetchProviderOrderStatus(provider, order.provider_order_id);
 
-      const providerStatusRaw = statusResponse.status || order.provider_status || 'processing';
+      const providerStatusRaw = statusResponse.status || 'processing';
       const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
       const updatePayload = {
-        provider_status: providerStatusRaw,
         last_status_sync: nowIso
       };
 
@@ -1174,20 +1173,9 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
         updatePayload.status = normalizedStatus;
       }
 
-      const remainsValue = toNumberOrNull(statusResponse.remains);
-      if (remainsValue !== null) {
-        updatePayload.remains = Math.max(0, Math.trunc(remainsValue));
-      }
-
-      const startCountValue = toNumberOrNull(statusResponse.start_count ?? statusResponse.startCount);
-      if (startCountValue !== null) {
-        updatePayload.start_count = Math.max(0, Math.trunc(startCountValue));
-      }
-
-      const providerChargeValue = toNumberOrNull(statusResponse.charge);
-      if (providerChargeValue !== null) {
-        updatePayload.provider_cost = Number(providerChargeValue.toFixed(4));
-      }
+      // Only update fields that exist in the orders table
+      // Removed: provider_status, remains, start_count, provider_cost
+      // These fields may not exist in the current schema
 
       const { error: updateError } = await supabaseAdmin
         .from('orders')
