@@ -197,8 +197,6 @@ async function handleGetServices(event, user, headers) {
       query = query
         .eq('status', 'active')
         .eq('provider.status', 'active');
-      // Only expose services that have a public customer-facing identifier assigned
-      query = query.not('public_id', 'is', null);
     }
 
     query = query
@@ -235,11 +233,13 @@ async function handleGetServices(event, user, headers) {
     if (isAdminUser) {
       normalizedServices = await ensurePublicIdsForAdmin(normalizedServices);
     } else {
-      normalizedServices.forEach(service => {
-        const numeric = toNumberOrNull(service?.public_id);
+      normalizedServices = normalizedServices.filter(service => {
+        const numeric = toNumberOrNull(service?.public_id ?? service?.publicId);
         if (numeric !== null) {
           service.public_id = numeric;
+          return true;
         }
+        return false;
       });
     }
 
