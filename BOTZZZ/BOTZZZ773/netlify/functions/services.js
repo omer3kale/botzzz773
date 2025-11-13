@@ -209,10 +209,21 @@ async function handleGetServices(event, user, headers) {
 
     if (error) {
       console.error('Get services error:', error);
+      const errorPayload = { error: 'Failed to fetch services' };
+      if (error.message) {
+        errorPayload.reason = error.message;
+      }
+      if (error.details) {
+        errorPayload.details = error.details;
+      }
+      if (error.hint) {
+        errorPayload.hint = error.hint;
+      }
+
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to fetch services' })
+        body: JSON.stringify(errorPayload)
       };
     }
 
