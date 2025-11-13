@@ -267,7 +267,7 @@ async function handleGetOrders(user, headers) {
       .select(`
         *,
         user:users(id, email, username),
-        service:services(id, name, category, rate, public_id, provider_service_id, provider_id, provider:providers(id, name))
+  service:services(id, name, category, rate, provider_service_id, provider_id, provider:providers(id, name))
       `)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);

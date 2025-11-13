@@ -191,8 +191,7 @@ function resolveOrderIdentifiers(order, orderService = null) {
         order?.customer_order_number,
         order?.customer_order_id,
         order?.display_id,
-        order?.public_id,
-        service?.public_id,
+    order?.public_id,
         order?.reference,
         order?.external_order_id,
         order?.external_id
