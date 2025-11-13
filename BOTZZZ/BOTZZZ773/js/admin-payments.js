@@ -1,5 +1,254 @@
 // Admin Payments Management with Real Modals
 
+let paymentsCache = [];
+let paymentsUserLookup = {};
+const selectedPaymentIds = new Set();
+let paymentsLoading = false;
+let lastPaymentsRefreshAt = null;
+
+function escapeHtml(text = '') {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatCurrency(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '$0.00';
+    }
+    return `$${number.toFixed(2)}`;
+}
+
+function getPaymentById(paymentId) {
+    const idString = String(paymentId);
+    return paymentsCache.find(payment => String(payment.id) === idString);
+}
+
+function getPaymentDisplayLabel(payment) {
+    if (!payment) {
+        return '';
+    }
+    const userMeta = paymentsUserLookup[payment.user_id] || {};
+    const userLabel = userMeta.username || userMeta.email || (payment.user_id ? `User ${String(payment.user_id).substring(0, 6)}…` : 'Unknown');
+    return `${userLabel} • ${formatCurrency(payment.amount)}`;
+}
+
+function setPaymentsRefreshStatus(message) {
+    const statusEl = document.getElementById('paymentsRefreshStatus');
+    if (statusEl) {
+        statusEl.textContent = message;
+    }
+}
+
+function attachPaymentsQuickActionCard(element, handler) {
+    if (!element || typeof handler !== 'function') {
+        return;
+    }
+    element.addEventListener('click', handler);
+    element.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handler();
+        }
+    });
+}
+
+function initializePaymentsQuickActions() {
+    attachPaymentsQuickActionCard(document.getElementById('selectedPaymentsCard'), openSelectedPaymentsModal);
+    attachPaymentsQuickActionCard(document.getElementById('addPaymentCard'), openAddPaymentQuickAction);
+    attachPaymentsQuickActionCard(document.getElementById('refreshPaymentsCard'), triggerPaymentsRefresh);
+    attachPaymentsQuickActionCard(document.getElementById('exportPaymentsCard'), openExportPaymentsQuickAction);
+    updateSelectedPaymentsSummary();
+    if (!lastPaymentsRefreshAt) {
+        setPaymentsRefreshStatus('Sync latest data');
+    }
+}
+
+function openSelectedPaymentsModal() {
+    if (selectedPaymentIds.size === 0) {
+        showNotification('Select a payment from the table first', 'error');
+        return;
+    }
+
+    const items = Array.from(selectedPaymentIds).map(paymentId => {
+        const payment = getPaymentById(paymentId);
+        if (!payment) {
+            return `<li class="selected-payment-item">Payment #${escapeHtml(String(paymentId))} (details unavailable)</li>`;
+        }
+        const userMeta = paymentsUserLookup[payment.user_id] || {};
+        const userLabel = userMeta.username || userMeta.email || (payment.user_id ? `User ${String(payment.user_id)}` : 'Unknown user');
+        const statusLabel = (payment.status || 'unknown').replace(/^(\w)/, (_, first) => first.toUpperCase());
+        const created = payment.created_at ? new Date(payment.created_at).toLocaleString() : 'Unknown date';
+        const memoBlock = payment.memo ? `<div class="selected-payment-memo">${escapeHtml(payment.memo)}</div>` : '';
+        return `
+            <li class="selected-payment-item">
+                <div class="selected-payment-row">
+                    <strong>${escapeHtml(userLabel)}</strong>
+                    <span>${formatCurrency(payment.amount)}</span>
+                </div>
+                <div class="selected-payment-meta">
+                    Payment #${escapeHtml(String(payment.id))} • ${escapeHtml(statusLabel)} • ${escapeHtml(created)}
+                </div>
+                ${memoBlock}
+            </li>
+        `;
+    }).join('');
+
+    const content = `
+        <div class="selected-payments-summary">
+            <p>You have ${selectedPaymentIds.size} payment${selectedPaymentIds.size === 1 ? '' : 's'} selected.</p>
+            <ul class="selected-payments-list">
+                ${items}
+            </ul>
+        </div>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Close</button>
+    `;
+
+    createModal('Selected Payments', content, actions);
+}
+
+function openAddPaymentQuickAction() {
+    addPayment();
+}
+
+function openExportPaymentsQuickAction() {
+    openExportPaymentsModal();
+}
+
+function triggerPaymentsRefresh() {
+    if (paymentsLoading) {
+        showNotification('Payments are already refreshing. Please wait…', 'info');
+        return;
+    }
+    loadPayments();
+}
+
+function pruneSelectedPaymentIds() {
+    if (selectedPaymentIds.size === 0) {
+        return;
+    }
+    const validIds = new Set(paymentsCache.map(payment => String(payment.id)));
+    for (const id of Array.from(selectedPaymentIds)) {
+        if (!validIds.has(String(id))) {
+            selectedPaymentIds.delete(id);
+        }
+    }
+}
+
+function bindPaymentSelectionEvents() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', handlePaymentSelectionChange);
+    });
+}
+
+function handlePaymentSelectionChange(event) {
+    const checkbox = event?.target;
+    if (!checkbox || !checkbox.dataset.paymentId) {
+        return;
+    }
+
+    const paymentId = checkbox.dataset.paymentId;
+    if (checkbox.checked) {
+        selectedPaymentIds.add(paymentId);
+    } else {
+        selectedPaymentIds.delete(paymentId);
+    }
+
+    const row = checkbox.closest('tr');
+    if (row) {
+        row.classList.toggle('is-selected', checkbox.checked);
+    }
+
+    updateSelectedPaymentsSummary();
+}
+
+function restorePaymentSelectionState() {
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    checkboxes.forEach(checkbox => {
+        const paymentId = checkbox.dataset.paymentId;
+        const shouldSelect = selectedPaymentIds.has(paymentId);
+        checkbox.checked = shouldSelect;
+        const row = checkbox.closest('tr');
+        if (row) {
+            row.classList.toggle('is-selected', shouldSelect);
+        }
+    });
+}
+
+function syncPaymentsMasterToggleState() {
+    const masterToggle = document.querySelector('th input[type="checkbox"][aria-label="Select all payments"]');
+    if (!masterToggle) {
+        return;
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll('.payment-checkbox'));
+    if (checkboxes.length === 0) {
+        masterToggle.checked = false;
+        masterToggle.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = checkboxes.filter(cb => cb.checked).length;
+    masterToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
+    masterToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+}
+
+function updateSelectedPaymentsSummary() {
+    const countEl = document.getElementById('selectedPaymentsCount');
+    const detailEl = document.getElementById('selectedPaymentsDetail');
+    const cardEl = document.getElementById('selectedPaymentsCard');
+
+    if (!countEl || !detailEl || !cardEl) {
+        return;
+    }
+
+    const count = selectedPaymentIds.size;
+    countEl.textContent = `${count} selected`;
+
+    if (count === 0) {
+        detailEl.textContent = 'Choose payouts to review memos or flag risk before posting.';
+    } else {
+        const labels = [];
+        selectedPaymentIds.forEach(id => {
+            const payment = getPaymentById(id);
+            const label = getPaymentDisplayLabel(payment);
+            if (label) {
+                labels.push(label);
+            }
+        });
+        const preview = labels.slice(0, 2).join(', ');
+        const overflow = labels.length > 2 ? ` +${labels.length - 2}` : '';
+        detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+    }
+
+    cardEl.classList.toggle('is-active', count > 0);
+    cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
+    syncPaymentsMasterToggleState();
+}
+
+function toggleAllPayments(masterCheckbox) {
+    if (!masterCheckbox) {
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('.payment-checkbox');
+    const shouldSelectAll = masterCheckbox.checked;
+    masterCheckbox.indeterminate = false;
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = shouldSelectAll;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+}
+
 // Modal Helper Functions
 function createModal(title, content, actions = '') {
     const modalHTML = `
@@ -192,7 +441,7 @@ function submitAddPayment(event) {
 }
 
 // Export payments data
-function exportData() {
+function openExportPaymentsModal() {
     const content = `
         <form id="exportPaymentsForm" onsubmit="submitExportPayments(event)" class="admin-form">
             <div class="form-group">
@@ -342,6 +591,7 @@ async function updatePaymentMethod(paymentId, method) {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     handleSearch('paymentSearch', 'paymentsTable');
+    initializePaymentsQuickActions();
     await loadPayments();
 });
 
@@ -350,10 +600,23 @@ async function loadPayments() {
     const tbody = document.getElementById('paymentsTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading payments...</td></tr>';
+    paymentsLoading = true;
+    setPaymentsRefreshStatus('Refreshing…');
+
+    const refreshCard = document.getElementById('refreshPaymentsCard');
+    if (refreshCard) {
+        refreshCard.classList.add('is-active');
+        refreshCard.setAttribute('aria-pressed', 'true');
+    }
+
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading payments...</td></tr>';
 
     try {
         const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
         const response = await fetch('/.netlify/functions/payments', {
             method: 'POST',
             headers: {
@@ -363,12 +626,16 @@ async function loadPayments() {
             body: JSON.stringify({ action: 'history' })
         });
 
+        if (!response.ok) {
+            throw new Error(`Failed to load payments: ${response.status}`);
+        }
+
         const data = await response.json();
-        
-        if (data.payments && data.payments.length > 0) {
-            tbody.innerHTML = '';
-            
-            // Fetch users to get username mapping
+        paymentsCache = Array.isArray(data.payments) ? data.payments : [];
+        pruneSelectedPaymentIds();
+
+        let userMap = {};
+        try {
             const usersResponse = await fetch('/.netlify/functions/users', {
                 method: 'GET',
                 headers: {
@@ -376,55 +643,89 @@ async function loadPayments() {
                     'Content-Type': 'application/json'
                 }
             });
-            
-            const usersData = await usersResponse.json();
-            const users = usersData.users || [];
-            const userMap = {};
-            users.forEach(u => {
-                userMap[u.id] = { username: u.username, balance: u.balance };
-            });
-            
-            data.payments.forEach(payment => {
-                const user = userMap[payment.user_id] || { username: 'Unknown', balance: 0 };
-                const createdDate = new Date(payment.created_at).toLocaleString();
+
+            if (usersResponse.ok) {
+                const usersData = await usersResponse.json();
+                const users = usersData.users || [];
+                users.forEach(user => {
+                    userMap[user.id] = {
+                        username: user.username,
+                        email: user.email,
+                        balance: user.balance
+                    };
+                });
+            }
+        } catch (userError) {
+            console.warn('Unable to fetch users for payments mapping:', userError);
+        }
+
+        paymentsUserLookup = userMap;
+
+        if (paymentsCache.length > 0) {
+            tbody.innerHTML = '';
+
+            paymentsCache.forEach(payment => {
+                const paymentIdRaw = payment?.id != null ? String(payment.id) : '';
+                const paymentIdAttr = escapeHtml(paymentIdRaw);
+                const userMeta = userMap[payment.user_id] || {};
+                const userLabel = userMeta.username || userMeta.email || 'Unknown';
+                const balanceDisplay = formatCurrency(userMeta.balance || 0);
+                const amountDisplay = formatCurrency(payment.amount);
+                const createdDate = payment.created_at ? new Date(payment.created_at).toLocaleString() : 'Unknown';
                 const updatedDate = payment.updated_at ? new Date(payment.updated_at).toLocaleString() : createdDate;
-                
-                const statusClass = payment.status === 'completed' ? 'completed' : 
-                                  payment.status === 'pending' ? 'pending' : 
-                                  payment.status === 'failed' ? 'failed' : 'refunded';
-                
+                const statusKey = (payment.status || '').toLowerCase();
+                const statusClass = statusKey === 'completed' ? 'completed' : statusKey === 'pending' ? 'pending' : statusKey === 'failed' ? 'failed' : 'refunded';
+                const statusLabel = payment.status ? payment.status.charAt(0).toUpperCase() + payment.status.slice(1) : 'Unknown';
+                const memo = payment.memo ? escapeHtml(payment.memo) : '-';
+                const ariaLabel = `Select payment ${paymentIdRaw || 'without id'} for ${userLabel}`;
+                const modeLabel = payment.gateway_response?.manual ? 'Manual' : 'Live';
+                const methodOptions = ['payeer', 'stripe', 'paypal', 'crypto', 'bank', 'cash', 'other']
+                    .map(method => `<option value="${method}"${payment.method === method ? ' selected' : ''}>${method}</option>`)
+                    .join('');
+
                 const row = `
-                    <tr>
-                        <td>${payment.id}</td>
-                        <td>${user.username}</td>
-                        <td>$${parseFloat(user.balance || 0).toFixed(2)}</td>
-                        <td>$${parseFloat(payment.amount).toFixed(2)}</td>
+                    <tr data-payment-id="${paymentIdAttr}">
+                        <td><input type="checkbox" class="payment-checkbox" data-payment-id="${paymentIdAttr}" aria-label="${escapeHtml(ariaLabel)}"></td>
+                        <td>${escapeHtml(paymentIdRaw)}</td>
+                        <td>${escapeHtml(userLabel)}</td>
+                        <td>${balanceDisplay}</td>
+                        <td>${amountDisplay}</td>
                         <td>
-                            <select class="inline-select" onchange="updatePaymentMethod('${payment.id}', this.value)">
-                                <option ${payment.method === 'payeer' ? 'selected' : ''}>payeer</option>
-                                <option ${payment.method === 'stripe' ? 'selected' : ''}>stripe</option>
-                                <option ${payment.method === 'paypal' ? 'selected' : ''}>paypal</option>
-                                <option ${payment.method === 'crypto' ? 'selected' : ''}>crypto</option>
-                                <option ${payment.method === 'bank' ? 'selected' : ''}>bank</option>
-                                <option ${payment.method === 'cash' ? 'selected' : ''}>cash</option>
-                                <option ${payment.method === 'other' ? 'selected' : ''}>other</option>
+                            <select class="inline-select" data-payment-id="${paymentIdAttr}" onchange="updatePaymentMethod(this.dataset.paymentId, this.value)">
+                                ${methodOptions}
                             </select>
                         </td>
-                        <td><span class="status-badge ${statusClass}">${payment.status}</span></td>
+                        <td><span class="status-badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
                         <td><span class="risk-badge low">Low</span></td>
-                        <td>${payment.memo || '-'}</td>
-                        <td>${createdDate}</td>
-                        <td>${updatedDate}</td>
-                        <td>${payment.gateway_response?.manual ? 'Manual' : 'Live'}</td>
+                        <td>${memo}</td>
+                        <td>${escapeHtml(createdDate)}</td>
+                        <td>${escapeHtml(updatedDate)}</td>
+                        <td>${escapeHtml(modeLabel)}</td>
                     </tr>
                 `;
                 tbody.insertAdjacentHTML('beforeend', row);
             });
+
+            restorePaymentSelectionState();
+            bindPaymentSelectionEvents();
         } else {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 20px; color: #888;">No payments found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #888;">No payments found</td></tr>';
         }
+
+        updateSelectedPaymentsSummary();
+        lastPaymentsRefreshAt = new Date();
+        const formattedTime = lastPaymentsRefreshAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        setPaymentsRefreshStatus(`Updated ${formattedTime}`);
     } catch (error) {
         console.error('Load payments error:', error);
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load payments. Please refresh the page.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load payments. Please refresh the page.</td></tr>';
+        setPaymentsRefreshStatus('Refresh failed');
+        updateSelectedPaymentsSummary();
+    } finally {
+        paymentsLoading = false;
+        if (refreshCard) {
+            refreshCard.classList.remove('is-active');
+            refreshCard.setAttribute('aria-pressed', 'false');
+        }
     }
 }

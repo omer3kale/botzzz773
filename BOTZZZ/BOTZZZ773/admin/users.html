@@ -105,28 +105,60 @@
         <div class="totals-bar">SHOW TOTALS</div>
 
         <!-- Users Table -->
-        <div class="table-container">
-            <table class="admin-table">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" onclick="toggleAll()"></th>
-                        <th onclick="sortTable('id')">ID ↕</th>
-                        <th>Username</th>
-                        <th>Email</th>
-                        <th>Balance ↕</th>
-                        <th>Spent ↕</th>
-                        <th>Status</th>
-                        <th>Created ↕</th>
-                        <th>Last Auth ↕</th>
-                        <th>Discount</th>
-                        <th>Rates</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="usersTableBody">
-                    <!-- Will be populated by JS -->
-                </tbody>
-            </table>
+        <div class="users-layout">
+            <div class="users-quick-actions">
+                <article class="users-quick-card" id="selectedUsersCard" role="button" tabindex="0" aria-label="Open selected users quick view" aria-pressed="false" aria-haspopup="dialog">
+                    <div class="users-quick-card-header">
+                        <h3>Selected Users</h3>
+                        <span class="users-quick-card-icon">
+                            <i class="fas fa-user-check"></i>
+                        </span>
+                    </div>
+                    <p class="users-quick-card-primary" id="selectedUsersCount">0 selected</p>
+                    <p class="users-quick-card-secondary" id="selectedUsersDetail">
+                        Choose a user in the table to unlock quick actions.
+                    </p>
+                    <span class="users-quick-card-hint">Click to open quick view</span>
+                </article>
+                <article class="users-quick-card accent" id="addUserCard" role="button" tabindex="0" aria-label="Add a new user" aria-haspopup="dialog">
+                    <div class="users-quick-card-header">
+                        <h3>Add User</h3>
+                        <span class="users-quick-card-icon">
+                            <i class="fas fa-user-plus"></i>
+                        </span>
+                    </div>
+                    <p class="users-quick-card-primary">Create Profile</p>
+                    <p class="users-quick-card-secondary">
+                        Launch the Inter Miami styled modal to onboard a new customer.
+                    </p>
+                    <span class="users-quick-card-hint">Click to launch form</span>
+                </article>
+            </div>
+            <div class="users-table-panel">
+                <div class="table-container">
+                    <table class="admin-table" id="usersTable">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" onclick="toggleAllUsers(this)" aria-label="Select all users"></th>
+                                <th onclick="sortTable('id')">ID ↕</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Balance ↕</th>
+                                <th>Spent ↕</th>
+                                <th>Status</th>
+                                <th>Created ↕</th>
+                                <th>Last Auth ↕</th>
+                                <th>Discount</th>
+                                <th>Rates</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody">
+                            <!-- Will be populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </main>
 

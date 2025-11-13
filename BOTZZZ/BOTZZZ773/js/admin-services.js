@@ -35,7 +35,28 @@ function closeModal() {
 // Provider utilities for form dropdowns
 let providersCache = null;
 let servicesCache = [];
-const DEFAULT_MARKUP_PERCENT = 30;
+const selectedServiceIds = new Set();
+
+function getServiceById(serviceId) {
+    if (!serviceId) {
+        return undefined;
+    }
+    return servicesCache.find(service => String(service.id) === String(serviceId));
+}
+
+function getServiceDisplayName(service) {
+    if (!service) {
+        return '';
+    }
+    if (service.name) {
+        return service.name;
+    }
+    if (service.id !== undefined && service.id !== null) {
+        const idString = String(service.id);
+        return idString.length > 8 ? `Service ${idString.substring(0, 8)}…` : `Service ${idString}`;
+    }
+    return 'Service';
+}
 
 // Expose cache invalidation globally
 window.invalidateProvidersCache = function() {
@@ -214,6 +235,178 @@ function setupPricingInteraction(formId) {
     }
 
     updateMarkupForForm(form, { onlyIfEmpty: true });
+}
+
+function pruneSelectedServiceIds() {
+    if (selectedServiceIds.size === 0) {
+        return;
+    }
+    const validIds = new Set(servicesCache.map(service => String(service.id)));
+    for (const id of Array.from(selectedServiceIds)) {
+        if (!validIds.has(String(id))) {
+            selectedServiceIds.delete(id);
+        }
+    }
+}
+
+function bindServiceSelectionEvents() {
+    document.querySelectorAll('.service-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', handleServiceSelectionChange);
+    });
+}
+
+function handleServiceSelectionChange(event) {
+    const checkbox = event?.target;
+    if (!checkbox || !checkbox.dataset.serviceId) {
+        return;
+    }
+
+    const serviceId = checkbox.dataset.serviceId;
+    if (checkbox.checked) {
+        selectedServiceIds.add(serviceId);
+    } else {
+        selectedServiceIds.delete(serviceId);
+    }
+
+    const row = checkbox.closest('tr');
+    if (row) {
+        row.classList.toggle('is-selected', checkbox.checked);
+    }
+
+    updateSelectedServicesSummary();
+}
+
+function restoreServiceSelectionState() {
+    document.querySelectorAll('.service-checkbox').forEach(checkbox => {
+        const isSelected = selectedServiceIds.has(checkbox.dataset.serviceId);
+        checkbox.checked = isSelected;
+        const row = checkbox.closest('tr');
+        if (row) {
+            row.classList.toggle('is-selected', isSelected);
+        }
+    });
+}
+
+function updateSelectedServicesSummary() {
+    const countEl = document.getElementById('selectedServicesCount');
+    const detailEl = document.getElementById('selectedServicesDetail');
+    const cardEl = document.getElementById('selectedServicesCard');
+
+    const count = selectedServiceIds.size;
+
+    if (countEl) {
+        countEl.textContent = `${count} selected`;
+    }
+
+    if (detailEl) {
+        if (count === 0) {
+            detailEl.textContent = 'Choose services to edit, duplicate, or toggle quickly.';
+        } else {
+            const names = [];
+            selectedServiceIds.forEach(id => {
+                const displayName = getServiceDisplayName(getServiceById(id));
+                if (displayName) {
+                    names.push(displayName);
+                }
+            });
+            const preview = names.slice(0, 2).filter(Boolean).join(', ');
+            const overflow = names.length > 2 ? ` +${names.length - 2}` : '';
+            detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+        }
+    }
+
+    if (cardEl) {
+        const isActive = count > 0;
+        cardEl.classList.toggle('is-active', isActive);
+        cardEl.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    syncServiceMasterToggle();
+}
+
+function syncServiceMasterToggle() {
+    const masterToggle = document.querySelector('th input[type="checkbox"][aria-label="Select all services"]');
+    if (!masterToggle) {
+        return;
+    }
+
+    const checkboxes = Array.from(document.querySelectorAll('.service-checkbox'));
+    if (checkboxes.length === 0) {
+        masterToggle.checked = false;
+        masterToggle.indeterminate = false;
+        return;
+    }
+
+    const selectedCount = checkboxes.filter(cb => cb.checked).length;
+    masterToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
+    masterToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
+}
+
+function openSelectedServiceModal() {
+    if (selectedServiceIds.size === 0) {
+        showNotification('Select a service from the table first', 'error');
+        return;
+    }
+    const iterator = selectedServiceIds.values();
+    const serviceId = iterator.next().value;
+    if (serviceId) {
+        editService(serviceId);
+    }
+}
+
+function openAddServiceQuickAction() {
+    addService();
+}
+
+function openImportServicesQuickAction() {
+    importServices();
+}
+
+function openCreateCategoryQuickAction() {
+    createCategory();
+}
+
+function openAddSubscriptionQuickAction() {
+    addSubscription();
+}
+
+function attachServiceQuickActionCard(element, handler) {
+    if (!element || typeof handler !== 'function') {
+        return;
+    }
+
+    element.addEventListener('click', handler);
+    element.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handler();
+        }
+    });
+}
+
+function initializeServicesQuickActions() {
+    attachServiceQuickActionCard(document.getElementById('selectedServicesCard'), openSelectedServiceModal);
+    attachServiceQuickActionCard(document.getElementById('addServiceCard'), openAddServiceQuickAction);
+    attachServiceQuickActionCard(document.getElementById('importServicesCard'), openImportServicesQuickAction);
+    attachServiceQuickActionCard(document.getElementById('createCategoryCard'), openCreateCategoryQuickAction);
+    attachServiceQuickActionCard(document.getElementById('addSubscriptionCard'), openAddSubscriptionQuickAction);
+    updateSelectedServicesSummary();
+}
+
+function toggleAllServices(masterCheckbox) {
+    if (!masterCheckbox) {
+        return;
+    }
+
+    const checkboxes = document.querySelectorAll('.service-checkbox');
+    const shouldSelectAll = masterCheckbox.checked;
+    masterCheckbox.indeterminate = false;
+
+    selectedServiceIds.clear();
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = shouldSelectAll;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
 }
 
 function isAdminCreatedService(service = {}) {
@@ -1117,6 +1310,7 @@ async function confirmDeleteService(serviceId) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
+    initializeServicesQuickActions();
     if (typeof handleSearch === 'function') {
         handleSearch('serviceSearch', 'servicesTable');
     }
@@ -1140,8 +1334,9 @@ async function loadServices() {
             }
         });
 
-        const data = await response.json();
-        servicesCache = Array.isArray(data.services) ? data.services : [];
+    const data = await response.json();
+    servicesCache = Array.isArray(data.services) ? data.services : [];
+    pruneSelectedServiceIds();
 
         if (servicesCache.length > 0) {
             tbody.innerHTML = '';
@@ -1149,6 +1344,10 @@ async function loadServices() {
             let activeCount = 0;
             servicesCache.forEach(service => {
                 if (service.status === 'active') activeCount++;
+
+        const serviceIdRaw = service.id !== undefined && service.id !== null ? String(service.id) : '';
+        const serviceIdAttr = escapeHtml(serviceIdRaw);
+        const ariaLabelId = serviceIdRaw ? `Select service ${serviceIdRaw}` : 'Select service';
                 
                 const statusClass = service.status === 'active' ? 'completed' : 'pending';
                 const icon = service.category === 'instagram' ? 'fab fa-instagram' :
@@ -1226,8 +1425,8 @@ async function loadServices() {
                 const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
                 
                 const row = `
-                    <tr>
-                        <td><input type="checkbox" class="service-checkbox"></td>
+                    <tr data-service-id="${serviceIdAttr}">
+                        <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
                                 <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
@@ -1267,6 +1466,10 @@ async function loadServices() {
                 `;
                 tbody.insertAdjacentHTML('beforeend', row);
             });
+
+            restoreServiceSelectionState();
+            bindServiceSelectionEvents();
+            updateSelectedServicesSummary();
             
             // Update stats
             document.getElementById('totalServices').textContent = servicesCache.length;
@@ -1282,10 +1485,14 @@ async function loadServices() {
             tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #888;">No services found</td></tr>';
             document.getElementById('totalServices').textContent = '0';
             document.getElementById('activeServices').textContent = '0';
+            selectedServiceIds.clear();
+            updateSelectedServicesSummary();
         }
     } catch (error) {
         console.error('Load services error:', error);
         tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load services. Please refresh the page.</td></tr>';
+        selectedServiceIds.clear();
+        updateSelectedServicesSummary();
     }
 }
 
