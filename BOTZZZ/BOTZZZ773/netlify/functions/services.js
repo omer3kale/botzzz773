@@ -8,6 +8,41 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const PUBLIC_ID_BASE = 7000;
 const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+function normalizeProviderIdentifiers(service) {
+  const rawServiceId = service?.provider_service_id
+    ?? service?.provider_serviceID
+    ?? service?.providerServiceId
+    ?? service?.provider?.service_id
+    ?? service?.provider?.serviceId
+    ?? service?.provider?.serviceID
+    ?? service?.provider_service_reference
+    ?? service?.provider_reference
+    ?? service?.providerServiceReference
+    ?? null;
+
+  const normalizedServiceId = rawServiceId === undefined || rawServiceId === null
+    ? ''
+    : String(rawServiceId).trim();
+
+  const rawProviderOrderId = service?.provider_order_id
+    ?? service?.providerOrderId
+    ?? service?.provider_order
+    ?? service?.meta?.provider_order_id
+    ?? service?.meta?.providerOrderId
+    ?? service?.provider?.order_id
+    ?? service?.provider?.orderId
+    ?? null;
+
+  const normalizedProviderOrderId = rawProviderOrderId === undefined || rawProviderOrderId === null || rawProviderOrderId === ''
+    ? normalizedServiceId
+    : String(rawProviderOrderId).trim();
+
+  return {
+    providerServiceId: normalizedServiceId,
+    providerOrderId: normalizedProviderOrderId
+  };
+}
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -36,6 +71,49 @@ function calculateMarkup(providerRate, retailRate) {
 
   const markup = ((retailRate - providerRate) / providerRate) * 100;
   return Number(markup.toFixed(2));
+}
+
+function toBooleanFlag(value) {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value > 0;
+  }
+
+  const str = String(value).trim().toLowerCase();
+  if (!str) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'y', 'on', 'available'].includes(str);
+}
+
+function normalizeAverageTime(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const str = String(value).trim();
+  return str.length > 0 ? str.slice(0, 100) : null;
+}
+
+function normalizeCurrency(value, fallback = 'USD') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const str = String(value).trim();
+  if (!str) {
+    return fallback;
+  }
+
+  return str.toUpperCase().slice(0, 10);
 }
 
 async function fetchMaxExistingPublicId() {
@@ -173,15 +251,26 @@ async function handleGetServices(event, user, headers) {
   try {
     const queryParams = event?.queryStringParameters || {};
     const audienceParam = (queryParams.audience || queryParams.scope || '').toLowerCase();
-    const forceCustomerScope = audienceParam === 'customer';
+    const wantsCustomerScope = audienceParam === 'customer';
+    const wantsAdminScope = audienceParam === 'admin';
+    const isAdminUser = user && user.role === 'admin';
 
-    const isAdminUser = user && user.role === 'admin' && !forceCustomerScope;
+    if (wantsAdminScope && !isAdminUser) {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin scope requires administrator access' })
+      };
+    }
 
-    const queryClient = isAdminUser
+    const useAdminScope = isAdminUser && !wantsCustomerScope;
+    const responseScope = useAdminScope ? 'admin' : 'customer';
+
+    const queryClient = useAdminScope
       ? (hasServiceRoleKey ? supabaseAdmin : supabase)
       : supabase;
 
-    if (isAdminUser && !hasServiceRoleKey) {
+    if (useAdminScope && !hasServiceRoleKey) {
       console.warn('[SERVICES] Service role key missing. Admin queries will use anon client.');
     }
 
@@ -192,7 +281,7 @@ async function handleGetServices(event, user, headers) {
         provider:providers!inner(id, name, status, markup)
       `);
 
-    if (!isAdminUser) {
+    if (!useAdminScope) {
       // For customer scope (default) only show services explicitly active and from active providers
       query = query
         .eq('status', 'active')
@@ -230,7 +319,7 @@ async function handleGetServices(event, user, headers) {
 
     let normalizedServices = Array.isArray(services) ? services : [];
 
-    if (isAdminUser) {
+    if (useAdminScope) {
       normalizedServices = await ensurePublicIdsForAdmin(normalizedServices);
     } else {
       normalizedServices = normalizedServices.filter(service => {
@@ -243,10 +332,18 @@ async function handleGetServices(event, user, headers) {
       });
     }
 
+    const servicesWithProviderIds = normalizedServices.map(service => {
+      const clone = { ...service };
+      const { providerServiceId, providerOrderId } = normalizeProviderIdentifiers(service);
+      clone.provider_service_id = providerServiceId;
+      clone.provider_order_id = providerOrderId;
+      return clone;
+    });
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ services: normalizedServices })
+      body: JSON.stringify({ scope: responseScope, services: servicesWithProviderIds })
     };
   } catch (error) {
     console.error('Get services error:', error);
@@ -308,7 +405,7 @@ async function fetchServicesFromProviders() {
       }
     }
 
-  return allServices.filter((service) => service.status === 'active');
+    return allServices.filter((service) => service.status === 'active');
   } catch (fallbackError) {
     console.error('[SERVICES] Fallback provider load failed:', fallbackError);
     return [];
@@ -332,6 +429,14 @@ function normalizeProviderService(provider, rawService) {
   const rawStatus = rawService.status ? String(rawService.status).toLowerCase() : 'active';
   const normalizedStatus = ['active', 'enabled', 'running'].includes(rawStatus) ? 'active' : 'inactive';
 
+  const averageTime = normalizeAverageTime(
+    rawService.average_time ?? rawService.avg_time ?? rawService.time ?? rawService.expected_time
+  );
+
+  const currency = normalizeCurrency(
+    rawService.currency ?? rawService.price_currency ?? rawService.rate_currency ?? rawService.cur
+  );
+
   return {
     id: `${provider.id || provider.name}:${rawService.service || rawService.id || rawService.name}`,
     provider_id: provider.id || null,
@@ -345,8 +450,15 @@ function normalizeProviderService(provider, rawService) {
     markup_percentage: provider.markup,
     min_quantity: minQuantity,
     max_quantity: maxQuantity,
-  description: String(rawService.description || rawService.desc || ''),
-  status: normalizedStatus,
+    description: String(rawService.description || rawService.desc || ''),
+    status: normalizedStatus,
+    currency,
+    average_time: averageTime,
+    refill_supported: toBooleanFlag(rawService.refill ?? rawService.refill_support ?? rawService.needs_refill),
+    cancel_supported: toBooleanFlag(rawService.cancel ?? rawService.cancel_support ?? rawService.cancellable),
+    dripfeed_supported: toBooleanFlag(rawService.dripfeed ?? rawService.drip_feed ?? rawService.drip),
+    subscription_supported: toBooleanFlag(rawService.subscription ?? rawService.subscriptions ?? rawService.subscription_supported),
+    provider_metadata: rawService,
     provider: {
       id: provider.id,
       name: provider.name,
@@ -399,7 +511,18 @@ async function handleCreateService(user, data, headers) {
       type,
       status,
       public_id,
-      publicId
+      publicId,
+      average_time: average_time_field,
+      averageTime,
+      currency: currencyField,
+      refill_supported,
+      refillSupported,
+      cancel_supported,
+      cancelSupported,
+      dripfeed_supported,
+      dripfeedSupported,
+      subscription_supported,
+      subscriptionSupported
     } = data;
 
     if (!name || !category) {
@@ -425,6 +548,13 @@ async function handleCreateService(user, data, headers) {
     const minQty = min_quantity ?? minOrder ?? 10;
     const maxQty = max_quantity ?? maxOrder ?? 100000;
 
+    const normalizedAverageTime = normalizeAverageTime(average_time_field ?? averageTime);
+    const normalizedCurrency = normalizeCurrency(currencyField);
+    const normalizedRefillFlag = toBooleanFlag(refill_supported ?? refillSupported);
+    const normalizedCancelFlag = toBooleanFlag(cancel_supported ?? cancelSupported);
+    const normalizedDripfeedFlag = toBooleanFlag(dripfeed_supported ?? dripfeedSupported);
+    const normalizedSubscriptionFlag = toBooleanFlag(subscription_supported ?? subscriptionSupported);
+
     let resolvedPublicId = toNumberOrNull(public_id ?? publicId);
     if (resolvedPublicId === null || resolvedPublicId < PUBLIC_ID_BASE) {
       resolvedPublicId = await generateNextPublicId();
@@ -447,7 +577,13 @@ async function handleCreateService(user, data, headers) {
         max_quantity: maxQty,
         type: type || 'service',
         status: status || 'active',
-        public_id: resolvedPublicId
+        public_id: resolvedPublicId,
+        average_time: normalizedAverageTime,
+        currency: normalizedCurrency,
+        refill_supported: normalizedRefillFlag,
+        cancel_supported: normalizedCancelFlag,
+        dripfeed_supported: normalizedDripfeedFlag,
+        subscription_supported: normalizedSubscriptionFlag
       })
       .select()
       .single();
@@ -512,7 +648,18 @@ async function handleUpdateService(user, data, headers) {
       providerServiceId,
       provider_service_id,
       public_id,
-      publicId
+      publicId,
+      average_time: average_time_field,
+      averageTime,
+      currency: currencyField,
+      refill_supported,
+      refillSupported,
+      cancel_supported,
+      cancelSupported,
+      dripfeed_supported,
+      dripfeedSupported,
+      subscription_supported,
+      subscriptionSupported
     } = data;
 
     if (!serviceId) {
@@ -532,6 +679,41 @@ async function handleUpdateService(user, data, headers) {
     if (description !== undefined) updates.description = description;
     if (status !== undefined) updates.status = status;
     if (type !== undefined) updates.type = type;
+
+    const hasAverageTimeField = Object.prototype.hasOwnProperty.call(data, 'average_time') ||
+      Object.prototype.hasOwnProperty.call(data, 'averageTime');
+    if (hasAverageTimeField) {
+      updates.average_time = normalizeAverageTime(average_time_field ?? averageTime);
+    }
+
+    const hasCurrencyField = Object.prototype.hasOwnProperty.call(data, 'currency');
+    if (hasCurrencyField) {
+      updates.currency = normalizeCurrency(currencyField);
+    }
+
+    const hasRefillField = Object.prototype.hasOwnProperty.call(data, 'refill_supported') ||
+      Object.prototype.hasOwnProperty.call(data, 'refillSupported');
+    if (hasRefillField) {
+      updates.refill_supported = toBooleanFlag(refill_supported ?? refillSupported);
+    }
+
+    const hasCancelField = Object.prototype.hasOwnProperty.call(data, 'cancel_supported') ||
+      Object.prototype.hasOwnProperty.call(data, 'cancelSupported');
+    if (hasCancelField) {
+      updates.cancel_supported = toBooleanFlag(cancel_supported ?? cancelSupported);
+    }
+
+    const hasDripfeedField = Object.prototype.hasOwnProperty.call(data, 'dripfeed_supported') ||
+      Object.prototype.hasOwnProperty.call(data, 'dripfeedSupported');
+    if (hasDripfeedField) {
+      updates.dripfeed_supported = toBooleanFlag(dripfeed_supported ?? dripfeedSupported);
+    }
+
+    const hasSubscriptionField = Object.prototype.hasOwnProperty.call(data, 'subscription_supported') ||
+      Object.prototype.hasOwnProperty.call(data, 'subscriptionSupported');
+    if (hasSubscriptionField) {
+      updates.subscription_supported = toBooleanFlag(subscription_supported ?? subscriptionSupported);
+    }
 
     const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||
       Object.prototype.hasOwnProperty.call(data, 'providerRate');
@@ -739,6 +921,7 @@ async function handleDuplicateService(data, headers) {
       .insert({
         provider_id: originalService.provider_id,
         provider_service_id: originalService.provider_service_id,
+        provider_order_id: originalService.provider_order_id,
         name: `${originalService.name} (Copy)`,
         category: originalService.category,
         description: originalService.description,
@@ -750,7 +933,14 @@ async function handleDuplicateService(data, headers) {
         max_quantity: originalService.max_quantity,
         type: originalService.type,
         status: 'inactive', // New duplicates start as inactive
-        public_id: newPublicId
+        public_id: newPublicId,
+        currency: originalService.currency,
+        average_time: originalService.average_time,
+        refill_supported: originalService.refill_supported,
+        cancel_supported: originalService.cancel_supported,
+        dripfeed_supported: originalService.dripfeed_supported,
+        subscription_supported: originalService.subscription_supported,
+        provider_metadata: originalService.provider_metadata
       })
       .select()
       .single();

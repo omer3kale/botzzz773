@@ -49,6 +49,15 @@
         }
     }
 
+    function escapeHtml(text) {
+        if (text === undefined || text === null) {
+            return '';
+        }
+        const div = document.createElement('div');
+        div.textContent = String(text);
+        return div.innerHTML;
+    }
+
     // ==========================================
     // MOBILE MENU TOGGLE
     // ==========================================
@@ -178,6 +187,54 @@
         other: '⭐'
     };
 
+    const CURRENCY_SYMBOLS = {
+        USD: '$',
+        EUR: '€',
+        GBP: '£',
+        INR: '₹',
+        TRY: '₺',
+        BRL: 'R$',
+        NGN: '₦',
+        CAD: 'C$',
+        AUD: 'A$',
+        SGD: 'S$',
+        AED: 'د.إ',
+        SAR: '﷼',
+        PHP: '₱'
+    };
+
+    function formatCurrencyDisplay(amount, currency = 'USD', digits = 2) {
+        const numeric = Number(amount);
+        const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
+        if (!Number.isFinite(numeric)) {
+            return `-- ${normalizedCurrency}`;
+        }
+
+        const symbol = CURRENCY_SYMBOLS[normalizedCurrency] || `${normalizedCurrency} `;
+        const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
+        const formatted = `${symbol}${numeric.toFixed(digits)}`;
+        return (!CURRENCY_SYMBOLS[normalizedCurrency] || ambiguousSymbols.has(symbol))
+            ? `${formatted} ${normalizedCurrency}`
+            : formatted;
+    }
+
+    const CAPABILITY_BADGES = [
+        { key: 'refill', label: 'Refill' },
+        { key: 'cancel', label: 'Cancel' },
+        { key: 'dripfeed', label: 'Dripfeed' },
+        { key: 'subscription', label: 'Subscription' }
+    ];
+
+    function renderCapabilityPills(capabilities = {}) {
+        return CAPABILITY_BADGES
+            .map(({ key, label }) => {
+                const enabled = Boolean(capabilities[key]);
+                const stateClass = enabled ? 'service-capability--on' : 'service-capability--off';
+                return `<span class="service-meta-tag service-capability ${stateClass}">${label}</span>`;
+            })
+            .join('');
+    }
+
     function slugifyCategory(rawValue) {
         return rawValue
             .toString()
@@ -273,20 +330,38 @@
                             servicesData[categorySlug] = [];
                         }
                         const rawPublicId = service.public_id ?? service.publicId;
+                        const providerOrderReferenceRaw = service.provider_order_id ?? service.provider_service_id ?? service.provider_service_reference ?? '';
+                        const providerServiceReferenceRaw = service.provider_service_id ?? service.provider_service_reference ?? providerOrderReferenceRaw;
+                        const providerOrderReference = providerOrderReferenceRaw === null || providerOrderReferenceRaw === undefined
+                            ? ''
+                            : String(providerOrderReferenceRaw).trim();
+                        const providerServiceReference = providerServiceReferenceRaw === null || providerServiceReferenceRaw === undefined
+                            ? ''
+                            : String(providerServiceReferenceRaw).trim();
                         const publicId = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
                             ? null
                             : Number(rawPublicId);
                         const minQuantity = Number(service.min_quantity ?? service.min_order ?? 100) || 100;
                         const maxQuantity = Number(service.max_quantity ?? service.max_order ?? 10000) || 10000;
+                        const currencyCode = (service.currency || 'USD').toUpperCase();
+                        const avgTimeValue = service.average_time || service.avg_time || 'Not specified';
                         servicesData[categorySlug].push({
                             id: service.id.toString(),
                             publicId: Number.isFinite(publicId) ? publicId : null,
-                            provider_service_id: service.provider_service_id || 'N/A',
+                            provider_order_id: providerOrderReference,
+                            provider_service_id: providerServiceReference,
                             name: service.name,
                             price: parseFloat(service.rate),
                             min: minQuantity,
                             max: maxQuantity,
-                            avgTime: service.avg_time || 'Not specified',
+                            avgTime: avgTimeValue,
+                            currency: currencyCode,
+                            capabilities: {
+                                refill: Boolean(service.refill_supported),
+                                cancel: Boolean(service.cancel_supported),
+                                dripfeed: Boolean(service.dripfeed_supported),
+                                subscription: Boolean(service.subscription_supported)
+                            },
                             description: service.description || '',
                             categoryLabel,
                             categorySlug
@@ -349,6 +424,12 @@
                     option.dataset.avgTime = service.avgTime;
                     option.dataset.description = service.description;
                     option.dataset.serviceName = service.name;
+                    option.dataset.currency = service.currency;
+                    option.dataset.capabilities = JSON.stringify(service.capabilities || {});
+                    const providerRef = service.provider_order_id || service.provider_service_id;
+                    if (providerRef) {
+                        option.dataset.providerId = providerRef;
+                    }
                     if (hasPublicId) {
                         option.dataset.publicId = service.publicId;
                     }
@@ -376,7 +457,10 @@
                     min: Number.isFinite(minValue) ? minValue : 0,
                     max: Number.isFinite(maxValue) ? maxValue : Infinity,
                     avgTime: option.dataset.avgTime,
-                    publicId: option.dataset.publicId ? Number(option.dataset.publicId) : null
+                    publicId: option.dataset.publicId ? Number(option.dataset.publicId) : null,
+                    providerReference: option.dataset.providerId || '',
+                    currency: option.dataset.currency ? option.dataset.currency.toUpperCase() : 'USD',
+                    capabilities: option.dataset.capabilities ? JSON.parse(option.dataset.capabilities) : {}
                 };
 
                 // Update quantity limits
@@ -406,10 +490,20 @@
                     const serviceLabel = Number.isFinite(selectedService.publicId)
                         ? `#${selectedService.publicId}`
                         : 'ID Pending';
+                    const providerRefRaw = selectedService.providerReference?.toString().trim();
+                    const providerRefLabel = providerRefRaw
+                        ? escapeHtml(providerRefRaw)
+                        : 'Pending from provider';
+                    const priceDisplay = formatCurrencyDisplay(selectedService.price, selectedService.currency, 4);
+                    const capabilityMarkup = renderCapabilityPills(selectedService.capabilities || {});
                     serviceInfo.innerHTML = `
-                        <strong>Service ID:</strong> ${serviceLabel} | 
-                        <strong>Price:</strong> $${selectedService.price.toFixed(4)} per 1000 | 
-                        <strong>Range:</strong> ${selectedService.min} - ${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}
+                        <div class="service-meta-row service-meta-row--wrap">
+                            <span><strong>Service ID:</strong> ${serviceLabel}</span>
+                            <span><strong>Provider Ref:</strong> ${providerRefLabel}</span>
+                            <span><strong>Price:</strong> ${priceDisplay} / 1000</span>
+                            <span><strong>Range:</strong> ${selectedService.min} - ${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}</span>
+                        </div>
+                        <div class="service-meta-row service-meta-row--compact">${capabilityMarkup}</div>
                     `;
                     serviceInfo.classList.add('show');
                 }
@@ -434,16 +528,16 @@
         if (quantity >= selectedService.min && quantity <= selectedService.max) {
             const charge = (quantity / 1000) * selectedService.price;
             if (chargeAmount) {
-                chargeAmount.textContent = `$${charge.toFixed(2)}`;
+                chargeAmount.textContent = formatCurrencyDisplay(charge, selectedService.currency);
             }
         } else if (chargeAmount) {
-            chargeAmount.textContent = '$0.00';
+            chargeAmount.textContent = formatCurrencyDisplay(0, selectedService.currency);
         }
     }
 
     function resetOrderCalculation() {
         selectedService = null;
-        if (chargeAmount) chargeAmount.textContent = '$0.00';
+        if (chargeAmount) chargeAmount.textContent = formatCurrencyDisplay(0);
         if (averageTimeEl) averageTimeEl.textContent = '34 minutes';
         if (serviceInfo) {
             serviceInfo.classList.remove('show');
@@ -476,7 +570,8 @@
                     if (service.name.toLowerCase().includes(searchTerm) || 
                         service.id.includes(searchTerm) ||
                         (service.publicId && service.publicId.toString().includes(searchTerm)) ||
-                        service.provider_service_id.toString().includes(searchTerm)) {
+                        (service.provider_order_id && service.provider_order_id.toString().includes(searchTerm)) ||
+                        (service.provider_service_id && service.provider_service_id.toString().includes(searchTerm))) {
                         results.push({ ...service, category });
                     }
                 });
@@ -497,6 +592,12 @@
                 option.dataset.avgTime = service.avgTime;
                 option.dataset.description = service.description;
                 option.dataset.serviceName = service.name;
+                option.dataset.currency = service.currency;
+                option.dataset.capabilities = JSON.stringify(service.capabilities || {});
+                const providerRef = service.provider_order_id || service.provider_service_id;
+                if (providerRef) {
+                    option.dataset.providerId = providerRef;
+                }
                 if (hasPublicId) {
                     option.dataset.publicId = service.publicId;
                 }
@@ -693,19 +794,49 @@
             return;
         }
 
-        ordersTableBody.innerHTML = orders.map(order => `
-            <tr>
-                <td><strong>${order.order_number || order.id}</strong></td>
-                <td>${new Date(order.created_at).toLocaleDateString()}</td>
-                <td><a href="${order.link}" target="_blank" style="color: var(--primary-pink);">${order.link.substring(0, 30)}...</a></td>
-                <td>$${parseFloat(order.charge).toFixed(2)}</td>
-                <td>${order.start_count || 0}</td>
-                <td>${order.quantity}</td>
-                <td>${order.service_name.substring(0, 40)}...</td>
-                <td><span class="status-badge status-${order.status}">${order.status}</span></td>
-                <td>${order.remains || 0}</td>
-            </tr>
-        `).join('');
+        ordersTableBody.innerHTML = orders.map(order => {
+            const reference = order.order_number || order.id || '—';
+            const createdAt = order.created_at ? new Date(order.created_at).toLocaleDateString() : '—';
+            const orderLink = typeof order.link === 'string' && order.link.trim().length > 0
+                ? order.link.trim()
+                : null;
+            const linkLabel = orderLink
+                ? `${orderLink.substring(0, 30)}${orderLink.length > 30 ? '…' : ''}`
+                : 'No link provided';
+
+            const currencyGuess = order.currency
+                || order.retail_currency
+                || order.customer_currency
+                || order.service?.currency
+                || 'USD';
+            const chargeRaw = Number(order.charge ?? order.retail_charge ?? order.customer_charge ?? order.amount ?? 0);
+            const chargeDisplay = formatCurrencyDisplay(chargeRaw, currencyGuess);
+
+            const quantity = Number.isFinite(Number(order.quantity))
+                ? Number(order.quantity)
+                : 0;
+            const serviceName = order.service_name
+                || order.service?.name
+                || 'Service';
+            const serviceLabel = serviceName.length > 40 ? `${serviceName.substring(0, 40)}…` : serviceName;
+
+            return `
+                <tr>
+                    <td><strong>${reference}</strong></td>
+                    <td>${createdAt}</td>
+                    <td>${orderLink
+                        ? `<a href="${orderLink}" target="_blank" style="color: var(--primary-pink);">${linkLabel}</a>`
+                        : '<span style="color: var(--text-muted, #94a3b8); font-style: italic;">No link</span>'}
+                    </td>
+                    <td>${chargeDisplay}</td>
+                    <td>${order.start_count || 0}</td>
+                    <td>${quantity}</td>
+                    <td>${serviceLabel}</td>
+                    <td><span class="status-badge status-${order.status}">${order.status}</span></td>
+                    <td>${order.remains || 0}</td>
+                </tr>
+            `;
+        }).join('');
     }
 
     // Order filters

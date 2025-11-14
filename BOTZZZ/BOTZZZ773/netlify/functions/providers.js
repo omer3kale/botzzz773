@@ -2,6 +2,7 @@
 const { supabase, supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
+const { syncProviderServices } = require('./sync-service-catalog');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -91,6 +92,28 @@ function sanitizeString(value) {
 function parseMarkup(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function toNumberOrNull(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeCurrency(value, fallback = 'USD') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const str = String(value).trim();
+  if (!str) {
+    return fallback;
+  }
+
+  return str.toUpperCase().slice(0, 10);
 }
 
 function normalizeProviderPayload(raw = {}) {
@@ -250,6 +273,7 @@ async function testProvider(data, headers) {
     // Check if providerId is provided (testing existing provider)
     const providerId = extractProviderId(data);
     let apiUrl, apiKey;
+    let providerRecord = null;
 
     if (providerId) {
       // Fetch provider from database
@@ -269,6 +293,7 @@ async function testProvider(data, headers) {
 
       apiUrl = provider.api_url;
       apiKey = provider.api_key;
+      providerRecord = provider;
     } else {
       // Use provided credentials (testing before creating provider)
       const normalized = normalizeProviderPayload(data);
@@ -299,6 +324,30 @@ async function testProvider(data, headers) {
     const responseTime = Date.now() - startTime;
 
     if (response.data.balance !== undefined) {
+      if (providerId && providerRecord) {
+        const normalizedCurrency = normalizeCurrency(response.data.currency);
+        const numericBalance = toNumberOrNull(response.data.balance);
+        const providerUpdate = {
+          currency: normalizedCurrency,
+          last_balance_sync: new Date().toISOString(),
+          response_latency_ms: responseTime,
+          health_status: 'online'
+        };
+
+        if (numericBalance !== null) {
+          providerUpdate.balance = numericBalance;
+        }
+
+        const { error: providerUpdateError } = await supabaseAdmin
+          .from('providers')
+          .update(providerUpdate)
+          .eq('id', providerId);
+
+        if (providerUpdateError) {
+          console.error('Failed to update provider health data during test:', providerUpdateError);
+        }
+      }
+
       return {
         statusCode: 200,
         headers,
@@ -320,6 +369,22 @@ async function testProvider(data, headers) {
     }
   } catch (error) {
     console.error('Test provider error:', error);
+
+    const providerId = extractProviderId(data);
+    if (providerId) {
+      const { error: providerUpdateError } = await supabaseAdmin
+        .from('providers')
+        .update({
+          health_status: 'offline',
+          response_latency_ms: null
+        })
+        .eq('id', providerId);
+
+      if (providerUpdateError) {
+        console.error('Failed to mark provider offline after test failure:', providerUpdateError);
+      }
+    }
+
     return {
       statusCode: 500,
       headers,
@@ -342,10 +407,9 @@ async function syncProvider(data, headers) {
       };
     }
 
-    // Get provider details
     const { data: provider, error: providerError } = await supabaseAdmin
       .from('providers')
-      .select('*')
+      .select('id, name, api_url, api_key, status')
       .eq('id', providerId)
       .single();
 
@@ -357,95 +421,16 @@ async function syncProvider(data, headers) {
       };
     }
 
-    // Fetch services from provider
-    const params = new URLSearchParams();
-    params.append('key', provider.api_key);
-    params.append('action', 'services');
-    
-    let response;
-    try {
-      response = await axios.post(provider.api_url, params, {
-        timeout: 30000,
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
-      });
-    } catch (axiosError) {
-      console.error('Provider API request failed:', axiosError.message);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ 
-          error: 'Failed to connect to provider API',
-          details: axiosError.message
-        })
-      };
-    }
-
-    if (!Array.isArray(response.data)) {
-      console.error('Invalid provider response format:', typeof response.data);
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ 
-          error: 'Invalid response from provider',
-          details: 'Expected array of services'
-        })
-      };
-    }
-
-    const services = response.data;
-    let addedCount = 0;
-    let updatedCount = 0;
-
-    // Process each service
-    for (const service of services) {
-      const { data: existingService } = await supabaseAdmin
-        .from('services')
-        .select('id')
-        .eq('provider_id', providerId)
-        .eq('provider_service_id', service.service)
-        .single();
-
-      if (existingService) {
-        // Update existing service
-        await supabaseAdmin
-          .from('services')
-          .update({
-            name: service.name,
-            category: service.category || 'Other',
-            rate: service.rate,
-            min_quantity: service.min,
-            max_quantity: service.max
-          })
-          .eq('id', existingService.id);
-        updatedCount++;
-      } else {
-        // Create new service
-        await supabaseAdmin
-          .from('services')
-          .insert({
-            provider_id: providerId,
-            provider_service_id: service.service,
-            name: service.name,
-            category: service.category || 'Other',
-            rate: service.rate,
-            min_quantity: service.min,
-            max_quantity: service.max,
-            status: 'active' // New services are active by default
-          });
-        addedCount++;
-      }
-    }
+    const summary = await syncProviderServices(provider);
 
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
         success: true,
-        added: addedCount,
-        updated: updatedCount,
-        total: services.length
+        providerId: provider.id,
+        providerName: provider.name,
+        ...summary
       })
     };
   } catch (error) {

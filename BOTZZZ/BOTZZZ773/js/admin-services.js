@@ -36,6 +36,29 @@ function closeModal() {
 let providersCache = null;
 let servicesCache = [];
 const selectedServiceIds = new Set();
+const ADMIN_SERVICES_BASE_ENDPOINT = '/.netlify/functions/services';
+function buildAdminServicesUrl(query = {}) {
+    const params = new URLSearchParams({ audience: 'admin', ...query });
+    const queryString = params.toString();
+    return queryString
+        ? `${ADMIN_SERVICES_BASE_ENDPOINT}?${queryString}`
+        : ADMIN_SERVICES_BASE_ENDPOINT;
+}
+const currencySymbols = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    INR: '₹',
+    TRY: '₺',
+    BRL: 'R$',
+    NGN: '₦',
+    CAD: 'C$',
+    AUD: 'A$',
+    SGD: 'S$',
+    AED: 'د.إ',
+    SAR: '﷼',
+    PHP: '₱'
+};
 
 function getServiceById(serviceId) {
     if (!serviceId) {
@@ -132,9 +155,19 @@ function toNumeric(value) {
     return Number.isFinite(numeric) ? numeric : null;
 }
 
-function formatRatePerThousand(value) {
+function formatRatePerThousand(value, currency = 'USD') {
     const numeric = toNumeric(value);
-    return numeric === null ? '—' : `$${numeric.toFixed(4)}`;
+    if (numeric === null) {
+        return '—';
+    }
+
+    const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
+    const symbol = currencySymbols[normalizedCurrency] || `${normalizedCurrency} `;
+    const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
+    const formatted = `${symbol}${numeric.toFixed(4)}`;
+    return (!currencySymbols[normalizedCurrency] || ambiguousSymbols.has(symbol))
+        ? `${formatted} ${normalizedCurrency}`
+        : formatted;
 }
 
 function formatQuantityValue(value) {
@@ -184,6 +217,32 @@ function calculateMarkupPercent(providerRate, retailRate) {
     }
     const markup = ((retailRate - providerRate) / providerRate) * 100;
     return Number.isFinite(markup) ? Number(markup.toFixed(2)) : null;
+}
+
+const serviceCapabilityFields = [
+    { key: 'refill_supported', label: 'Refill' },
+    { key: 'cancel_supported', label: 'Cancel' },
+    { key: 'dripfeed_supported', label: 'Dripfeed' },
+    { key: 'subscription_supported', label: 'Subscription' }
+];
+
+function buildCapabilityBadges(service, includeDisabled = true) {
+    if (!service) {
+        return '';
+    }
+
+    const badges = serviceCapabilityFields
+        .map(({ key, label }) => {
+            const enabled = Boolean(service[key]);
+            if (!enabled && !includeDisabled) {
+                return '';
+            }
+            const stateClass = enabled ? 'service-capability--on' : 'service-capability--off';
+            return `<span class="service-meta-tag service-capability ${stateClass}" title="${label} ${enabled ? 'supported' : 'not supported'}">${label}</span>`;
+        })
+        .filter(Boolean);
+
+    return badges.join('');
 }
 
 function formatNumberForInput(value, decimals = 4) {
@@ -544,7 +603,7 @@ async function submitAddService(event) {
 
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -777,7 +836,7 @@ async function loadProviderServices(providerId) {
     try {
         // Fetch real provider's services from backend
         const token = localStorage.getItem('token');
-        const response = await fetch(`/.netlify/functions/services?providerId=${providerId}`, {
+    const response = await fetch(buildAdminServicesUrl({ providerId }), {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -923,7 +982,7 @@ async function submitCreateCategory(event) {
     
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1051,7 +1110,7 @@ async function submitAddSubscription(event) {
     
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1149,7 +1208,7 @@ async function submitEditService(event, serviceId) {
     
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
@@ -1205,7 +1264,7 @@ function duplicateService(serviceId) {
 async function confirmDuplicateService(serviceId) {
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1283,7 +1342,7 @@ function deleteService(serviceId) {
 async function confirmDeleteService(serviceId) {
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -1326,7 +1385,7 @@ async function loadServices() {
 
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(buildAdminServicesUrl(), {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -1407,8 +1466,9 @@ async function loadServices() {
                     providerCost = retailRateValue / markupFactor;
                 }
 
-                const providerRateDisplay = formatRatePerThousand(providerCost);
-                const retailRateDisplay = formatRatePerThousand(retailRateValue);
+                const currencyCode = (service.currency || 'USD').toUpperCase();
+                const providerRateDisplay = formatRatePerThousand(providerCost, currencyCode);
+                const retailRateDisplay = formatRatePerThousand(retailRateValue, currencyCode);
                 const calculatedMarkup = Number.isFinite(providerCost) && Number.isFinite(retailRateValue)
                     ? calculateMarkupPercent(providerCost, retailRateValue)
                     : markupPercent;
@@ -1423,6 +1483,21 @@ async function loadServices() {
                     ? 'Unlimited'
                     : formatQuantityValue(service.max_quantity);
                 const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
+                const averageTimeTag = service.average_time
+                    ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
+                    : '';
+                const currencyTag = `<span class="service-meta-tag service-meta-tag--muted">Currency: ${currencyCode}</span>`;
+                const capabilityBadges = buildCapabilityBadges(service, true);
+                const metaRows = [];
+                const primaryTags = [currencyTag];
+                if (averageTimeTag) {
+                    primaryTags.unshift(averageTimeTag);
+                }
+                metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
+                if (capabilityBadges) {
+                    metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
+                }
+                const serviceMetaMarkup = metaRows.join('');
                 
                 const row = `
                     <tr data-service-id="${serviceIdAttr}">
@@ -1438,6 +1513,7 @@ async function loadServices() {
                                 <i class="${icon}"></i>
                                 ${escapeHtml(service.name)}
                             </div>
+                            ${serviceMetaMarkup}
                         </td>
                         <td>${escapeHtml(categoryLabel)}</td>
                         <td>${providerName}</td>

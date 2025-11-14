@@ -1,5 +1,6 @@
 // Contact Form API - Handle Contact Form Submissions
 const { supabaseAdmin } = require('./utils/supabase');
+const { insertTicketRecord } = require('./utils/ticket-utils');
 
 exports.handler = async (event) => {
   const headers = {
@@ -42,19 +43,16 @@ exports.handler = async (event) => {
     }
 
     // Create ticket from contact form
-    const { data: ticket, error } = await supabaseAdmin
-      .from('tickets')
-      .insert({
+    let ticket;
+    try {
+      ticket = await insertTicketRecord({
         subject,
         category: 'other',
         priority: 'medium',
         status: 'open',
-        user_id: null // Contact form submissions don't have user_id
-      })
-      .select()
-      .single();
-
-    if (error) {
+        user_id: null
+      });
+    } catch (error) {
       console.error('Create ticket error:', error);
       return {
         statusCode: 500,

@@ -39,6 +39,19 @@ function toNumberOrNull(value) {
   return Number.isFinite(num) ? num : null;
 }
 
+function normalizeCurrency(value, fallback = 'USD') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const str = String(value).trim();
+  if (!str) {
+    return fallback;
+  }
+
+  return str.toUpperCase().slice(0, 10);
+}
+
 function calculateProviderRate(service) {
   const directRate = toNumberOrNull(service.provider_rate);
   if (directRate !== null) {
@@ -566,6 +579,8 @@ async function handleCreateOrder(user, data, headers) {
       quantity: qty,
       charge: totalCost,
       provider_cost: providerCharge,
+      start_count: 0,
+      remains: qty,
       status: 'pending'
     };
 
@@ -721,18 +736,46 @@ async function handleCreateOrder(user, data, headers) {
       providerOrderId = providerResponse.order;
       console.log(`[ORDER] Provider accepted order: ${providerOrderId}`);
 
-      const providerChargeFromResponse = toNumberOrNull(providerResponse.response?.charge);
+      const providerChargeFromResponse = toNumberOrNull(
+        providerResponse.response?.charge ?? providerResponse.response?.price ?? providerResponse.response?.cost
+      );
+      const providerStartCountFromResponse = toNumberOrNull(
+        providerResponse.response?.start_count ?? providerResponse.response?.startCount ?? providerResponse.response?.start
+      );
+      const providerRemainsFromResponse = toNumberOrNull(
+        providerResponse.response?.remains ?? providerResponse.response?.remain ?? providerResponse.response?.left
+      );
+      const providerCurrencyFromResponse = providerResponse.response?.currency
+        ?? providerResponse.response?.cur
+        ?? providerResponse.response?.price_currency;
+      const providerNotesFromResponse = providerResponse.response?.note
+        ?? providerResponse.response?.message
+        ?? providerResponse.response?.details;
       const nowIso = new Date().toISOString();
 
       const providerUpdatePayload = {
         provider_order_id: providerOrderId,
         status: 'processing',
         provider_status: 'processing',
-        last_status_sync: nowIso
+        last_status_sync: nowIso,
+        provider_response: providerResponse.response,
+        provider_currency: normalizeCurrency(providerCurrencyFromResponse)
       };
 
       if (providerChargeFromResponse !== null) {
         providerUpdatePayload.provider_cost = providerChargeFromResponse;
+      }
+
+      if (providerStartCountFromResponse !== null) {
+        providerUpdatePayload.start_count = providerStartCountFromResponse;
+      }
+
+      if (providerRemainsFromResponse !== null) {
+        providerUpdatePayload.remains = providerRemainsFromResponse;
+      }
+
+      if (providerNotesFromResponse) {
+        providerUpdatePayload.provider_notes = providerNotesFromResponse;
       }
 
       // Update order with provider order ID and status
@@ -757,6 +800,20 @@ async function handleCreateOrder(user, data, headers) {
       order.last_status_sync = nowIso;
       if (providerChargeFromResponse !== null) {
         order.provider_cost = providerChargeFromResponse;
+      }
+
+      if (providerStartCountFromResponse !== null) {
+        order.start_count = providerStartCountFromResponse;
+      }
+
+      if (providerRemainsFromResponse !== null) {
+        order.remains = providerRemainsFromResponse;
+      }
+
+      order.provider_currency = providerUpdatePayload.provider_currency;
+      order.provider_response = providerResponse.response;
+      if (providerNotesFromResponse) {
+        order.provider_notes = providerNotesFromResponse;
       }
       console.log(`[ORDER] Order ${order.id} successfully processed`);
 
@@ -929,7 +986,9 @@ async function handleUpdateOrder(user, data, headers) {
             .from('orders')
             .update({ 
               status: 'refilling',
-              refill_id: refillResponse.data.refill
+              refill_id: refillResponse.data.refill,
+              refill_status: 'pending',
+              refill_requested_at: new Date().toISOString()
             })
             .eq('id', orderId);
 
@@ -1025,6 +1084,8 @@ async function handleCancelOrder(user, data, headers) {
       // Continue even if provider cancel fails
     }
 
+    const cancellationTime = new Date().toISOString();
+
     // Refund user
     const { data: userData } = await supabaseAdmin
       .from('users')
@@ -1042,7 +1103,14 @@ async function handleCancelOrder(user, data, headers) {
     // Update order status
     await supabaseAdmin
       .from('orders')
-      .update({ status: 'cancelled' })
+      .update({
+        status: 'cancelled',
+        provider_status: 'cancelled',
+        refill_status: 'cancelled',
+        refill_completed_at: cancellationTime,
+        last_status_sync: cancellationTime,
+        remains: 0
+      })
       .eq('id', orderId);
 
     return {
@@ -1163,19 +1231,61 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     try {
       const statusResponse = await fetchProviderOrderStatus(provider, order.provider_order_id);
 
-      const providerStatusRaw = statusResponse.status || 'processing';
+      const providerStatusRaw = statusResponse.status
+        ?? statusResponse.status_text
+        ?? statusResponse.state
+        ?? 'processing';
       const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
+
+      const providerChargeFromResponse = toNumberOrNull(
+        statusResponse.charge ?? statusResponse.price ?? statusResponse.cost
+      );
+      const startCountFromResponse = toNumberOrNull(
+        statusResponse.start_count ?? statusResponse.startCount ?? statusResponse.start
+      );
+      const remainsFromResponse = toNumberOrNull(
+        statusResponse.remains ?? statusResponse.remain ?? statusResponse.left
+      );
+      const providerCurrencyFromResponse = statusResponse.currency
+        ?? statusResponse.cur
+        ?? statusResponse.price_currency;
+      const providerNotesFromResponse = statusResponse.note
+        ?? statusResponse.description
+        ?? statusResponse.message;
+
       const updatePayload = {
-        last_status_sync: nowIso
+        last_status_sync: nowIso,
+        provider_status: providerStatusRaw,
+        provider_response: statusResponse
       };
 
       if (normalizedStatus) {
         updatePayload.status = normalizedStatus;
       }
 
-      // Only update fields that exist in the orders table
-      // Removed: provider_status, remains, start_count, provider_cost
-      // These fields may not exist in the current schema
+      if (providerChargeFromResponse !== null) {
+        updatePayload.provider_cost = providerChargeFromResponse;
+      }
+
+      if (startCountFromResponse !== null) {
+        updatePayload.start_count = startCountFromResponse;
+      }
+
+      if (remainsFromResponse !== null) {
+        updatePayload.remains = remainsFromResponse;
+      }
+
+      if (providerCurrencyFromResponse) {
+        updatePayload.provider_currency = normalizeCurrency(providerCurrencyFromResponse);
+      }
+
+      if (providerNotesFromResponse) {
+        updatePayload.provider_notes = providerNotesFromResponse;
+      }
+
+      if (normalizedStatus === 'completed' && !order.completed_at) {
+        updatePayload.completed_at = nowIso;
+      }
 
       const { error: updateError } = await supabaseAdmin
         .from('orders')
@@ -1198,7 +1308,10 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
         providerOrderId: order.provider_order_id,
         success: true,
         status: normalizedStatus,
-        provider_status: providerStatusRaw
+        providerStatus: providerStatusRaw,
+        startCount: startCountFromResponse,
+        remains: remainsFromResponse,
+        providerCost: providerChargeFromResponse
       });
     } catch (syncError) {
       console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
@@ -1288,6 +1401,17 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
 
     return response.data;
   } catch (error) {
+    if (provider?.id) {
+      try {
+        await supabaseAdmin
+          .from('providers')
+          .update({ health_status: 'degraded' })
+          .eq('id', provider.id);
+      } catch (providerHealthError) {
+        console.error('[PROVIDER STATUS] Failed to update provider health:', providerHealthError);
+      }
+    }
+
     if (error.response) {
       console.error('[PROVIDER STATUS] HTTP error:', {
         status: error.response.status,

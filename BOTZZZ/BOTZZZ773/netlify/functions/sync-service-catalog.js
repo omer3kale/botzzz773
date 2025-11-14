@@ -28,22 +28,86 @@ function toQuantity(value) {
   return Math.trunc(numeric);
 }
 
+function toBooleanFlag(value) {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value > 0;
+  }
+
+  const str = String(value).trim().toLowerCase();
+  if (!str) {
+    return false;
+  }
+
+  return ['1', 'true', 'yes', 'y', 'on', 'available'].includes(str);
+}
+
+function normalizeAverageTime(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const str = String(value).trim();
+  return str.length > 0 ? str.slice(0, 100) : null;
+}
+
+function normalizeCurrency(value, fallback = 'USD') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const str = String(value).trim();
+  if (!str) {
+    return fallback;
+  }
+
+  return str.toUpperCase().slice(0, 10);
+}
+
 async function fetchProviderServices(provider) {
   const params = new URLSearchParams();
   params.append('key', provider.api_key);
   params.append('action', 'services');
 
-  const response = await axios.post(provider.api_url, params, {
-    timeout: 30000,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    validateStatus: (status) => status < 500
-  });
+  const start = Date.now();
 
-  if (!Array.isArray(response.data)) {
-    throw new Error('Provider returned invalid service list response');
+  try {
+    const response = await axios.post(provider.api_url, params, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      validateStatus: (status) => status < 500
+    });
+    const latencyMs = Date.now() - start;
+
+    if (!Array.isArray(response.data)) {
+      throw new Error('Provider returned invalid service list response');
+    }
+
+    return { services: response.data, latencyMs };
+  } catch (error) {
+    if (provider?.id) {
+      const { error: providerUpdateError } = await supabaseAdmin
+        .from('providers')
+        .update({
+          health_status: 'degraded',
+          response_latency_ms: null
+        })
+        .eq('id', provider.id);
+
+      if (providerUpdateError) {
+        console.error('[SERVICE SYNC] Failed to mark provider degraded:', providerUpdateError);
+      }
+    }
+
+    throw error;
   }
-
-  return response.data;
 }
 
 async function syncProviderServices(provider) {
@@ -51,7 +115,7 @@ async function syncProviderServices(provider) {
     throw new Error('Provider is missing API credentials');
   }
 
-  const services = await fetchProviderServices(provider);
+  const { services, latencyMs } = await fetchProviderServices(provider);
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
@@ -91,11 +155,27 @@ async function syncProviderServices(provider) {
     const status = normalizeServiceStatus(payload.status ?? payload.state ?? payload.available);
     const description = payload.description || payload.desc || '';
 
+    const averageTime = normalizeAverageTime(
+      payload.average_time ?? payload.avg_time ?? payload.averageTime ?? payload.time ?? payload.expected_time
+    );
+
+    const currency = normalizeCurrency(
+      payload.currency ?? payload.price_currency ?? payload.rate_currency ?? payload.cur
+    );
+
     const basePayload = {
       name,
       category,
       status,
-      description
+      description,
+      provider_order_id: serviceKey,
+      currency,
+      average_time: averageTime,
+      refill_supported: toBooleanFlag(payload.refill ?? payload.refill_support ?? payload.needs_refill),
+      cancel_supported: toBooleanFlag(payload.cancel ?? payload.cancel_support ?? payload.cancellable),
+      dripfeed_supported: toBooleanFlag(payload.dripfeed ?? payload.drip_feed ?? payload.drip),
+      subscription_supported: toBooleanFlag(payload.subscription ?? payload.subscriptions ?? payload.subscription_supported),
+      provider_metadata: payload
     };
 
     if (minQuantity !== null) {
@@ -171,7 +251,9 @@ async function syncProviderServices(provider) {
     .from('providers')
     .update({
       services_count: services.length,
-      last_sync: new Date().toISOString()
+      last_sync: new Date().toISOString(),
+      response_latency_ms: latencyMs,
+      health_status: 'online'
     })
     .eq('id', provider.id);
 
@@ -186,6 +268,8 @@ async function syncProviderServices(provider) {
     total: services.length
   };
 }
+
+exports.syncProviderServices = syncProviderServices;
 
 exports.handler = async (event = {}) => {
   const headers = { 'Content-Type': 'application/json' };

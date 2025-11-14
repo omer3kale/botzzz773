@@ -1,5 +1,6 @@
 // Tickets API - Create, Get, Update, Close Support Tickets
 const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { insertTicketRecord } = require('./utils/ticket-utils');
 const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -170,20 +171,17 @@ async function handleCreateTicket(user, data, headers) {
       };
     }
 
-    // Create ticket
-    const { data: ticket, error: ticketError } = await supabaseAdmin
-      .from('tickets')
-      .insert({
+    // Create ticket with auto-generated ticket number
+    let ticket;
+    try {
+      ticket = await insertTicketRecord({
         user_id: user.userId,
         subject,
         category,
         priority: priority || 'medium',
         status: 'open'
-      })
-      .select()
-      .single();
-
-    if (ticketError) {
+      });
+    } catch (ticketError) {
       console.error('Create ticket error:', ticketError);
       return {
         statusCode: 500,

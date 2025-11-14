@@ -1,0 +1,34 @@
+project_id = "qmnbwpmnidguccsiwoow"
+project_ref = "qmnbwpmnidguccsiwoow"
+
+[api]
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+
+[db]
+port = 54322
+major_version = 15
+shadow_port = 54329
+
+[studio]
+port = 54323
+
+[auth]
+site_url = "https://darling-profiterole-752433.netlify.app"
+additional_redirect_urls = [
+  "https://darling-profiterole-752433.netlify.app/auth/callback"
+]
+jwt_expiry = 3600
+
+detect_browser_locale = true
+
+[functions]
+port = 54324
+max_per_project = 10
+
+[analytics]
+port = 54326
+
+[storage]
+port = 54325
+file_size_limit = 52428800

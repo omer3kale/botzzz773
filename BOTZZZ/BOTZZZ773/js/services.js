@@ -4,6 +4,7 @@
 
 let filterButtons;
 let authToken = null;
+const serviceDetailsMap = {};
 
 function requireAuth() {
     const token = localStorage.getItem('token');
@@ -240,7 +241,11 @@ async function loadServicesFromAPI() {
         
         // Group services by category
         const grouped = {};
+        Object.keys(serviceDetailsMap).forEach((key) => delete serviceDetailsMap[key]);
+
         services.forEach(service => {
+            const serviceKey = assignServiceKey(service);
+            serviceDetailsMap[serviceKey] = service;
             const category = (service.category || 'Other').toLowerCase();
             if (!grouped[category]) {
                 grouped[category] = [];
@@ -282,8 +287,10 @@ async function loadServicesFromAPI() {
             `;
             
             categoryServices.forEach(service => {
+                const serviceKey = assignServiceKey(service);
                 const rate = parseFloat(service.rate || 0);
-                const pricePerK = rate.toFixed(2);
+                const currency = (service.currency || 'USD').toUpperCase();
+                const pricePerK = formatCurrencyValue(rate, currency);
                 const minRaw = service.min_quantity ?? service.min_order;
                 const maxRaw = service.max_quantity ?? service.max_order;
                 const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
@@ -297,17 +304,48 @@ async function loadServicesFromAPI() {
                 const labelId = Number.isFinite(publicIdValue)
                     ? `#${publicIdValue}`
                     : 'ID Pending';
+                const panelOrderLabel = Number.isFinite(publicIdValue)
+                    ? `Panel ID: #${publicIdValue}`
+                    : 'Panel ID: Pending';
+                const providerOrderRaw = service.provider_order_id ?? service.provider_service_id;
+                const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
+                    ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
+                    : 'Provider Ref: Pending';
+                const providerName = escapeHtml(service.provider?.name || 'Unknown Provider');
+                const providerStatus = service.provider?.status ? ` (${escapeHtml(service.provider.status)})` : '';
+                const providerBadge = `<span class="service-meta-tag service-meta-tag--provider">Provider: ${providerName}${providerStatus}</span>`;
+                const avgTimeBadge = service.average_time
+                    ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
+                    : '';
+                const currencyBadge = `<span class="service-meta-tag service-meta-tag--muted" title="Billing currency">${currency}</span>`;
+                const capabilityBadges = renderSupportBadges(service);
+                const metaRows = [];
+                const primaryTags = [currencyBadge];
+                if (avgTimeBadge) {
+                    primaryTags.unshift(avgTimeBadge);
+                }
+                metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
+                if (capabilityBadges) {
+                    metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
+                }
+                metaRows.push(`<div class="service-meta-row service-meta-row--secondary">${providerBadge}</div>`);
+                const serviceMetaMarkup = metaRows.join('');
                 
                 html += `
                     <div class="service-row" data-service-id="${service.id}">
                         <div class="service-col">
                             <strong>${labelId} · ${escapeHtml(service.name)}</strong>
+                            <div class="service-id-meta">
+                                <span class="service-id-chip">${panelOrderLabel}</span>
+                                <span class="service-id-chip service-id-chip--secondary">${providerOrderLabel}</span>
+                            </div>
                             <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
+                            ${serviceMetaMarkup}
                         </div>
-                        <div class="service-col price">$${pricePerK}</div>
+                        <div class="service-col price">${pricePerK}<span class="price-note">per 1K</span></div>
                         <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
                         <div class="service-col">
-                            <button onclick="showServiceDescription('${service.id}', '${escapeHtml(`${labelId} · ${service.name}`).replace(/'/g, "\\'")}', '${escapeHtml(service.description || 'No description available').replace(/'/g, "\\'")}', '${pricePerK}', '${formatNumber(min)}', '${formatNumber(max)}')" class="btn btn-primary btn-sm">Description</button>
+                            <button class="btn btn-primary btn-sm" data-service-key="${escapeHtml(service.__clientKey)}" onclick="showServiceDescription(this.dataset.serviceKey)">Details</button>
                         </div>
                     </div>
                 `;
@@ -375,44 +413,196 @@ function formatNumber(num) {
     return num.toString();
 }
 
+const CURRENCY_SYMBOL_MAP = {
+    USD: '$',
+    EUR: '€',
+    GBP: '£',
+    INR: '₹',
+    TRY: '₺',
+    BRL: 'R$',
+    NGN: '₦',
+    CAD: 'C$',
+    AUD: 'A$',
+    SGD: 'S$',
+    AED: 'د.إ',
+    SAR: '﷼',
+    IDR: 'Rp',
+    PHP: '₱'
+};
+
+function assignServiceKey(service) {
+    if (!service || typeof service !== 'object') {
+        return Math.random().toString(36).slice(2, 10);
+    }
+
+    if (service.__clientKey) {
+        return service.__clientKey;
+    }
+
+    const fallback = Math.random().toString(36).slice(2, 10);
+    const candidate = service.id ?? service.provider_service_id ?? service.provider_order_id ?? service.public_id ?? fallback;
+    const key = String(candidate);
+
+    Object.defineProperty(service, '__clientKey', {
+        value: key,
+        enumerable: false,
+        configurable: true
+    });
+
+    return key;
+}
+
+function formatCurrencyValue(amount, currency = 'USD', fractionDigits = 2) {
+    const numeric = Number(amount);
+    const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
+    if (!Number.isFinite(numeric)) {
+        return `-- ${normalizedCurrency}`;
+    }
+
+    const customSymbol = CURRENCY_SYMBOL_MAP[normalizedCurrency];
+    const symbol = customSymbol || `${normalizedCurrency} `;
+    const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
+    const needsCode = !customSymbol || ambiguousSymbols.has(symbol);
+    const formatted = `${symbol}${numeric.toFixed(fractionDigits)}`;
+    return needsCode ? `${formatted} ${normalizedCurrency}` : formatted;
+}
+
+const SERVICE_CAPABILITY_FIELDS = [
+    { key: 'refill_supported', label: 'Refill' },
+    { key: 'cancel_supported', label: 'Cancel' },
+    { key: 'dripfeed_supported', label: 'Dripfeed' },
+    { key: 'subscription_supported', label: 'Subscription' }
+];
+
+function renderSupportBadges(service, options = {}) {
+    const { showDisabled = false, fallbackLabel = '' } = options;
+    if (!service || typeof service !== 'object') {
+        return fallbackLabel;
+    }
+
+    const badges = SERVICE_CAPABILITY_FIELDS
+        .map(({ key, label }) => {
+            const enabled = Boolean(service[key]);
+            if (!enabled && !showDisabled) {
+                return '';
+            }
+            const stateClass = enabled ? 'service-capability--on' : 'service-capability--off';
+            return `<span class="service-meta-tag service-capability ${stateClass}" title="${label} ${enabled ? 'supported' : 'not supported'}">${label}</span>`;
+        })
+        .filter(Boolean);
+
+    if (badges.length === 0 && fallbackLabel) {
+        return fallbackLabel;
+    }
+
+    return badges.join('');
+}
+
 // ==========================================
 // Show Service Description Modal
 // ==========================================
 
-function showServiceDescription(serviceId, serviceName, description, rate, min, max) {
-    // Create modal HTML
+function showServiceDescription(serviceKey) {
+    const service = serviceDetailsMap[serviceKey];
+    if (!service) {
+        console.warn('[SERVICES] Unable to locate service details for key', serviceKey);
+        return;
+    }
+
+    const rawPublicId = service.public_id ?? service.publicId;
+    const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
+        ? null
+        : Number(rawPublicId);
+    const labelId = Number.isFinite(publicIdValue) ? `#${publicIdValue}` : 'ID Pending';
+    const providerOrderRaw = service.provider_order_id ?? service.provider_service_id;
+    const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
+        ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
+        : 'Provider Ref: Pending';
+    const description = escapeHtml(service.description || 'No description available');
+    const currency = (service.currency || 'USD').toUpperCase();
+    const priceLabel = formatCurrencyValue(service.rate, currency);
+    const minRaw = service.min_quantity ?? service.min_order;
+    const maxRaw = service.max_quantity ?? service.max_order;
+    const min = formatNumber(Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10);
+    const maxValue = maxRaw === null || maxRaw === undefined ? Infinity : Number(maxRaw);
+    const max = formatNumber(Number.isFinite(maxValue) ? maxValue : Infinity);
+    const averageTime = service.average_time ? escapeHtml(service.average_time) : 'Not provided';
+    const providerName = escapeHtml(service.provider?.name || 'Unknown Provider');
+    const providerStatus = service.provider?.status ? escapeHtml(service.provider.status) : 'unknown';
+    const providerMarkup = Number.isFinite(Number(service.provider?.markup))
+        ? `${Number(service.provider.markup).toFixed(1)}%`
+        : '—';
+    const capabilityBadges = renderSupportBadges(service, { showDisabled: true, fallbackLabel: '<span class="service-meta-tag service-capability service-capability--off">No automation flags reported</span>' });
+    const providerMetadataRaw = service.provider_metadata;
+    const providerMetadataBlock = providerMetadataRaw
+        ? `<div style="margin-top: 20px;"><h4 style="margin: 0 0 8px; font-size: 14px; color: #475569;">Provider Metadata</h4><pre style="max-height: 280px; overflow: auto; background: #0F172A; color: #E2E8F0; padding: 16px; border-radius: 12px; font-size: 12px;">${escapeHtml(JSON.stringify(providerMetadataRaw, null, 2))}</pre></div>`
+        : '';
+    const serviceRecordId = service.id ?? service.provider_service_id ?? serviceKey;
+    const orderLinkParam = encodeURIComponent(serviceRecordId);
+
     const modalHTML = `
         <div id="serviceDescriptionModal" class="modal" style="display: flex !important; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(4px);">
-            <div class="modal-content" style="background: white; border-radius: 16px; padding: 32px; max-width: 600px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); animation: modalSlideIn 0.3s ease;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 24px;">
-                    <h2 style="color: #1E293B; margin: 0; font-size: 24px; font-weight: 600;">${serviceName}</h2>
-                    <button onclick="closeServiceDescription()" style="background: none; border: none; font-size: 28px; color: #64748B; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; transition: all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
+            <div class="modal-content" style="background: white; border-radius: 16px; padding: 32px; max-width: 720px; width: 92%; box-shadow: 0 20px 60px rgba(0,0,0,0.35); animation: modalSlideIn 0.3s ease;">
+                <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 24px;">
+                    <div>
+                        <p style="margin: 0; color: #94A3B8; font-size: 0.85rem;">${labelId} · ${providerOrderLabel}</p>
+                        <h2 style="color: #0F172A; margin: 4px 0 0; font-size: 26px; font-weight: 700;">${escapeHtml(service.name)}</h2>
+                    </div>
+                    <button onclick="closeServiceDescription()" style="background: none; border: none; font-size: 28px; color: #64748B; cursor: pointer; padding: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 10px; transition: all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
                 </div>
-                
-                <div style="background: linear-gradient(135deg, #FF1494 0%, #FF6B35 100%); padding: 20px; border-radius: 12px; margin-bottom: 24px;">
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center;">
+
+                <div style="background: linear-gradient(120deg, #FF1494 0%, #FF6B35 100%); padding: 24px; border-radius: 16px; margin-bottom: 24px; color: white;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; text-align: center;">
                         <div>
-                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Rate per 1000</div>
-                            <div style="color: white; font-size: 24px; font-weight: 700;">$${rate}</div>
+                            <div style="opacity: 0.8; font-size: 0.8rem;">Rate per 1000</div>
+                            <div style="font-size: 1.6rem; font-weight: 700;">${priceLabel}</div>
                         </div>
                         <div>
-                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Minimum</div>
-                            <div style="color: white; font-size: 24px; font-weight: 700;">${min}</div>
+                            <div style="opacity: 0.8; font-size: 0.8rem;">Minimum</div>
+                            <div style="font-size: 1.6rem; font-weight: 700;">${min}</div>
                         </div>
                         <div>
-                            <div style="color: rgba(255,255,255,0.9); font-size: 14px; margin-bottom: 4px;">Maximum</div>
-                            <div style="color: white; font-size: 24px; font-weight: 700;">${max}</div>
+                            <div style="opacity: 0.8; font-size: 0.8rem;">Maximum</div>
+                            <div style="font-size: 1.6rem; font-weight: 700;">${max}</div>
+                        </div>
+                        <div>
+                            <div style="opacity: 0.8; font-size: 0.8rem;">Average Time</div>
+                            <div style="font-size: 1.3rem; font-weight: 600;">${averageTime}</div>
                         </div>
                     </div>
                 </div>
-                
+
                 <div style="margin-bottom: 24px;">
                     <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Service Description</h3>
-                    <p style="color: #475569; line-height: 1.6; margin: 0; white-space: pre-wrap;">${description}</p>
+                    <p style="color: #475569; line-height: 1.65; margin: 0; white-space: pre-wrap;">${description}</p>
                 </div>
-                
-                <div style="display: flex; gap: 12px;">
-                    <a href="order.html?service=${serviceId}" class="btn btn-primary" style="flex: 1; text-align: center; padding: 12px; font-size: 16px; font-weight: 600; text-decoration: none; display: block;">Order Now</a>
+
+                <div style="margin-bottom: 24px;">
+                    <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Automation & Support</h3>
+                    <div class="service-meta-row service-meta-row--wrap">${capabilityBadges}</div>
+                </div>
+
+                <div style="background: #F8FAFC; border-radius: 16px; padding: 20px; margin-bottom: 24px;">
+                    <h3 style="color: #0F172A; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Provider Details</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
+                        <div>
+                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Name</p>
+                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A;">${providerName}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Status</p>
+                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A; text-transform: capitalize;">${providerStatus}</p>
+                        </div>
+                        <div>
+                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Markup</p>
+                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A;">${providerMarkup}</p>
+                        </div>
+                    </div>
+                    ${providerMetadataBlock}
+                </div>
+
+                <div style="display: flex; flex-wrap: wrap; gap: 12px;">
+                    <a href="order.html?service=${orderLinkParam}" class="btn btn-primary" style="flex: 1; text-align: center; padding: 12px; font-size: 16px; font-weight: 600; text-decoration: none; display: block;">Order Now</a>
                     <button onclick="closeServiceDescription()" class="btn btn-secondary" style="padding: 12px 24px; font-size: 16px; font-weight: 600;">Close</button>
                 </div>
             </div>
@@ -431,21 +621,17 @@ function showServiceDescription(serviceId, serviceName, description, rate, min, 
             }
         </style>
     `;
-    
-    // Append modal to body
+
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    
-    // Prevent body scroll
     document.body.style.overflow = 'hidden';
-    
-    // Close on background click
-    document.getElementById('serviceDescriptionModal').addEventListener('click', function(e) {
+
+    const modalEl = document.getElementById('serviceDescriptionModal');
+    modalEl.addEventListener('click', function(e) {
         if (e.target.id === 'serviceDescriptionModal') {
             closeServiceDescription();
         }
     });
-    
-    // Close on Escape key
+
     document.addEventListener('keydown', function escapeHandler(e) {
         if (e.key === 'Escape') {
             closeServiceDescription();

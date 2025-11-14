@@ -1,6 +1,7 @@
 // Admin Orders Management with Real Modals
 
 let servicesCache = [];
+const ADMIN_SERVICES_ENDPOINT = '/.netlify/functions/services?audience=admin';
 let ordersCache = [];
 let ordersAutoRefreshTimer = null;
 let lastOrderSyncTime = 0;
@@ -86,14 +87,25 @@ function toNumberOrNull(value) {
     return Number.isFinite(num) ? num : null;
 }
 
-function formatCurrency(value, fractionDigits = 2, fallback = 'N/A') {
+function formatCurrency(value, fractionDigits = 2, fallback = 'N/A', currencyCode = 'USD') {
     const numeric = toNumberOrNull(value);
     if (numeric === null) {
         return fallback;
     }
-    const absolute = Math.abs(numeric).toFixed(fractionDigits);
-    const sign = numeric < 0 ? '-' : '';
-    return `${sign}$${absolute}`;
+
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currencyCode || 'USD',
+            minimumFractionDigits: fractionDigits,
+            maximumFractionDigits: fractionDigits
+        }).format(numeric);
+    } catch (error) {
+        console.warn('[ORDERS] Currency formatting fallback triggered:', error?.message);
+        const absolute = Math.abs(numeric).toFixed(fractionDigits);
+        const sign = numeric < 0 ? '-' : '';
+        return `${sign}$${absolute}`;
+    }
 }
 
 function truncateText(text, maxLength = 48) {
@@ -1159,8 +1171,8 @@ async function loadOrders({ skipSync = false } = {}) {
                 const providerOrderLabel = formattedProviderOrderId ? truncateText(formattedProviderOrderId, 30) : '';
                 const providerOrderTitle = formattedProviderOrderId ? escapeHtml(formattedProviderOrderId) : '';
                 const providerOrderMarkup = formattedProviderOrderId
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider: ${escapeHtml(providerOrderLabel)}</span>`
-                    : '<span class="order-id-provider order-id-missing">Provider: Not submitted</span>';
+                    ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider Order ID: ${escapeHtml(providerOrderLabel)}</span>`
+                    : '<span class="order-id-provider order-id-missing">Provider Order ID: Pending</span>';
 
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
@@ -1176,9 +1188,11 @@ async function loadOrders({ skipSync = false } = {}) {
                 const remains = remainsValue !== null ? remainsValue : 'N/A';
                 const quantity = quantityValue !== null ? quantityValue : 'N/A';
 
+                const defaultCurrency = 'USD';
+                const providerCurrency = String(order.provider_currency || defaultCurrency).toUpperCase();
                 const customerCharge = toNumberOrNull(order.charge);
                 const providerCost = toNumberOrNull(order.provider_cost);
-                const profitValue = (customerCharge !== null && providerCost !== null)
+                const profitValue = (customerCharge !== null && providerCost !== null && providerCurrency === defaultCurrency)
                     ? Number((customerCharge - providerCost).toFixed(2))
                     : null;
                 const profitPercent = (profitValue !== null && customerCharge !== null && customerCharge !== 0)
@@ -1199,8 +1213,8 @@ async function loadOrders({ skipSync = false } = {}) {
 
                 const lastSyncLabel = formatRelativeTime(order.last_status_sync);
                     const providerIdSecondaryLabel = formattedProviderOrderId
-                        ? `Provider ID: ${formattedProviderOrderId}`
-                        : 'Provider ID: Pending';
+                        ? `Provider Order ID: ${formattedProviderOrderId}`
+                        : 'Provider Order ID: Pending';
                     const providerIdSecondaryTitle = escapeHtml(lastSyncLabel);
                 const ariaLabelId = orderIdString ? `Select order #${orderIdString}` : 'Select order';
                 const selectionKeyRaw = buildOrderSelectionKey(order, index);
@@ -1221,7 +1235,7 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>
                             <div class="cell-stack">
                                 <span class="cell-primary cell-highlight">IN: ${formatCurrency(customerCharge)}</span>
-                                <span class="cell-secondary">OUT: ${formatCurrency(providerCost, 4)}</span>
+                                <span class="cell-secondary">OUT: ${formatCurrency(providerCost, 4, 'N/A', providerCurrency)}</span>
                                 ${profitMarkup}
                             </div>
                         </td>
@@ -1326,7 +1340,7 @@ async function getServicesOptions() {
     
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/services', {
+    const response = await fetch(ADMIN_SERVICES_ENDPOINT, {
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',

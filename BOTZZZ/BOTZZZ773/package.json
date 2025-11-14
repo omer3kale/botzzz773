@@ -9,6 +9,7 @@
     "build": "echo 'No build required for static site'",
     "test": "node tests/run-all-tests.js",
     "test:api": "node tests/api-tests.js",
+    "test:api:auto": "node tests/run-with-server.js",
     "test:frontend": "node tests/frontend-tests.js",
     "test:integration": "node tests/integration-tests.js",
     "test:watch": "nodemon --watch netlify/functions --watch js --exec npm test",

@@ -16,55 +16,55 @@
             <i class="fas fa-bars"></i>
         </button>
         <div class="admin-logo">BOTZZZ773</div>
-            <div class="settings-container">
-                <!-- Settings Sidebar -->
-                <div class="settings-sidebar">
-                    <a href="#" class="settings-nav-item" data-section="general" onclick="showSettingsSection('general', event)">
-                        <i class="fas fa-sliders-h"></i> General
-                    </a>
-                    <a href="#" class="settings-nav-item active" data-section="providers" onclick="showSettingsSection('providers', event)">
-                        <i class="fas fa-plug"></i> Providers
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="payments" onclick="showSettingsSection('payments', event)">
-                        <i class="fas fa-credit-card"></i> Payments
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="modules" onclick="showSettingsSection('modules', event)">
-                        <i class="fas fa-cube"></i> Modules
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="integrations" onclick="showSettingsSection('integrations', event)">
-                        <i class="fas fa-plug"></i> Integrations
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="notifications" onclick="showSettingsSection('notifications', event)">
-                        <i class="fas fa-bell"></i> Notifications
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="bonuses" onclick="showSettingsSection('bonuses', event)">
-                        <i class="fas fa-gift"></i> Bonuses
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="signup" onclick="showSettingsSection('signup', event)">
-                        <i class="fas fa-user-plus"></i> Signup Form
-                    </a>
-                    <a href="#" class="settings-nav-item" data-section="ticket" onclick="showSettingsSection('ticket', event)">
-                        <i class="fas fa-ticket-alt"></i> Ticket Form
-                    </a>
-                </div>
-
-                <!-- Settings Content -->
-                <div class="settings-content">
-                    <!-- Providers Section -->
-                    <div id="providers-section" class="settings-section">
-                        <div class="settings-header">
-                            <h2>Providers</h2>
-                            <button class="btn-primary" onclick="addProvider()">
-                                <i class="fas fa-plus"></i> Add Provider
-                            </button>
-                        </div>
-
-                        <div class="providers-grid" id="providersGrid">
-                            <!-- Providers will be loaded dynamically from database -->
+        <div class="admin-header-right">
+            <div class="admin-search">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search settings..." id="settingsSearch">
+            </div>
+            <div class="admin-notifications">
+                <i class="fas fa-bell"></i>
+                <span class="notification-badge">4</span>
+            </div>
+            <div class="admin-user-menu">
+                <button class="admin-user-button" onclick="toggleUserMenu()">
+                    <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <div class="user-dropdown-menu" id="userDropdownMenu">
+                    <div class="user-dropdown-header">
+                        <div class="user-dropdown-info">
+                            <strong id="adminUserName">Admin</strong>
+                            <span id="adminUserEmail">admin@botzzz773.com</span>
                         </div>
                     </div>
+                    <div class="user-dropdown-divider"></div>
+                    <a href="settings.html" class="user-dropdown-item">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                    <a href="#" onclick="adminLogout(event)" class="user-dropdown-item logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </a>
                 </div>
             </div>
+        </div>
+    </header>
+
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar" id="adminSidebar">
+        <nav class="admin-nav">
+            <a href="index.html" class="admin-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="users.html" class="admin-nav-item">
+                <i class="fas fa-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="orders.html" class="admin-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Orders</span>
             </a>
             <a href="services.html" class="admin-nav-item">
                 <i class="fas fa-box"></i>
@@ -94,6 +94,14 @@
     <main class="admin-main">
         <div class="admin-page-header">
             <h1>Settings</h1>
+            <div class="page-actions">
+                <button class="btn-secondary" onclick="triggerSettingsProvidersRefresh()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button class="btn-primary" onclick="saveGeneralSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
         </div>
 
         <div class="settings-layout">
@@ -145,53 +153,49 @@
             </div>
 
             <div class="settings-container">
-            <!-- Settings Sidebar -->
-            <div class="settings-sidebar">
+                <div class="settings-sidebar">
                     <a href="#" class="settings-nav-item active" data-section="general" onclick="showSettingsSection('general', event)">
-                    <i class="fas fa-sliders-h"></i> General
-                </a>
+                        <i class="fas fa-sliders-h"></i> General
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="providers" onclick="showSettingsSection('providers', event)">
-                    <i class="fas fa-plug"></i> Providers
-                </a>
+                        <i class="fas fa-plug"></i> Providers
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="payments" onclick="showSettingsSection('payments', event)">
-                    <i class="fas fa-credit-card"></i> Payments
-                </a>
+                        <i class="fas fa-credit-card"></i> Payments
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="modules" onclick="showSettingsSection('modules', event)">
-                    <i class="fas fa-cube"></i> Modules
-                </a>
+                        <i class="fas fa-cube"></i> Modules
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="integrations" onclick="showSettingsSection('integrations', event)">
-                    <i class="fas fa-plug"></i> Integrations
-                </a>
+                        <i class="fas fa-plug"></i> Integrations
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="notifications" onclick="showSettingsSection('notifications', event)">
-                    <i class="fas fa-bell"></i> Notifications
-                </a>
+                        <i class="fas fa-bell"></i> Notifications
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="bonuses" onclick="showSettingsSection('bonuses', event)">
-                    <i class="fas fa-gift"></i> Bonuses
-                </a>
+                        <i class="fas fa-gift"></i> Bonuses
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="signup" onclick="showSettingsSection('signup', event)">
-                    <i class="fas fa-user-plus"></i> Signup Form
-                </a>
+                        <i class="fas fa-user-plus"></i> Signup Form
+                    </a>
                     <a href="#" class="settings-nav-item" data-section="ticket" onclick="showSettingsSection('ticket', event)">
-                    <i class="fas fa-ticket-alt"></i> Ticket Form
-                </a>
-            </div>
+                        <i class="fas fa-ticket-alt"></i> Ticket Form
+                    </a>
+                </div>
 
-            <!-- Settings Content -->
-            <div class="settings-content">
-                <!-- Providers Section -->
-                <div id="providers-section" class="settings-section">
-                    <div class="settings-header">
-                        <h2>Providers</h2>
-                        <button class="btn-primary" onclick="addProvider()">
-                            <i class="fas fa-plus"></i> Add Provider
-                        </button>
-                    </div>
-
-                    <div class="providers-grid" id="providersGrid">
-                        <!-- Providers will be loaded dynamically from database -->
+                <div class="settings-content">
+                    <div id="providers-section" class="settings-section">
+                        <div class="settings-header">
+                            <h2>Providers</h2>
+                            <button class="btn-primary" onclick="addProvider()">
+                                <i class="fas fa-plus"></i> Add Provider
+                            </button>
+                        </div>
+                        <div class="providers-grid" id="providersGrid">
+                            <!-- Providers will be loaded dynamically from database -->
+                        </div>
                     </div>
                 </div>
-            </div>
             </div>
         </div>
     </main>
