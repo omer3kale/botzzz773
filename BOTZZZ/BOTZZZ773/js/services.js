@@ -226,14 +226,15 @@ async function loadServicesFromAPI() {
         }
 
         const services = Array.isArray(data.services) ? data.services : [];
-        console.log('[DEBUG] Loaded services:', services.length, services);
+        const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
+        console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length);
         
-        if (services.length === 0) {
+        if (approvedServices.length === 0) {
             container.innerHTML = `
                 <div style="text-align: center; padding: 80px 20px;">
                     <div style="font-size: 80px; margin-bottom: 20px;">📦</div>
                     <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">No Services Available</h3>
-                    <p style="color: #64748B; font-size: 16px;">Services will appear here once they are synced from providers.</p>
+                    <p style="color: #64748B; font-size: 16px;">Services will appear once an admin approves them for customers.</p>
                 </div>
             `;
             return true;
@@ -243,7 +244,7 @@ async function loadServicesFromAPI() {
         const grouped = {};
         Object.keys(serviceDetailsMap).forEach((key) => delete serviceDetailsMap[key]);
 
-        services.forEach(service => {
+    approvedServices.forEach(service => {
             const serviceKey = assignServiceKey(service);
             serviceDetailsMap[serviceKey] = service;
             const category = (service.category || 'Other').toLowerCase();

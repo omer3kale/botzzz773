@@ -314,12 +314,13 @@
             
             if (Array.isArray(data.services)) {
                 const services = data.services;
+                const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
 
-                if (services.length > 0) {
+                if (approvedServices.length > 0) {
                     // Categorize services
                     servicesData = {};
                     categoryLabels = {};
-                    services.forEach(service => {
+                    approvedServices.forEach(service => {
                         const rawCategory = service.category || 'Other';
                         const categorySlug = slugifyCategory(rawCategory);
                         const categoryLabel = formatCategoryLabel(rawCategory);

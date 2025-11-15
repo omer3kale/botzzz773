@@ -282,15 +282,21 @@ async function handleGetServices(event, user, headers) {
       `);
 
     if (!useAdminScope) {
-      // For customer scope (default) only show services explicitly active and from active providers
+      // For customer scope limit to curated storefront services only
       query = query
         .eq('status', 'active')
-        .eq('provider.status', 'active');
+        .eq('admin_approved', true)
+        .eq('customer_portal_enabled', true)
+        .eq('provider.status', 'active')
+        .order('customer_portal_slot', { ascending: true, nullsLast: true })
+        .order('category', { ascending: true })
+        .order('name', { ascending: true })
+        .limit(7);
+    } else {
+      query = query
+        .order('category', { ascending: true })
+        .order('name', { ascending: true });
     }
-
-    query = query
-      .order('category', { ascending: true })
-      .order('name', { ascending: true });
 
     const { data: services, error } = await query;
 
@@ -522,7 +528,17 @@ async function handleCreateService(user, data, headers) {
       dripfeed_supported,
       dripfeedSupported,
       subscription_supported,
-      subscriptionSupported
+      subscriptionSupported,
+      admin_approved,
+      adminApproved,
+      admin_visibility_notes,
+      adminVisibilityNotes,
+      customer_portal_enabled,
+      customerPortalEnabled,
+      customer_portal_slot,
+      customerPortalSlot,
+      customer_portal_notes,
+      customerPortalNotes
     } = data;
 
     if (!name || !category) {
@@ -554,6 +570,15 @@ async function handleCreateService(user, data, headers) {
     const normalizedCancelFlag = toBooleanFlag(cancel_supported ?? cancelSupported);
     const normalizedDripfeedFlag = toBooleanFlag(dripfeed_supported ?? dripfeedSupported);
     const normalizedSubscriptionFlag = toBooleanFlag(subscription_supported ?? subscriptionSupported);
+  const adminApprovalRaw = admin_approved ?? adminApproved;
+  const adminApprovedFlag = adminApprovalRaw !== undefined ? toBooleanFlag(adminApprovalRaw) : false;
+  const adminVisibilityNotesValue = admin_visibility_notes ?? adminVisibilityNotes ?? null;
+  const adminApprovedAtValue = adminApprovedFlag ? new Date().toISOString() : null;
+  const adminApprovedByValue = adminApprovedFlag ? (user.userId || null) : null;
+  const customerPortalEnabledRaw = customer_portal_enabled ?? customerPortalEnabled;
+  const customerPortalEnabledFlag = customerPortalEnabledRaw !== undefined ? toBooleanFlag(customerPortalEnabledRaw) : false;
+  const customerPortalSlotValue = toNumberOrNull(customer_portal_slot ?? customerPortalSlot);
+  const customerPortalNotesValue = customer_portal_notes ?? customerPortalNotes ?? null;
 
     let resolvedPublicId = toNumberOrNull(public_id ?? publicId);
     if (resolvedPublicId === null || resolvedPublicId < PUBLIC_ID_BASE) {
@@ -583,7 +608,14 @@ async function handleCreateService(user, data, headers) {
         refill_supported: normalizedRefillFlag,
         cancel_supported: normalizedCancelFlag,
         dripfeed_supported: normalizedDripfeedFlag,
-        subscription_supported: normalizedSubscriptionFlag
+        subscription_supported: normalizedSubscriptionFlag,
+        admin_approved: adminApprovedFlag,
+        admin_approved_at: adminApprovedAtValue,
+        admin_approved_by: adminApprovedByValue,
+        admin_visibility_notes: adminVisibilityNotesValue,
+        customer_portal_enabled: customerPortalEnabledFlag,
+        customer_portal_slot: customerPortalSlotValue,
+        customer_portal_notes: customerPortalNotesValue
       })
       .select()
       .single();
@@ -659,7 +691,17 @@ async function handleUpdateService(user, data, headers) {
       dripfeed_supported,
       dripfeedSupported,
       subscription_supported,
-      subscriptionSupported
+      subscriptionSupported,
+      admin_approved,
+      adminApproved,
+      admin_visibility_notes,
+      adminVisibilityNotes,
+      customer_portal_enabled,
+      customerPortalEnabled,
+      customer_portal_slot,
+      customerPortalSlot,
+      customer_portal_notes,
+      customerPortalNotes
     } = data;
 
     if (!serviceId) {
@@ -713,6 +755,47 @@ async function handleUpdateService(user, data, headers) {
       Object.prototype.hasOwnProperty.call(data, 'subscriptionSupported');
     if (hasSubscriptionField) {
       updates.subscription_supported = toBooleanFlag(subscription_supported ?? subscriptionSupported);
+    }
+
+    const hasAdminVisibilityNotesField = Object.prototype.hasOwnProperty.call(data, 'admin_visibility_notes') ||
+      Object.prototype.hasOwnProperty.call(data, 'adminVisibilityNotes');
+    if (hasAdminVisibilityNotesField) {
+      const noteValue = admin_visibility_notes ?? adminVisibilityNotes;
+      updates.admin_visibility_notes = noteValue === undefined ? null : noteValue;
+    }
+
+    const hasAdminApprovedField = Object.prototype.hasOwnProperty.call(data, 'admin_approved') ||
+      Object.prototype.hasOwnProperty.call(data, 'adminApproved');
+    if (hasAdminApprovedField) {
+      const approvedFlag = toBooleanFlag(admin_approved ?? adminApproved);
+      updates.admin_approved = approvedFlag;
+      if (approvedFlag) {
+        updates.admin_approved_at = new Date().toISOString();
+        updates.admin_approved_by = user.userId || null;
+      } else {
+        updates.admin_approved_at = null;
+        updates.admin_approved_by = null;
+      }
+    }
+
+    const hasCustomerPortalEnabledField = Object.prototype.hasOwnProperty.call(data, 'customer_portal_enabled') ||
+      Object.prototype.hasOwnProperty.call(data, 'customerPortalEnabled');
+    if (hasCustomerPortalEnabledField) {
+      updates.customer_portal_enabled = toBooleanFlag(customer_portal_enabled ?? customerPortalEnabled);
+    }
+
+    const hasCustomerPortalSlotField = Object.prototype.hasOwnProperty.call(data, 'customer_portal_slot') ||
+      Object.prototype.hasOwnProperty.call(data, 'customerPortalSlot');
+    if (hasCustomerPortalSlotField) {
+      const slotValue = toNumberOrNull(customer_portal_slot ?? customerPortalSlot);
+      updates.customer_portal_slot = slotValue;
+    }
+
+    const hasCustomerPortalNotesField = Object.prototype.hasOwnProperty.call(data, 'customer_portal_notes') ||
+      Object.prototype.hasOwnProperty.call(data, 'customerPortalNotes');
+    if (hasCustomerPortalNotesField) {
+      const portalNoteValue = customer_portal_notes ?? customerPortalNotes;
+      updates.customer_portal_notes = portalNoteValue === undefined ? null : portalNoteValue;
     }
 
     const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||

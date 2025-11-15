@@ -37,6 +37,7 @@ let providersCache = null;
 let servicesCache = [];
 const selectedServiceIds = new Set();
 const ADMIN_SERVICES_BASE_ENDPOINT = '/.netlify/functions/services';
+const CUSTOMER_PORTAL_MAX_SLOTS = 7;
 function buildAdminServicesUrl(query = {}) {
     const params = new URLSearchParams({ audience: 'admin', ...query });
     const queryString = params.toString();
@@ -209,6 +210,76 @@ function parseIntegerInput(value) {
     }
     const numeric = Number.parseInt(trimmed, 10);
     return Number.isFinite(numeric) ? numeric : null;
+}
+
+function toBooleanInput(value) {
+    if (value === undefined || value === null) {
+        return false;
+    }
+    if (typeof value === 'boolean') {
+        return value;
+    }
+    if (typeof value === 'number') {
+        return value > 0;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) {
+        return false;
+    }
+    return ['true', '1', 'yes', 'y', 'on'].includes(normalized);
+}
+
+function normalizePortalSlotInput(value) {
+    const numeric = parseIntegerInput(value);
+    if (!Number.isFinite(numeric)) {
+        return null;
+    }
+    const clamped = Math.min(Math.max(numeric, 1), CUSTOMER_PORTAL_MAX_SLOTS);
+    return clamped;
+}
+
+function getCuratedServicesCount(excludeServiceId = null) {
+    if (!Array.isArray(servicesCache) || servicesCache.length === 0) {
+        return 0;
+    }
+    return servicesCache.filter(service => {
+        if (!service) {
+            return false;
+        }
+        if (excludeServiceId && String(service.id) === String(excludeServiceId)) {
+            return false;
+        }
+        return Boolean(service.customer_portal_enabled);
+    }).length;
+}
+
+function getNextAvailablePortalSlot(excludeServiceId = null) {
+    if (!Array.isArray(servicesCache) || servicesCache.length === 0) {
+        return 1;
+    }
+
+    const takenSlots = new Set(
+        servicesCache
+            .filter(service => {
+                if (!service || !service.customer_portal_enabled) {
+                    return false;
+                }
+                if (excludeServiceId && String(service.id) === String(excludeServiceId)) {
+                    return false;
+                }
+                return Number.isFinite(toNumeric(service.customer_portal_slot));
+            })
+            .map(service => Number(toNumeric(service.customer_portal_slot)))
+            .filter(slot => Number.isFinite(slot) && slot >= 1 && slot <= CUSTOMER_PORTAL_MAX_SLOTS)
+    );
+
+    for (let slot = 1; slot <= CUSTOMER_PORTAL_MAX_SLOTS; slot += 1) {
+        if (!takenSlots.has(slot)) {
+            return slot;
+        }
+    }
+
+    return CUSTOMER_PORTAL_MAX_SLOTS;
 }
 
 function calculateMarkupPercent(providerRate, retailRate) {
@@ -569,6 +640,25 @@ async function addService() {
                     <option value="inactive">Inactive</option>
                 </select>
             </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Show in Customer Portal</label>
+                    <select name="customerPortalEnabled">
+                        <option value="false" selected>Hidden (default)</option>
+                        <option value="true">Visible to customers</option>
+                    </select>
+                    <small style="color: #94a3b8;">Only ${CUSTOMER_PORTAL_MAX_SLOTS} services can be visible at once.</small>
+                </div>
+                <div class="form-group">
+                    <label>Portal Slot (1-${CUSTOMER_PORTAL_MAX_SLOTS})</label>
+                    <input type="number" name="customerPortalSlot" placeholder="1" min="1" max="${CUSTOMER_PORTAL_MAX_SLOTS}">
+                    <small style="color: #94a3b8;">Controls dropdown order when visible.</small>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Customer Portal Notes</label>
+                <textarea name="customerPortalNotes" rows="2" placeholder="Optional tagline or reminder for this curated slot"></textarea>
+            </div>
         </form>
     `;
     
@@ -594,6 +684,9 @@ async function submitAddService(event) {
     const markupValue = parseNumberInput(serviceData.markup);
     const minQuantityValue = parseIntegerInput(serviceData.min);
     const maxQuantityValue = parseIntegerInput(serviceData.max);
+    const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
+    const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
+    const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
 
     const submitBtn = document.querySelector('button[form="addServiceForm"]');
     if (submitBtn) {
@@ -623,7 +716,11 @@ async function submitAddService(event) {
                 description: serviceData.description || '',
                 status: (serviceData.status || 'active').toLowerCase(),
                 providerId: serviceData.provider || null,
-                providerServiceId: serviceData.providerServiceId || null
+                providerServiceId: serviceData.providerServiceId || null,
+                adminApproved: customerPortalEnabledFlag,
+                customerPortalEnabled: customerPortalEnabledFlag,
+                customerPortalSlot: customerPortalSlotValue,
+                customerPortalNotes: customerPortalNotesValue || null
             })
         });
 
@@ -675,6 +772,9 @@ async function editService(serviceId) {
     const serviceMarkup = toNumeric(service.markup_percentage ?? service.markup);
     let providerCost = toNumeric(service.provider_rate ?? service.provider_cost ?? service.raw_rate);
     const retailRate = toNumeric(service.rate);
+    const customerPortalEnabled = Boolean(service.customer_portal_enabled);
+    const customerPortalSlot = toNumeric(service.customer_portal_slot);
+    const customerPortalNotes = service.customer_portal_notes || '';
 
     if (providerCost === null && retailRate !== null) {
         const preferredMarkup = serviceMarkup !== null ? serviceMarkup : providerMarkup;
@@ -759,6 +859,25 @@ async function editService(serviceId) {
             <div class="form-group">
                 <label>Description</label>
                 <textarea name="description" rows="3" placeholder="Optional">${escapeHtml(service.description || '')}</textarea>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Show in Customer Portal</label>
+                    <select name="customerPortalEnabled">
+                        <option value="false"${customerPortalEnabled ? '' : ' selected'}>Hidden from storefront</option>
+                        <option value="true"${customerPortalEnabled ? ' selected' : ''}>Visible to customers</option>
+                    </select>
+                    <small style="color: #94a3b8;">Only ${CUSTOMER_PORTAL_MAX_SLOTS} curated services are shown publicly.</small>
+                </div>
+                <div class="form-group">
+                    <label>Portal Slot (1-${CUSTOMER_PORTAL_MAX_SLOTS})</label>
+                    <input type="number" name="customerPortalSlot" min="1" max="${CUSTOMER_PORTAL_MAX_SLOTS}" value="${customerPortalSlot !== null ? customerPortalSlot : ''}" placeholder="1">
+                    <small style="color: #94a3b8;">Controls ordering in the public dropdown.</small>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Customer Portal Notes</label>
+                <textarea name="customerPortalNotes" rows="2" placeholder="Optional">${escapeHtml(customerPortalNotes)}</textarea>
             </div>
         </form>
     `;
@@ -1171,6 +1290,9 @@ async function submitEditService(event, serviceId) {
     const markupRaw = (serviceData.markup ?? '').toString().trim();
     const minQuantityValue = parseIntegerInput(serviceData.min);
     const maxQuantityValue = parseIntegerInput(serviceData.max);
+    const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
+    const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
+    const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
     const payload = {
         serviceId,
         name: serviceData.serviceName,
@@ -1180,7 +1302,11 @@ async function submitEditService(event, serviceId) {
         description: serviceData.description || '',
         status: (serviceData.status || 'active').toLowerCase(),
         providerId: serviceData.provider || null,
-        providerServiceId: (serviceData.providerServiceId || '').trim() || null
+        providerServiceId: (serviceData.providerServiceId || '').trim() || null,
+        adminApproved: customerPortalEnabledFlag,
+        customerPortalEnabled: customerPortalEnabledFlag,
+        customerPortalSlot: customerPortalSlotValue,
+        customerPortalNotes: customerPortalNotesValue || null
     };
 
     if (retailRateValue !== null) {
@@ -1292,29 +1418,118 @@ async function confirmDuplicateService(serviceId) {
 
 // Toggle service status
 function toggleService(serviceId) {
+    const service = getServiceById(serviceId);
+    if (!service) {
+        showNotification('Service not found. Please refresh and try again.', 'error');
+        return;
+    }
+
+    const currentlyCurated = Boolean(service.customer_portal_enabled);
+    if (!currentlyCurated) {
+        const curatedCount = getCuratedServicesCount();
+        if (curatedCount >= CUSTOMER_PORTAL_MAX_SLOTS) {
+            showNotification(`All ${CUSTOMER_PORTAL_MAX_SLOTS} customer portal slots are already filled. Remove a curated service first.`, 'error');
+            return;
+        }
+    }
+
+    const actionVerb = currentlyCurated ? 'Remove from Customer Portal' : 'Feature in Customer Portal';
+    const iconClass = currentlyCurated ? 'fas fa-eye-slash' : 'fas fa-eye';
+    const description = currentlyCurated
+        ? 'This service will stay in your catalog but disappear from the public order form.'
+        : 'Customers will see this service in the curated dropdown (max 7 total).';
+
     const content = `
         <div class="confirmation-message">
-            <i class="fas fa-power-off" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Toggle status for service #${serviceId}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will change the service status between Active and Inactive.
-            </p>
+            <i class="${iconClass}" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+            <p>${actionVerb} for service <strong>#${serviceId}</strong>?</p>
+            <p style="color: #888; font-size: 14px; margin-top: 10px;">${description}</p>
         </div>
     `;
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="confirmToggleService(${serviceId})">
-            <i class="fas fa-power-off"></i> Toggle Status
+        <button type="button" class="btn-primary" id="toggleVisibilityConfirm" onclick="confirmToggleService(${serviceId})">
+            <i class="${iconClass}"></i> ${actionVerb}
         </button>
     `;
     
-    createModal('Toggle Service Status', content, actions);
+    createModal('Customer Portal Visibility', content, actions);
 }
 
-function confirmToggleService(serviceId) {
-    showNotification(`Service #${serviceId} status updated`, 'success');
-    closeModal();
+async function confirmToggleService(serviceId) {
+    const service = getServiceById(serviceId);
+    if (!service) {
+        showNotification('Service not found. Please refresh and try again.', 'error');
+        return;
+    }
+
+    const targetState = !Boolean(service.customer_portal_enabled);
+    const confirmButtonLabel = targetState
+        ? '<i class="fas fa-eye"></i> Feature in Customer Portal'
+        : '<i class="fas fa-eye-slash"></i> Remove from Customer Portal';
+    const confirmButton = document.getElementById('toggleVisibilityConfirm');
+    if (confirmButton) {
+        confirmButton.disabled = true;
+        confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+    }
+
+    if (targetState) {
+        const curatedCount = getCuratedServicesCount(service.id);
+        if (curatedCount >= CUSTOMER_PORTAL_MAX_SLOTS) {
+            showNotification(`All ${CUSTOMER_PORTAL_MAX_SLOTS} curated slots are filled. Remove another service first.`, 'error');
+            if (confirmButton) {
+                confirmButton.disabled = false;
+                confirmButton.innerHTML = confirmButtonLabel;
+            }
+            return;
+        }
+    }
+
+    let desiredSlot = normalizePortalSlotInput(service.customer_portal_slot);
+    if (targetState && !Number.isFinite(desiredSlot)) {
+        desiredSlot = getNextAvailablePortalSlot(service.id);
+    }
+    if (!targetState) {
+        desiredSlot = null;
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Missing admin authentication token');
+        }
+
+        const response = await fetch(buildAdminServicesUrl(), {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                serviceId,
+                adminApproved: targetState,
+                customerPortalEnabled: targetState,
+                customerPortalSlot: desiredSlot
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to update customer visibility');
+        }
+
+        showNotification(`Service #${serviceId} ${targetState ? 'added to the customer portal.' : 'removed from the customer portal.'}`, 'success');
+        closeModal();
+        await loadServices();
+    } catch (error) {
+        console.error('Toggle service visibility error:', error);
+        showNotification(error.message || 'Failed to update visibility. Please try again.', 'error');
+        if (confirmButton) {
+            confirmButton.disabled = false;
+            confirmButton.innerHTML = confirmButtonLabel;
+        }
+    }
 }
 
 // Delete service
@@ -1409,6 +1624,17 @@ async function loadServices() {
         const ariaLabelId = serviceIdRaw ? `Select service ${serviceIdRaw}` : 'Select service';
                 
                 const statusClass = service.status === 'active' ? 'completed' : 'pending';
+                const isPortalEnabled = Boolean(service.customer_portal_enabled);
+                const isAdminApproved = Boolean(service.admin_approved);
+                const portalSlotValue = toNumeric(service.customer_portal_slot);
+                const isCustomerVisible = isPortalEnabled && isAdminApproved;
+                const visibilityClass = isCustomerVisible ? 'completed' : isPortalEnabled ? 'pending' : 'pending';
+                const visibilityLabel = isCustomerVisible
+                    ? (Number.isFinite(portalSlotValue) ? `Customer Portal · Slot #${portalSlotValue}` : 'Customer Portal')
+                    : isPortalEnabled
+                        ? 'Portal Enabled (awaiting approval)'
+                        : 'Hidden from Customers';
+                const toggleActionLabel = isCustomerVisible ? 'Remove from Portal' : 'Feature in Portal';
                 const icon = service.category === 'instagram' ? 'fab fa-instagram' :
                            service.category === 'tiktok' ? 'fab fa-tiktok' :
                            service.category === 'youtube' ? 'fab fa-youtube' :
@@ -1422,7 +1648,7 @@ async function loadServices() {
                 const ourIdLabel = hasPublicId ? `#${publicIdValue}` : 'ID Pending';
                 const providerIdRaw = service.provider_service_id ? String(service.provider_service_id) : '';
                 const providerId = providerIdRaw ? escapeHtml(providerIdRaw) : null;
-                const providerLabel = providerId ? `Provider ID ${providerId}` : 'Provider ID not set';
+                const providerLabel = providerId ? providerId : 'Provider order pending';
 
                 const providerMarkupRaw = toNumeric(service.provider?.markup);
                 const serviceMarkupOverride = toNumeric(service.markup_percentage ?? service.markup);
@@ -1493,9 +1719,18 @@ async function loadServices() {
                 if (averageTimeTag) {
                     primaryTags.unshift(averageTimeTag);
                 }
+                if (isPortalEnabled) {
+                    const portalLabel = Number.isFinite(portalSlotValue)
+                        ? `Portal Slot #${portalSlotValue}`
+                        : 'Portal Enabled';
+                    primaryTags.push(`<span class="service-meta-tag">${portalLabel}</span>`);
+                }
                 metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
                 if (capabilityBadges) {
                     metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
+                }
+                if (service.customer_portal_notes) {
+                    metaRows.push(`<div class="service-meta-row service-meta-row--muted">${escapeHtml(service.customer_portal_notes)}</div>`);
                 }
                 const serviceMetaMarkup = metaRows.join('');
                 
@@ -1505,7 +1740,7 @@ async function loadServices() {
                         <td>
                             <div class="cell-stack cell-stack-ids">
                                 <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
-                                <span class="cell-secondary${providerId ? '' : ' cell-muted'}" title="Provider reference">${providerLabel}</span>
+                                <span class="cell-secondary cell-muted" title="Provider reference">${escapeHtml(providerLabel)}</span>
                             </div>
                         </td>
                         <td>
@@ -1526,14 +1761,19 @@ async function loadServices() {
                         </td>
                         <td>${minQuantity}</td>
                         <td>${maxQuantity}</td>
-                        <td><span class="status-badge ${statusClass}">${service.status}</span></td>
+                        <td>
+                            <div class="cell-stack">
+                                <span class="status-badge ${statusClass}">${escapeHtml(String(service.status || 'unknown'))}</span>
+                                <span class="status-badge ${visibilityClass}">${visibilityLabel}</span>
+                            </div>
+                        </td>
                         <td>
                             <div class="actions-dropdown">
                                 <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
                                 <div class="dropdown-menu">
                                     <a href="#" onclick="editService('${service.id}')">Edit</a>
                                     <a href="#" onclick="duplicateService('${service.id}')">Duplicate</a>
-                                    <a href="#" onclick="toggleService('${service.id}')">Toggle</a>
+                                    <a href="#" onclick="toggleService('${service.id}')">${toggleActionLabel}</a>
                                     <a href="#" onclick="deleteService('${service.id}')">Delete</a>
                                 </div>
                             </div>

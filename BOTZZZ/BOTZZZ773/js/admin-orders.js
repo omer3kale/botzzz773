@@ -160,6 +160,71 @@ function getStatusColor(statusKey) {
     }
 }
 
+function getOrderStatusChipClass(statusKey) {
+    switch (statusKey) {
+        case 'completed':
+            return 'order-status-chip--completed';
+        case 'pending':
+        case 'awaiting':
+            return 'order-status-chip--pending';
+        case 'processing':
+        case 'in-progress':
+        case 'refilling':
+            return 'order-status-chip--processing';
+        case 'partial':
+            return 'order-status-chip--partial';
+        case 'canceled':
+        case 'cancelled':
+        case 'fail':
+        case 'failed':
+            return 'order-status-chip--failed';
+        default:
+            return 'order-status-chip--muted';
+    }
+}
+
+function buildOrderStatusChip(label, value, statusKey) {
+    if (!value) {
+        return '';
+    }
+    const chipClass = getOrderStatusChipClass(statusKey);
+    return `
+        <span class="order-status-chip ${chipClass}">
+            <span class="order-status-chip__label">${escapeHtml(label)}:</span>
+            <span class="order-status-chip__value">${escapeHtml(value)}</span>
+        </span>
+    `;
+}
+
+function buildOrderStatusChipRow({
+    orderStatusLabel,
+    orderStatusKey,
+    providerStatusLabel,
+    providerStatusKey,
+    lastSyncLabel,
+    modeLabel
+} = {}) {
+    const chips = [];
+
+    if (orderStatusLabel) {
+        chips.push(buildOrderStatusChip('Customer', orderStatusLabel, orderStatusKey));
+    }
+
+    if (providerStatusLabel) {
+        chips.push(buildOrderStatusChip('Provider', providerStatusLabel, providerStatusKey));
+    }
+
+    if (modeLabel) {
+        chips.push(`<span class="order-status-chip order-status-chip--muted">${escapeHtml(modeLabel)}</span>`);
+    }
+
+    const syncLabel = lastSyncLabel || 'Sync pending';
+    chips.push(`<span class="order-status-chip order-status-chip--info" title="Last provider sync">${escapeHtml(syncLabel)}</span>`);
+
+    const filtered = chips.filter(Boolean);
+    return filtered.length ? `<div class="order-status-chip-row">${filtered.join('')}</div>` : '';
+}
+
 function formatRelativeTime(timestamp) {
     if (!timestamp) {
         return 'Sync pending';
@@ -310,11 +375,14 @@ function resolveOrderIdentifiers(order, orderService = null) {
         ? uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase()
         : null;
 
-    const primaryLabel = customerFacing
-        ? `#${escapeHtml(String(customerFacing).trim())}`
-        : cleanUuidShort
-            ? `#${escapeHtml(cleanUuidShort)}`
-            : '#—';
+    const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
+    const primaryLabel = providerOrderDisplay
+        ? escapeHtml(providerOrderDisplay)
+        : customerFacing
+            ? `#${escapeHtml(String(customerFacing).trim())}`
+            : cleanUuidShort
+                ? `#${escapeHtml(cleanUuidShort)}`
+                : '#—';
 
     // Prioritize provider_order_id (the actual order ID from the provider) over provider_service_id
     const providerOrderIdCandidates = [
@@ -332,10 +400,10 @@ function resolveOrderIdentifiers(order, orderService = null) {
         return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
     });
 
-    const internalLabel = providerOrderId
-        ? `<span class="cell-secondary cell-muted" title="Provider order identifier">Provider Order: ${escapeHtml(String(providerOrderId).trim())}</span>`
+    const internalLabel = providerOrderDisplay
+        ? `<span class="cell-secondary cell-muted" title="Provider order identifier">${escapeHtml(providerOrderDisplay)}</span>`
         : uuidRaw
-            ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">UUID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
+            ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">Internal ID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
             : '';
 
     return { primaryLabel, internalLabel };
@@ -1157,6 +1225,7 @@ async function loadOrders({ skipSync = false } = {}) {
                 const providerStatusRaw = resolveProviderStatus(order);
                 const providerStatusKey = getStatusKey(providerStatusRaw);
                 const providerStatusLabel = formatStatusLabel(providerStatusRaw);
+                const orderStatusLabel = formatStatusLabel(order.status);
                 const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
                 if (lastSync && lastSync > mostRecentSync) {
                     mostRecentSync = lastSync;
@@ -1165,14 +1234,15 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
-                const orderIdDisplay = escapeHtml(orderIdString);
-                const orderPrimaryLabel = orderIdString ? `#${orderIdDisplay}` : 'Pending ID';
                 const formattedProviderOrderId = formatProviderOrderId(order.provider_order_id);
-                const providerOrderLabel = formattedProviderOrderId ? truncateText(formattedProviderOrderId, 30) : '';
-                const providerOrderTitle = formattedProviderOrderId ? escapeHtml(formattedProviderOrderId) : '';
-                const providerOrderMarkup = formattedProviderOrderId
-                    ? `<span class="order-id-provider" title="${providerOrderTitle}">Provider Order ID: ${escapeHtml(providerOrderLabel)}</span>`
-                    : '<span class="order-id-provider order-id-missing">Provider Order ID: Pending</span>';
+                const providerOrderDisplay = formattedProviderOrderId ? truncateText(formattedProviderOrderId, 30) : '';
+                const orderPrimaryTitle = formattedProviderOrderId ? escapeHtml(formattedProviderOrderId) : '';
+                const orderPrimaryLabel = formattedProviderOrderId
+                    ? escapeHtml(providerOrderDisplay)
+                    : 'Provider ID pending';
+                const internalOrderMarkup = orderIdString
+                    ? `<span class="order-id-provider order-id-meta" data-internal-order-id="${escapeHtml(orderIdString)}">BOTZZZ Internal</span>`
+                    : '<span class="order-id-provider order-id-missing">Awaiting internal reference</span>';
 
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
@@ -1212,10 +1282,20 @@ async function loadOrders({ skipSync = false } = {}) {
                 `;
 
                 const lastSyncLabel = formatRelativeTime(order.last_status_sync);
-                    const providerIdSecondaryLabel = formattedProviderOrderId
-                        ? `Provider Order ID: ${formattedProviderOrderId}`
-                        : 'Provider Order ID: Pending';
-                    const providerIdSecondaryTitle = escapeHtml(lastSyncLabel);
+                const statusChipsMarkup = buildOrderStatusChipRow({
+                    orderStatusLabel,
+                    orderStatusKey,
+                    providerStatusLabel,
+                    providerStatusKey,
+                    lastSyncLabel,
+                    modeLabel: order.mode ? `${order.mode} Mode` : null
+                });
+                const providerIdSecondaryLabel = formattedProviderOrderId
+                    ? formattedProviderOrderId
+                    : 'Provider order pending';
+                const providerIdSecondaryTitle = formattedProviderOrderId
+                    ? formattedProviderOrderId
+                    : '';
                 const ariaLabelId = orderIdString ? `Select order #${orderIdString}` : 'Select order';
                 const selectionKeyRaw = buildOrderSelectionKey(order, index);
                 const orderSelectionAttr = escapeHtml(selectionKeyRaw);
@@ -1227,8 +1307,8 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td><input type="checkbox" class="order-checkbox" data-order-id="${orderSelectionAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="order-id-cell">
-                                <span class="order-id-primary">${orderPrimaryLabel}</span>
-                                ${providerOrderMarkup}
+                                <span class="order-id-primary"${orderPrimaryTitle ? ` title="${orderPrimaryTitle}"` : ''}>${orderPrimaryLabel}</span>
+                                ${internalOrderMarkup}
                             </div>
                         </td>
                         <td>${escapeHtml(orderUser?.username || orderUser?.email || 'Unknown')}</td>
@@ -1245,9 +1325,10 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>${escapeHtml(orderService?.name || 'Unknown Service')}</td>
                         <td>
                             <div class="cell-stack">
-                                <span class="status-badge ${orderStatusKey}">${escapeHtml(formatStatusLabel(order.status))}</span>
+                                <span class="status-badge ${orderStatusKey}">${escapeHtml(orderStatusLabel)}</span>
+                                ${statusChipsMarkup}
                                 ${providerStatusMarkup}
-                                    <span class="cell-secondary cell-muted"${providerIdSecondaryTitle ? ` title="${providerIdSecondaryTitle}"` : ''}>${escapeHtml(providerIdSecondaryLabel)}</span>
+                                    <span class="cell-secondary cell-muted"${providerIdSecondaryTitle ? ` title="${escapeHtml(providerIdSecondaryTitle)}"` : ''}>${escapeHtml(providerIdSecondaryLabel)}</span>
                             </div>
                         </td>
                         <td>${escapeHtml(String(remains))}</td>

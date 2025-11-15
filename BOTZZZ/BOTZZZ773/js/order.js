@@ -422,11 +422,12 @@ async function loadServices() {
             throw new Error(data.error || 'Failed to load services');
         }
         
-        const services = Array.isArray(data.services) ? data.services : [];
+    const services = Array.isArray(data.services) ? data.services : [];
+    const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
 
-        console.log('[ORDER] Received services:', services.length);
+    console.log('[ORDER] Received services:', services.length, 'Approved:', approvedServices.length);
         
-        servicesData = services.map(service => {
+    servicesData = approvedServices.map(service => {
             const rawMin = service.min_quantity ?? service.min_order;
             const minCandidate = rawMin === null || rawMin === undefined ? NaN : Number(rawMin);
             const minValue = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
@@ -460,7 +461,7 @@ async function loadServices() {
         if (servicesData.length === 0) {
             console.warn('[ORDER] No services available!');
             setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
-            showMessage('No services are currently available. Please contact support.', 'error');
+            showMessage('No admin-approved services are available yet. Please contact support.', 'error');
             return;
         }
         
