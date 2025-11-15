@@ -203,6 +203,79 @@ function normalizeProviderStatus(rawStatus) {
   return 'processing';
 }
 
+function normalizeStatusKey(rawStatus, fallback = 'unknown') {
+  if (rawStatus === undefined || rawStatus === null) {
+    return fallback;
+  }
+
+  const status = String(rawStatus).trim().toLowerCase();
+  if (!status) {
+    return fallback;
+  }
+
+  if (status === 'cancelled') {
+    return 'canceled';
+  }
+
+  return status.replace(/[^a-z0-9]+/g, '-');
+}
+
+function formatStatusLabelText(rawStatus, fallback = 'Unknown') {
+  if (rawStatus === undefined || rawStatus === null) {
+    return fallback;
+  }
+
+  const label = String(rawStatus)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+
+  return label || fallback;
+}
+
+function buildStatusSummary(order) {
+  const customerRaw = order?.status
+    ?? order?.order_status
+    ?? order?.status_label
+    ?? 'processing';
+
+  const providerRaw = order?.provider_status
+    ?? order?.providerStatus
+    ?? order?.provider_status_label
+    ?? null;
+
+  const normalizedCustomerKey = normalizeStatusKey(customerRaw, 'processing');
+  const customerLabel = formatStatusLabelText(customerRaw, 'Processing');
+
+  let providerSummary = null;
+  if (providerRaw) {
+    providerSummary = {
+      raw: providerRaw,
+      normalized: normalizeProviderStatus(providerRaw),
+      key: normalizeStatusKey(providerRaw, 'processing'),
+      label: formatStatusLabelText(providerRaw, 'Processing')
+    };
+  }
+
+  const lastSync = order?.last_status_sync ?? null;
+  const mode = order?.mode ?? null;
+
+  return {
+    customer: {
+      raw: customerRaw,
+      key: normalizedCustomerKey,
+      label: customerLabel
+    },
+    provider: providerSummary,
+    last_sync: lastSync,
+    mode,
+    has_provider_id: Boolean(order?.provider_order_id)
+  };
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -312,6 +385,30 @@ async function handleGetOrders(user, headers) {
 
           if (!normalizeOrderDisplayValue(order.order_reference)) {
             normalized.order_reference = reference;
+          }
+
+          if (!normalizeOrderDisplayValue(order.public_id)) {
+            normalized.public_id = reference;
+          }
+
+          normalized.display_order_id = reference;
+
+          // Build comprehensive status summary
+          const statusSummary = buildStatusSummary(normalized);
+          normalized.status_summary = statusSummary;
+          
+          // Ensure all status fields are available at top level for easy access
+          normalized.customer_status = statusSummary.customer?.raw;
+          normalized.customer_status_label = statusSummary.customer?.label;
+          normalized.customer_status_key = statusSummary.customer?.key;
+          normalized.provider_status_label = statusSummary.provider?.label || null;
+          normalized.provider_status_key = statusSummary.provider?.key || null;
+          normalized.provider_status_raw = statusSummary.provider?.raw || null;
+          normalized.mode = statusSummary.mode || order.mode || 'auto';
+          
+          // Ensure provider_order_id is consistently available
+          if (!normalized.provider_order_id && order.providerOrderId) {
+            normalized.provider_order_id = order.providerOrderId;
           }
 
           return normalized;

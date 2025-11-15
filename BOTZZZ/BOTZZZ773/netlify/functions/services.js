@@ -278,7 +278,7 @@ async function handleGetServices(event, user, headers) {
       .from('services')
       .select(`
         *,
-        provider:providers!inner(id, name, status, markup)
+        provider:providers(id, name, status, markup)
       `);
 
     if (!useAdminScope) {
@@ -328,14 +328,51 @@ async function handleGetServices(event, user, headers) {
     if (useAdminScope) {
       normalizedServices = await ensurePublicIdsForAdmin(normalizedServices);
     } else {
-      normalizedServices = normalizedServices.filter(service => {
-        const numeric = toNumberOrNull(service?.public_id ?? service?.publicId);
-        if (numeric !== null) {
-          service.public_id = numeric;
-          return true;
-        }
-        return false;
-      });
+      normalizedServices = normalizedServices
+        .filter(service => {
+          const numericPublicId = toNumberOrNull(service?.public_id ?? service?.publicId);
+          if (numericPublicId === null) {
+            return false;
+          }
+
+          service.public_id = numericPublicId;
+
+          const status = String(service?.status || '').toLowerCase();
+          const adminApproved = toBooleanFlag(service?.admin_approved ?? service?.adminApproved);
+          const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
+          const portalSlotValue = toNumberOrNull(service?.customer_portal_slot ?? service?.customerPortalSlot);
+          const providerStatus = String(service?.provider?.status || '').toLowerCase();
+          const providerHealthy = !service?.provider || providerStatus === 'active';
+
+          if (portalSlotValue !== null) {
+            service.customer_portal_slot = portalSlotValue;
+          }
+
+          return (
+            status === 'active' &&
+            adminApproved &&
+            portalEnabled &&
+            providerHealthy
+          );
+        })
+        .sort((a, b) => {
+          const slotA = toNumberOrNull(a?.customer_portal_slot) ?? Number.MAX_SAFE_INTEGER;
+          const slotB = toNumberOrNull(b?.customer_portal_slot) ?? Number.MAX_SAFE_INTEGER;
+          if (slotA !== slotB) {
+            return slotA - slotB;
+          }
+
+          const categoryA = String(a?.category || '').toLowerCase();
+          const categoryB = String(b?.category || '').toLowerCase();
+          if (categoryA !== categoryB) {
+            return categoryA.localeCompare(categoryB);
+          }
+
+          const nameA = String(a?.name || '');
+          const nameB = String(b?.name || '');
+          return nameA.localeCompare(nameB);
+        })
+        .slice(0, 7);
     }
 
     const servicesWithProviderIds = normalizedServices.map(service => {

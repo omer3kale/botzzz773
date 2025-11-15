@@ -340,51 +340,9 @@ function buildProviderOrderIdMarkup(providerName, providerOrderId) {
 }
 
 // Normalize order identifiers for consistent display
-function resolveOrderIdentifiers(order, orderService = null) {
-    const service = orderService || order?.service || order?.services || null;
+function resolveOrderIdentifiers(order) {
     const uuidRaw = order?.id ? String(order.id) : null;
-    const candidateValues = [
-        order?.order_number,
-        order?.customer_order_number,
-        order?.customer_order_id,
-        order?.display_id,
-    order?.public_id,
-        order?.reference,
-        order?.external_order_id,
-        order?.external_id
-    ];
 
-    let customerFacing = candidateValues.find(value => {
-        if (value === undefined || value === null) {
-            return false;
-        }
-        if (typeof value === 'number') {
-            return Number.isFinite(value);
-        }
-        if (typeof value === 'string') {
-            return value.trim().length > 0;
-        }
-        return false;
-    });
-
-    if (typeof customerFacing === 'number') {
-        customerFacing = String(customerFacing);
-    }
-
-    const cleanUuidShort = uuidRaw
-        ? uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase()
-        : null;
-
-    const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
-    const primaryLabel = providerOrderDisplay
-        ? escapeHtml(providerOrderDisplay)
-        : customerFacing
-            ? `#${escapeHtml(String(customerFacing).trim())}`
-            : cleanUuidShort
-                ? `#${escapeHtml(cleanUuidShort)}`
-                : '#—';
-
-    // Prioritize provider_order_id (the actual order ID from the provider) over provider_service_id
     const providerOrderIdCandidates = [
         order?.provider_order_id,
         order?.providerOrderId,
@@ -398,15 +356,73 @@ function resolveOrderIdentifiers(order, orderService = null) {
         }
         const stringValue = String(value).trim();
         return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
-    });
+    }) || null;
 
-    const internalLabel = providerOrderDisplay
-        ? `<span class="cell-secondary cell-muted" title="Provider order identifier">${escapeHtml(providerOrderDisplay)}</span>`
-        : uuidRaw
-            ? `<span class="cell-secondary cell-muted" title="${escapeHtml(uuidRaw)}">Internal ID: ${escapeHtml(truncateText(uuidRaw, 12))}</span>`
-            : '';
+    const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
 
-    return { primaryLabel, internalLabel };
+    const customerCandidates = [
+        order?.display_order_id,
+        order?.public_id,
+        order?.order_number,
+        order?.order_reference,
+        order?.customer_order_number,
+        order?.customer_order_id,
+        order?.reference,
+        order?.external_order_id,
+        order?.external_id
+    ];
+
+    let customerReference = customerCandidates.find(value => {
+        if (value === undefined || value === null) {
+            return false;
+        }
+        if (typeof value === 'number') {
+            return Number.isFinite(value);
+        }
+        if (typeof value === 'string') {
+            return value.trim().length > 0;
+        }
+        return false;
+    }) || null;
+
+    if (typeof customerReference === 'number') {
+        customerReference = String(customerReference);
+    }
+
+    let normalizedCustomer = null;
+    if (customerReference) {
+        const trimmed = String(customerReference).trim();
+        if (trimmed) {
+            normalizedCustomer = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+        }
+    }
+
+    if (!normalizedCustomer && uuidRaw) {
+        const compact = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase();
+        if (compact) {
+            normalizedCustomer = `#${compact}`;
+        }
+    }
+
+    if (!normalizedCustomer) {
+        normalizedCustomer = '#—';
+    }
+
+    const providerLabel = providerOrderDisplay
+        ? `Provider ID: ${providerOrderDisplay}`
+        : 'Provider order pending';
+
+    const providerTitle = providerOrderDisplay || 'Provider order pending';
+
+    return {
+        primaryLabel: normalizedCustomer,
+        primaryTitle: normalizedCustomer,
+        providerLabel,
+        providerTitle,
+        providerOrderId,
+        providerOrderDisplay,
+        internalUuid: uuidRaw
+    };
 }
 
 function resolveProviderStatus(order) {
@@ -467,6 +483,65 @@ function resolveProviderStatus(order) {
     return 'processing';
 }
 
+function resolveOrderStatusSummary(order) {
+    // Prefer backend-provided status_summary for consistency
+    const summary = order?.status_summary;
+    if (summary && typeof summary === 'object') {
+        const customerRaw = summary.customer?.raw ?? order?.customer_status ?? order?.status;
+        const resolvedCustomerLabel = summary.customer?.label 
+            ?? order?.customer_status_label 
+            ?? formatStatusLabel(customerRaw);
+        const resolvedCustomerKey = summary.customer?.key 
+            ?? order?.customer_status_key 
+            ?? getStatusKey(customerRaw);
+
+        const providerRaw = summary.provider?.raw
+            ?? order?.provider_status_raw
+            ?? order?.provider_status
+            ?? order?.providerStatus
+            ?? null;
+        const providerExists = Boolean(summary.provider) || Boolean(providerRaw);
+        const providerLabel = summary.provider?.label
+            ?? order?.provider_status_label
+            ?? (providerRaw ? formatStatusLabel(providerRaw) : null);
+        const providerKey = summary.provider?.key
+            ?? order?.provider_status_key
+            ?? (providerRaw ? getStatusKey(providerRaw) : null);
+
+        return {
+            customer: {
+                key: resolvedCustomerKey,
+                label: resolvedCustomerLabel
+            },
+            provider: providerExists ? {
+                key: providerKey,
+                label: providerLabel
+            } : null,
+            mode: summary.mode ?? order?.mode ?? 'auto',
+            lastSync: summary.last_sync ?? summary.lastSync ?? order?.last_status_sync ?? null
+        };
+    }
+
+    // Fallback to manual resolution if status_summary is not available
+    const providerRaw = order?.provider_status_raw
+        ?? order?.provider_status 
+        ?? order?.providerStatus
+        ?? resolveProviderStatus(order);
+
+    return {
+        customer: {
+            key: order?.customer_status_key ?? getStatusKey(order?.status),
+            label: order?.customer_status_label ?? formatStatusLabel(order?.status)
+        },
+        provider: providerRaw ? {
+            key: order?.provider_status_key ?? getStatusKey(providerRaw),
+            label: order?.provider_status_label ?? formatStatusLabel(providerRaw)
+        } : null,
+        mode: order?.mode ?? 'auto',
+        lastSync: order?.last_status_sync ?? null
+    };
+}
+
 function updateOrdersSyncStatus(message, state = 'pending') {
     const statusEl = document.getElementById('ordersSyncStatus');
     const dotEl = document.getElementById('ordersSyncDot');
@@ -514,6 +589,30 @@ function pruneSelectedOrderIds() {
             selectedOrderIds.delete(id);
         }
     }
+}
+
+function resolveSelectedOrderIds() {
+    if (selectedOrderIds.size === 0) {
+        return [];
+    }
+
+    const uniqueIds = new Set();
+    const resolved = [];
+
+    selectedOrderIds.forEach(selectionKey => {
+        const order = getOrderById(selectionKey);
+        if (!order || order.id === undefined || order.id === null) {
+            return;
+        }
+
+        const normalizedId = String(order.id);
+        if (!uniqueIds.has(normalizedId)) {
+            uniqueIds.add(normalizedId);
+            resolved.push(order.id);
+        }
+    });
+
+    return resolved;
 }
 
 function bindOrderSelectionEvents() {
@@ -678,13 +777,19 @@ function toggleAllOrders(masterCheckbox) {
     });
 }
 
-async function syncOrderStatuses({ silent = false, force = false } = {}) {
+async function syncOrderStatuses({ silent = false, force = false, orderIds = null } = {}) {
     if (ordersSyncInFlight) {
+        if (!silent) {
+            showNotification('Provider sync already running. Please wait...', 'info');
+        }
         return { skipped: true, reason: 'in-flight' };
     }
 
     const now = Date.now();
     if (!force && lastOrderSyncTime && now - lastOrderSyncTime < ORDERS_SYNC_MIN_INTERVAL) {
+        if (!silent) {
+            showNotification('Sync limit reached. Try again in a few seconds.', 'info');
+        }
         return { skipped: true, reason: 'rate-limit' };
     }
 
@@ -707,13 +812,18 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
 
     try {
         console.log('[SYNC] Starting order status sync...');
+        const payload = { action: 'sync-status' };
+        if (Array.isArray(orderIds) && orderIds.length > 0) {
+            payload.orderIds = orderIds;
+        }
+
         const response = await fetch('/.netlify/functions/orders', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ action: 'sync-status' })
+            body: JSON.stringify(payload)
         });
 
         console.log('[SYNC] Response status:', response.status);
@@ -736,14 +846,36 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
         updateOrdersSyncStatus(relative, 'success');
 
         if (!silent) {
-            showNotification(`Synced ${result.updated || 0} orders with providers`, 'success');
+            const totalResults = Array.isArray(result.results) ? result.results.length : 0;
+            const failureCount = totalResults > 0
+                ? result.results.filter(entry => !entry.success).length
+                : 0;
+            const successCount = result.updated || 0;
+            const targetCount = orderIds && orderIds.length > 0
+                ? orderIds.length
+                : (totalResults || successCount);
+
+            let message;
+            if (!targetCount && !successCount) {
+                message = 'Orders are already up to date';
+            } else {
+                const scopeLabel = orderIds && orderIds.length > 0 ? 'selected orders' : 'pending orders';
+                message = `Synced ${successCount}/${targetCount || successCount || 0} ${scopeLabel}`;
+                if (failureCount > 0) {
+                    message += ` (${failureCount} failed)`;
+                }
+            }
+
+            const level = failureCount > 0 ? 'warning' : 'success';
+            showNotification(message, level);
         }
 
         console.log('[SYNC] Sync completed successfully');
         return {
             success: true,
             updated: result.updated || 0,
-            results: result.results || []
+            results: result.results || [],
+            targeted: Array.isArray(orderIds) && orderIds.length > 0
         };
     } catch (error) {
         console.error('[SYNC] Order sync error:', error);
@@ -764,7 +896,14 @@ async function syncOrderStatuses({ silent = false, force = false } = {}) {
 }
 
 async function manualOrdersSync() {
-    await syncOrderStatuses({ force: true });
+    const selectedIds = resolveSelectedOrderIds();
+    const orderIdsPayload = selectedIds.length > 0 ? selectedIds : null;
+    const result = await syncOrderStatuses({ force: true, orderIds: orderIdsPayload });
+
+    if (result?.skipped) {
+        return;
+    }
+
     await loadOrders({ skipSync: true });
 }
 
@@ -803,15 +942,15 @@ function createModal(title, content, actions = '') {
         </div>
     `;
     
-    const existing = document.getElementById('activeModal');
+    const existing = document.querySelector('#activeModal');
     if (existing) existing.remove();
     
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
 }
 
 function closeModal() {
-    const modal = document.getElementById('activeModal');
+    const modal = document.querySelector('#activeModal');
     if (modal) {
         modal.classList.remove('show');
         setTimeout(() => modal.remove(), 300);
@@ -1221,11 +1360,11 @@ async function loadOrders({ skipSync = false } = {}) {
 
             ordersCache.forEach((order, index) => {
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
-                const orderStatusKey = getStatusKey(order.status);
-                const providerStatusRaw = resolveProviderStatus(order);
-                const providerStatusKey = getStatusKey(providerStatusRaw);
-                const providerStatusLabel = formatStatusLabel(providerStatusRaw);
-                const orderStatusLabel = formatStatusLabel(order.status);
+                const statusSummary = resolveOrderStatusSummary(order);
+                const orderStatusKey = statusSummary.customer?.key || 'unknown';
+                const orderStatusLabel = statusSummary.customer?.label || 'Unknown';
+                const providerStatusKey = statusSummary.provider?.key || null;
+                const providerStatusLabel = statusSummary.provider?.label || null;
                 const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
                 if (lastSync && lastSync > mostRecentSync) {
                     mostRecentSync = lastSync;
@@ -1234,15 +1373,19 @@ async function loadOrders({ skipSync = false } = {}) {
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
-                const formattedProviderOrderId = formatProviderOrderId(order.provider_order_id);
-                const providerOrderDisplay = formattedProviderOrderId ? truncateText(formattedProviderOrderId, 30) : '';
-                const orderPrimaryTitle = formattedProviderOrderId ? escapeHtml(formattedProviderOrderId) : '';
-                const orderPrimaryLabel = formattedProviderOrderId
-                    ? escapeHtml(providerOrderDisplay)
-                    : 'Provider ID pending';
-                const internalOrderMarkup = orderIdString
-                    ? `<span class="order-id-provider order-id-meta" data-internal-order-id="${escapeHtml(orderIdString)}">BOTZZZ Internal</span>`
-                    : '<span class="order-id-provider order-id-missing">Awaiting internal reference</span>';
+                const identifierMeta = resolveOrderIdentifiers(order);
+                const formattedProviderOrderId = identifierMeta.providerOrderDisplay;
+                const orderPrimaryTitle = identifierMeta.primaryTitle ? escapeHtml(identifierMeta.primaryTitle) : '';
+                const orderPrimaryLabel = escapeHtml(identifierMeta.primaryLabel);
+                
+                // Display order ID and provider ID in neon design palette
+                const providerOrderClass = identifierMeta.providerOrderId ? 'order-id-provider-display' : 'order-id-provider-display order-id-missing';
+                const providerOrderMarkup = identifierMeta.providerOrderId
+                    ? `<span class="${providerOrderClass}" title="Provider Order: ${escapeHtml(identifierMeta.providerOrderId)}">
+                         <i class="fas fa-external-link-alt"></i> ${escapeHtml(formattedProviderOrderId)}
+                       </span>`
+                    : `<span class="${providerOrderClass}"><i class="fas fa-hourglass-half"></i> Pending</span>`;
+                const internalOrderMarkup = '';
 
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
@@ -1273,22 +1416,24 @@ async function loadOrders({ skipSync = false } = {}) {
                     ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue)}${profitPercent !== null ? ` (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)` : ''}</span>`
                     : '';
 
-                const providerStatusDot = `<span class="provider-status-dot" style="background: ${getStatusColor(providerStatusKey)};"></span>`;
+                const providerDotKey = providerStatusKey || 'pending';
+                const providerStatusValue = providerStatusLabel || 'Provider status pending';
+                const providerStatusDot = `<span class="provider-status-dot" style="background: ${getStatusColor(providerDotKey)};"></span>`;
                 const providerStatusMarkup = `
                     <span class="provider-status-row">
                         ${providerStatusDot}
-                        <span class="provider-status-label">Provider: ${escapeHtml(providerStatusLabel)}</span>
+                        <span class="provider-status-label">Provider: ${escapeHtml(providerStatusValue)}</span>
                     </span>
                 `;
 
-                const lastSyncLabel = formatRelativeTime(order.last_status_sync);
+                const lastSyncLabel = formatRelativeTime(statusSummary.lastSync);
                 const statusChipsMarkup = buildOrderStatusChipRow({
                     orderStatusLabel,
                     orderStatusKey,
                     providerStatusLabel,
-                    providerStatusKey,
+                    providerStatusKey: providerStatusKey || undefined,
                     lastSyncLabel,
-                    modeLabel: order.mode ? `${order.mode} Mode` : null
+                    modeLabel: statusSummary.mode ? `${statusSummary.mode} Mode` : null
                 });
                 const providerIdSecondaryLabel = formattedProviderOrderId
                     ? formattedProviderOrderId
@@ -1308,6 +1453,7 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>
                             <div class="order-id-cell">
                                 <span class="order-id-primary"${orderPrimaryTitle ? ` title="${orderPrimaryTitle}"` : ''}>${orderPrimaryLabel}</span>
+                                ${providerOrderMarkup}
                                 ${internalOrderMarkup}
                             </div>
                         </td>

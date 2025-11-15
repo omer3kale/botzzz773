@@ -25,6 +25,10 @@
   path = "sync-service-catalog"
   schedule = "15 * * * *"
 
+[[scheduled_functions]]
+  path = "scheduled-provider-sync"
+  schedule = "@daily"
+
 # API redirect to serverless functions
 [[redirects]]
   from = "/api/*"

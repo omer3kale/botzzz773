@@ -5,6 +5,113 @@
 let filterButtons;
 let authToken = null;
 const serviceDetailsMap = {};
+let servicesStatusController = null;
+let servicesNetworkController = null;
+
+function createServiceStatusController() {
+    const container = document.querySelector('[data-service-status]');
+    if (!container) {
+        return null;
+    }
+
+    const iconEl = container.querySelector('[data-status-icon]');
+    const labelEl = container.querySelector('[data-status-label]');
+    const helperEl = container.querySelector('[data-status-helper]');
+    const actionBtn = container.querySelector('[data-retry-services]');
+
+    const defaults = {
+        loading: {
+            icon: '⏳',
+            label: 'Checking curated services…',
+            helper: 'Hang tight while we reach Netlify.',
+            showRetry: false
+        },
+        retrying: {
+            icon: '🔁',
+            label: 'Retrying curated services…',
+            helper: 'We are trying the request again automatically.',
+            showRetry: false
+        },
+        success: {
+            icon: '✅',
+            label: 'Services synced',
+            helper: 'Filter or search to find what you need.',
+            showRetry: false
+        },
+        empty: {
+            icon: '📦',
+            label: 'No curated services yet',
+            helper: 'An admin needs to approve storefront slots.',
+            showRetry: true
+        },
+        error: {
+            icon: '⚠️',
+            label: 'Could not reach services',
+            helper: 'Check your connection or retry below.',
+            showRetry: true
+        }
+    };
+
+    let retryHandler = null;
+
+    function setState(state = 'loading', overrides = {}) {
+        const config = { ...(defaults[state] || defaults.loading), ...overrides };
+        if (iconEl) iconEl.textContent = config.icon;
+        if (labelEl) labelEl.textContent = config.label;
+        if (helperEl) helperEl.textContent = config.helper;
+        container.dataset.state = state;
+        if (actionBtn) {
+            actionBtn.hidden = !config.showRetry;
+            actionBtn.disabled = false;
+        }
+    }
+
+    if (actionBtn) {
+        actionBtn.addEventListener('click', () => {
+            if (retryHandler) {
+                actionBtn.disabled = true;
+                retryHandler();
+            }
+        });
+    }
+
+    setState('loading');
+
+    return {
+        setState,
+        onRetry(handler) {
+            retryHandler = handler;
+        }
+    };
+}
+
+function createNetworkPillController() {
+    const pill = document.querySelector('[data-network-pill]');
+    if (!pill) {
+        return null;
+    }
+
+    const labelEl = pill.querySelector('[data-network-label]');
+    const dotEl = pill.querySelector('.status-dot');
+
+    function setStatus(isOnline) {
+        const state = isOnline ? 'online' : 'offline';
+        pill.hidden = false;
+        pill.dataset.status = state;
+        if (labelEl) {
+            labelEl.textContent = isOnline ? 'Connection stable' : 'Offline – retrying';
+        }
+        if (dotEl) {
+            dotEl.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    setStatus(navigator.onLine !== false);
+    window.addEventListener('online', () => setStatus(true));
+    window.addEventListener('offline', () => setStatus(false));
+
+    return { setStatus };
+}
 
 function requireAuth() {
     const token = localStorage.getItem('token');
@@ -32,6 +139,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const auth = requireAuth();
     if (!auth) {
         return;
+    }
+
+    servicesStatusController = createServiceStatusController();
+    servicesNetworkController = createNetworkPillController();
+
+    if (servicesStatusController) {
+        servicesStatusController.onRetry(() => {
+            loadServicesFromAPI({ manualRetry: true });
+        });
     }
 
     // Load services from API first, then initialize filters
@@ -175,16 +291,21 @@ console.log('📱 Services page loaded!');
 // Load Services from API
 // ==========================================
 
-async function loadServicesFromAPI() {
+async function loadServicesFromAPI(options = {}) {
     const container = document.getElementById('servicesContainer');
     if (!container) {
         console.warn('[SERVICES] Container element not found.');
         return false;
     }
+
+    const isRetry = Boolean(options.manualRetry);
     
     try {
         // Show loading state
         container.innerHTML = '<div class="loading-spinner" style="text-align: center; padding: 60px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px; color: #94A3B8;">Loading services...</p></div>';
+        servicesStatusController?.setState(isRetry ? 'retrying' : 'loading', {
+            helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Hang tight while we reach Netlify.'
+        });
         
         const headers = {
             'Content-Type': 'application/json'
@@ -218,6 +339,10 @@ async function loadServicesFromAPI() {
                     <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
                 </div>
             `;
+            servicesStatusController?.setState('error', {
+                label: 'Session expired',
+                helper: 'Sign back in to browse the catalog.'
+            });
             return false;
         }
 
@@ -237,6 +362,9 @@ async function loadServicesFromAPI() {
                     <p style="color: #64748B; font-size: 16px;">Services will appear once an admin approves them for customers.</p>
                 </div>
             `;
+            servicesStatusController?.setState('empty', {
+                helper: 'Ask an admin to approve storefront slots.'
+            });
             return true;
         }
         
@@ -361,6 +489,9 @@ async function loadServicesFromAPI() {
         
         container.innerHTML = html;
         console.log('[SUCCESS] Services loaded and displayed');
+        servicesStatusController?.setState('success', {
+            helper: `${approvedServices.length} curated services are ready.`
+        });
         
         // Return true to signal completion
         return true;
@@ -388,6 +519,9 @@ async function loadServicesFromAPI() {
                 <button onclick="location.reload()" class="btn btn-primary">Retry</button>
             </div>
         `;
+        servicesStatusController?.setState('error', {
+            helper: error.message || 'Unable to fetch curated services.'
+        });
         
         // Return false to signal error
         return false;
@@ -515,7 +649,15 @@ function showServiceDescription(serviceKey) {
         ? null
         : Number(rawPublicId);
     const labelId = Number.isFinite(publicIdValue) ? `#${publicIdValue}` : 'ID Pending';
-    const providerOrderRaw = service.provider_order_id ?? service.provider_service_id;
+    
+    // Enhanced fallback pattern for provider identifiers (consistent with admin-orders.js)
+    const providerOrderRaw = service.provider_order_id 
+        ?? service.providerOrderId 
+        ?? service.provider_service_id 
+        ?? service.providerServiceId 
+        ?? service.meta?.provider_order_id 
+        ?? service.meta?.providerOrderId;
+    
     const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
         ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
         : 'Provider Ref: Pending';
@@ -626,7 +768,7 @@ function showServiceDescription(serviceKey) {
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     document.body.style.overflow = 'hidden';
 
-    const modalEl = document.getElementById('serviceDescriptionModal');
+    const modalEl = document.querySelector('#serviceDescriptionModal');
     modalEl.addEventListener('click', function(e) {
         if (e.target.id === 'serviceDescriptionModal') {
             closeServiceDescription();
@@ -642,7 +784,7 @@ function showServiceDescription(serviceKey) {
 }
 
 function closeServiceDescription() {
-    const modal = document.getElementById('serviceDescriptionModal');
+    const modal = document.querySelector('#serviceDescriptionModal');
     if (modal) {
         modal.style.animation = 'modalSlideOut 0.2s ease';
         setTimeout(() => {
@@ -651,6 +793,48 @@ function closeServiceDescription() {
         }, 200);
     }
 }
+
+(function registerServicesFetchGuardHooks() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    function isServicesEndpoint(endpoint) {
+        return typeof endpoint === 'string' && endpoint.includes('/.netlify/functions/services');
+    }
+
+    window.addEventListener('fetchguard:network-status', (event) => {
+        const isOnline = event?.detail?.online !== false;
+        servicesNetworkController?.setStatus?.(isOnline);
+    });
+
+    window.addEventListener('fetchguard:retry', (event) => {
+        if (!isServicesEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        servicesStatusController?.setState('retrying', {
+            helper: 'We are retrying the services API automatically.'
+        });
+    });
+
+    window.addEventListener('fetchguard:circuit-open', (event) => {
+        if (!isServicesEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        servicesStatusController?.setState('error', {
+            helper: 'The API is cooling down; retry in a few seconds.'
+        });
+    });
+
+    window.addEventListener('fetchguard:failure', (event) => {
+        if (!isServicesEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        servicesStatusController?.setState('error', {
+            helper: event?.detail?.error?.message || 'Unable to fetch curated services.'
+        });
+    });
+})();
 
 // Add modal slide out animation
 const modalStyle = document.createElement('style');

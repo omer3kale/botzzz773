@@ -2,7 +2,115 @@
 // Order Page JavaScript
 // ==========================================
 
+const SERVICES_ENDPOINT = '/.netlify/functions/services?audience=customer';
+const SERVICES_FETCH_TIMEOUT = 15000;
+const SERVICES_FETCH_RETRIES = 2;
+const SERVICES_PER_CUSTOMER = 7;
+
 let servicesData = [];
+let servicesFetchController = null;
+let pendingServiceSelection = null;
+let serviceStatusController = null;
+let networkStatusController = null;
+
+const delay = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
+
+function generateServiceFallbackId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return `svc-${crypto.randomUUID()}`;
+    }
+    return `svc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function toBooleanFlag(value) {
+    if (value === undefined || value === null) return false;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value > 0;
+    const normalized = String(value).trim().toLowerCase();
+    if (!normalized) return false;
+    return ['1', 'true', 'yes', 'y', 'on', 'enabled'].includes(normalized);
+}
+
+function toNumberOrNull(value) {
+    if (value === undefined || value === null || value === '') {
+        return null;
+    }
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
+}
+
+function normalizeServiceRecord(service) {
+    // Enhanced fallback pattern for service identifiers (consistent with services.js and admin-orders.js)
+    const rawId = service?.id 
+        ?? service?.public_id 
+        ?? service?.publicId 
+        ?? service?.provider_service_id 
+        ?? service?.providerServiceId 
+        ?? service?.provider_order_id 
+        ?? service?.providerOrderId;
+    const serviceId = rawId !== undefined && rawId !== null ? String(rawId) : generateServiceFallbackId();
+    const categoryName = service?.category ? String(service.category) : 'Other';
+
+    const minCandidate = toNumberOrNull(service?.min_quantity ?? service?.min_order);
+    const minQuantity = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
+
+    const rawMax = service?.max_quantity ?? service?.max_order;
+    let maxQuantity;
+    if (rawMax === null || rawMax === undefined || String(rawMax).toLowerCase() === 'infinity') {
+        maxQuantity = Infinity;
+    } else {
+        const maxCandidate = toNumberOrNull(rawMax);
+        maxQuantity = Number.isFinite(maxCandidate) && maxCandidate > 0 ? maxCandidate : 1000000;
+    }
+
+    const rateCandidate = toNumberOrNull(service?.retail_rate ?? service?.rate ?? service?.price ?? 0) ?? 0;
+    const publicIdNumeric = toNumberOrNull(service?.public_id ?? service?.publicId);
+    const slotNumeric = toNumberOrNull(service?.customer_portal_slot ?? service?.customerPortalSlot);
+    const providerName = service?.provider?.name || service?.provider_name || 'Curated Provider';
+
+    return {
+        ...service,
+        id: serviceId,
+        category: categoryName,
+        rate: rateCandidate,
+        min_quantity: minQuantity,
+        max_quantity: maxQuantity,
+        publicId: publicIdNumeric,
+        providerName,
+        customer_portal_slot: slotNumeric
+    };
+}
+
+function groupServicesByCategory(services) {
+    return services.reduce((groups, service) => {
+        const category = service?.category ? String(service.category) : 'Other';
+        const normalizedCategory = category.charAt(0).toUpperCase() + category.slice(1);
+        if (!groups[normalizedCategory]) {
+            groups[normalizedCategory] = [];
+        }
+        groups[normalizedCategory].push(service);
+        return groups;
+    }, {});
+}
+
+function applyPendingServiceSelection() {
+    if (!pendingServiceSelection) {
+        return;
+    }
+    const serviceSelect = document.getElementById('service');
+    if (!serviceSelect || servicesData.length === 0) {
+        return;
+    }
+    const match = servicesData.find(service => String(service.id) === String(pendingServiceSelection));
+    if (!match) {
+        console.warn('[ORDER] Requested service not found in curated list:', pendingServiceSelection);
+        pendingServiceSelection = null;
+        return;
+    }
+    serviceSelect.value = String(match.id);
+    serviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    pendingServiceSelection = null;
+}
 
 // Helper to consistently manage the service dropdown state
 function setServiceSelectPlaceholder(selectEl, message, disabled = true) {
@@ -21,13 +129,118 @@ function setServiceSelectPlaceholder(selectEl, message, disabled = true) {
     selectEl.disabled = disabled;
 }
 
+function createServiceStatusController() {
+    const container = document.querySelector('[data-service-status]');
+    if (!container) {
+        return null;
+    }
+
+    const iconEl = container.querySelector('[data-status-icon]');
+    const labelEl = container.querySelector('[data-status-label]');
+    const helperEl = container.querySelector('[data-status-helper]');
+    const actionBtn = container.querySelector('[data-retry-services]');
+
+    const defaults = {
+        loading: {
+            icon: '⏳',
+            label: 'Checking curated services…',
+            helper: 'Hang tight while we reach Netlify.',
+            showRetry: false
+        },
+        retrying: {
+            icon: '🔁',
+            label: 'Retrying curated services…',
+            helper: 'We are giving it another go automatically.',
+            showRetry: false
+        },
+        success: {
+            icon: '✅',
+            label: 'Services synced',
+            helper: 'Select the option that fits your campaign best.',
+            showRetry: false
+        },
+        error: {
+            icon: '⚠️',
+            label: 'Could not reach services',
+            helper: 'Check your connection or retry below.',
+            showRetry: true
+        },
+        empty: {
+            icon: '📦',
+            label: 'No curated services yet',
+            helper: 'Contact support or try again later.',
+            showRetry: true
+        }
+    };
+
+    let retryHandler = null;
+
+    function setState(state = 'loading', overrides = {}) {
+        const config = { ...(defaults[state] || defaults.loading), ...overrides };
+        if (iconEl) iconEl.textContent = config.icon;
+        if (labelEl) labelEl.textContent = config.label;
+        if (helperEl) helperEl.textContent = config.helper;
+        container.dataset.state = state;
+        if (actionBtn) {
+            actionBtn.hidden = !config.showRetry;
+            actionBtn.disabled = false;
+        }
+    }
+
+    if (actionBtn) {
+        actionBtn.addEventListener('click', () => {
+            if (retryHandler) {
+                actionBtn.disabled = true;
+                retryHandler();
+            }
+        });
+    }
+
+    setState('loading');
+
+    return {
+        setState,
+        onRetry(handler) {
+            retryHandler = handler;
+        }
+    };
+}
+
+function createNetworkPillController() {
+    const pill = document.querySelector('[data-network-pill]');
+    if (!pill) {
+        return null;
+    }
+    const labelEl = pill.querySelector('[data-network-label]');
+    const dotEl = pill.querySelector('.status-dot');
+
+    function setStatus(isOnline) {
+        const state = isOnline ? 'online' : 'offline';
+        pill.hidden = false;
+        pill.dataset.status = state;
+        if (labelEl) {
+            labelEl.textContent = isOnline ? 'Connection stable' : 'Offline – retrying';
+        }
+        if (dotEl) {
+            dotEl.setAttribute('aria-hidden', 'true');
+        }
+    }
+
+    setStatus(navigator.onLine !== false);
+
+    window.addEventListener('online', () => setStatus(true));
+    window.addEventListener('offline', () => setStatus(false));
+
+    return { setStatus };
+}
+
 // Show message to user
 function showMessage(message, type = 'info') {
     // Create message element if it doesn't exist
-    let messageBox = document.getElementById('orderMessage');
+    let messageBox = document.querySelector('[data-order-message]');
     if (!messageBox) {
         messageBox = document.createElement('div');
-        messageBox.id = 'orderMessage';
+        messageBox.setAttribute('data-order-message', 'true');
         messageBox.style.cssText = `
             position: fixed;
             top: 80px;
@@ -80,13 +293,24 @@ function validateURL(url) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    // Load services first
-    loadServices();
-    
     const orderForm = document.getElementById('orderForm');
     const serviceSelect = document.getElementById('service');
     const quantityInput = document.getElementById('quantity');
     const estimatedPriceEl = document.getElementById('estimatedPrice');
+
+    serviceStatusController = createServiceStatusController();
+    networkStatusController = createNetworkPillController();
+
+    if (serviceStatusController) {
+        serviceStatusController.onRetry(() => {
+            loadServices({ manualRetry: true });
+        });
+    }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    pendingServiceSelection = urlParams.get('service');
+
+    loadServices();
     
     // Update estimated price on input change
     function updatePrice() {
@@ -260,19 +484,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     // Pre-fill service from URL parameter
-    const urlParams = new URLSearchParams(window.location.search);
-    const serviceParam = urlParams.get('service');
-    
-    if (serviceParam && serviceSelect) {
-        // Wait for services to load then select
-        const checkInterval = setInterval(() => {
-            if (servicesData.length > 0) {
-                clearInterval(checkInterval);
-                serviceSelect.value = serviceParam;
-                updatePrice();
-            }
-        }, 100);
-    }
+    // Service selection via URL handled once services load
     
     // Real-time link validation
     const linkInput = document.getElementById('link');
@@ -371,32 +583,141 @@ console.log('💰 Order page loaded!');
 // Load Services from API
 // ==========================================
 
-async function loadServices() {
+async function loadServices(options = {}) {
     const serviceSelect = document.getElementById('service');
-    
-    if (!serviceSelect) return;
-    
+    if (!serviceSelect) {
+        return;
+    }
+
+    const isRetry = Boolean(options.manualRetry);
+
+    if (servicesFetchController) {
+        servicesFetchController.abort();
+        servicesFetchController = null;
+    }
+
     console.log('[ORDER] Loading services...');
-    setServiceSelectPlaceholder(serviceSelect, 'Loading services...');
-    
-    try {
-        const token = localStorage.getItem('token');
-        const fetchHeaders = {
-            'Content-Type': 'application/json'
-        };
-        
-        // Add auth header if user is logged in (to see inactive services if admin)
-        if (token) {
-            fetchHeaders['Authorization'] = `Bearer ${token}`;
+    setServiceSelectPlaceholder(serviceSelect, 'Loading curated services...');
+
+    serviceStatusController?.setState(isRetry ? 'retrying' : 'loading', {
+        helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Hang tight while we reach Netlify.'
+    });
+
+    const token = localStorage.getItem('token');
+    const fetchHeaders = { 'Content-Type': 'application/json' };
+    if (token) {
+        fetchHeaders['Authorization'] = `Bearer ${token}`;
+    }
+
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= SERVICES_FETCH_RETRIES; attempt++) {
+        try {
+            const { response, data } = await fetchServicesOnce(fetchHeaders);
+
+            console.log('[ORDER] Services API response:', response.status);
+
+            if (response.status === 401 || response.status === 403) {
+                console.warn('[ORDER] Services request unauthorized. Response:', data);
+                setServiceSelectPlaceholder(serviceSelect, 'Sign in required to load services', true);
+                showMessage('Your session expired. Please sign in again to view services.', 'error');
+                serviceStatusController?.setState('error', {
+                    label: 'Session expired',
+                    helper: 'Sign in again to keep placing orders.'
+                });
+                setTimeout(() => {
+                    window.location.href = 'signin.html?redirect=order.html';
+                }, 1500);
+                return;
+            }
+
+            if (!response.ok) {
+                const apiError = data?.error || `Failed to load services (HTTP ${response.status})`;
+                throw new Error(apiError);
+            }
+
+            const services = Array.isArray(data?.services) ? data.services : [];
+            const curatedServices = services
+                .filter(service => {
+                    const status = String(service?.status || '').toLowerCase();
+                    const adminApproved = toBooleanFlag(service?.admin_approved ?? service?.adminApproved);
+                    const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
+                    const providerHealthy = !service?.provider || String(service?.provider?.status || '').toLowerCase() === 'active';
+                    return status === 'active' && adminApproved && portalEnabled && providerHealthy;
+                })
+                .sort((a, b) => {
+                    const slotA = toNumberOrNull(a?.customer_portal_slot ?? a?.customerPortalSlot) ?? Number.MAX_SAFE_INTEGER;
+                    const slotB = toNumberOrNull(b?.customer_portal_slot ?? b?.customerPortalSlot) ?? Number.MAX_SAFE_INTEGER;
+                    if (slotA !== slotB) {
+                        return slotA - slotB;
+                    }
+
+                    const categoryA = String(a?.category || '').toLowerCase();
+                    const categoryB = String(b?.category || '').toLowerCase();
+                    if (categoryA !== categoryB) {
+                        return categoryA.localeCompare(categoryB);
+                    }
+
+                    const nameA = String(a?.name || '');
+                    const nameB = String(b?.name || '');
+                    return nameA.localeCompare(nameB);
+                })
+                .slice(0, SERVICES_PER_CUSTOMER)
+                .map(normalizeServiceRecord);
+
+            console.log('[ORDER] Received services:', services.length, 'Curated:', curatedServices.length);
+
+            servicesData = curatedServices;
+
+            if (servicesData.length === 0) {
+                setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
+                showMessage('No admin-approved services are available yet. Please contact support.', 'info');
+                serviceStatusController?.setState('empty', {
+                    helper: 'Ping support so we can curate fresh services for you.'
+                });
+                return;
+            }
+
+            renderServiceOptions(serviceSelect);
+            serviceSelect.disabled = false;
+            showMessage(`${servicesData.length} curated services ready`, 'success');
+            serviceStatusController?.setState('success', {
+                helper: `${servicesData.length} curated services are ready for ordering.`
+            });
+            applyPendingServiceSelection();
+            return;
+        } catch (error) {
+            lastError = error;
+            console.error(`[ORDER] Failed to load services (attempt ${attempt + 1}):`, error);
+            if (attempt < SERVICES_FETCH_RETRIES) {
+                setServiceSelectPlaceholder(serviceSelect, 'Retrying service load...', true);
+                await delay(400 * (attempt + 1));
+                continue;
+            }
         }
-        
-        const response = await fetch('/.netlify/functions/services?audience=customer', {
+    }
+
+    setServiceSelectPlaceholder(serviceSelect, 'Error loading services - retry', true);
+    if (lastError) {
+        showMessage('Failed to load services: ' + lastError.message, 'error');
+    }
+    serviceStatusController?.setState('error', {
+        helper: lastError ? lastError.message : 'Unknown error occurred. '
+    });
+}
+
+async function fetchServicesOnce(headers) {
+    const controller = new AbortController();
+    servicesFetchController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), SERVICES_FETCH_TIMEOUT);
+
+    try {
+        const response = await fetch(SERVICES_ENDPOINT, {
             method: 'GET',
-            headers: fetchHeaders
+            headers,
+            signal: controller.signal
         });
-        
-        console.log('[ORDER] Services API response:', response.status);
-        
+
         const rawBody = await response.text();
         let data;
 
@@ -407,105 +728,95 @@ async function loadServices() {
             throw new Error('Received an invalid response from services API');
         }
 
-        if (response.status === 401 || response.status === 403) {
-            console.warn('[ORDER] Services request unauthorized. Response:', data);
-            setServiceSelectPlaceholder(serviceSelect, 'Sign in required to load services', true);
-            showMessage('Your session expired. Please sign in again to view services.', 'error');
-            setTimeout(() => {
-                window.location.href = 'signin.html?redirect=order.html';
-            }, 1500);
-            return;
-        }
-        
-        if (!response.ok) {
-            console.error('[ORDER] Services API error:', data);
-            throw new Error(data.error || 'Failed to load services');
-        }
-        
-    const services = Array.isArray(data.services) ? data.services : [];
-    const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
-
-    console.log('[ORDER] Received services:', services.length, 'Approved:', approvedServices.length);
-        
-    servicesData = approvedServices.map(service => {
-            const rawMin = service.min_quantity ?? service.min_order;
-            const minCandidate = rawMin === null || rawMin === undefined ? NaN : Number(rawMin);
-            const minValue = Number.isFinite(minCandidate) && minCandidate > 0 ? minCandidate : 10;
-
-            const rawMax = service.max_quantity ?? service.max_order;
-            let maxValue;
-            if (rawMax === null || rawMax === undefined) {
-                maxValue = Infinity;
-            } else {
-                const maxCandidate = Number(rawMax);
-                maxValue = Number.isFinite(maxCandidate) && maxCandidate > 0 ? maxCandidate : 1000000;
-            }
-
-            const rateCandidate = Number(service.rate || 0);
-            const rawPublicId = service.public_id ?? service.publicId;
-            const publicIdCandidate = rawPublicId === null || rawPublicId === undefined
-                ? null
-                : Number(rawPublicId);
-
-            return {
-                ...service,
-                id: String(service.id),
-                rate: Number.isFinite(rateCandidate) ? rateCandidate : 0,
-                min_quantity: minValue,
-                max_quantity: maxValue,
-                publicId: Number.isFinite(publicIdCandidate) ? publicIdCandidate : null
-            };
-        });
-        console.log('[DEBUG] Loaded services for order form:', servicesData.length);
-        
-        if (servicesData.length === 0) {
-            console.warn('[ORDER] No services available!');
-            setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
-            showMessage('No admin-approved services are available yet. Please contact support.', 'error');
-            return;
-        }
-        
-        // Group services by category
-        const grouped = {};
-        servicesData.forEach(service => {
-            const category = (service.category || 'Other').toLowerCase();
-            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
-            if (!grouped[categoryName]) {
-                grouped[categoryName] = [];
-            }
-            grouped[categoryName].push(service);
-        });
-        
-        // Build select options with optgroups
-        let html = '<option value="">Select a service</option>';
-        
-        Object.keys(grouped).sort().forEach(categoryName => {
-            html += `<optgroup label="${escapeHtml(categoryName)}">`;
-            grouped[categoryName].forEach(service => {
-                const rate = Number(service.rate || 0).toFixed(2);
-                const min = service.min_quantity;
-                const max = service.max_quantity;
-                const datasetMax = max === Infinity ? 'Infinity' : max;
-                const hasPublicId = Number.isFinite(service.publicId);
-                const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
-                html += `<option value="${service.id}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
-                    ${labelId} · ${escapeHtml(service.name)} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
-                </option>`;
-            });
-            html += '</optgroup>';
-        });
-        
-        serviceSelect.innerHTML = html;
-        console.log('[SUCCESS] Services populated in order form');
-        showMessage(`${servicesData.length} services loaded successfully`, 'success');
-        serviceSelect.disabled = false;
-        
+        return { response, data };
     } catch (error) {
-        console.error('[ERROR] Failed to load services:', error);
-        setServiceSelectPlaceholder(serviceSelect, 'Error loading services - retry', true);
-        showMessage('Failed to load services: ' + error.message, 'error');
+        if (error.name === 'AbortError') {
+            throw new Error('Services request timed out');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+        if (servicesFetchController === controller) {
+            servicesFetchController = null;
+        }
     }
 }
+
+function renderServiceOptions(serviceSelect) {
+    if (!serviceSelect) {
+        return;
+    }
+
+    if (!servicesData.length) {
+        setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
+        return;
+    }
+
+    const grouped = groupServicesByCategory(servicesData);
+    const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+
+    let html = '<option value="">Select a service</option>';
+
+    sortedCategories.forEach(categoryName => {
+        html += `<optgroup label="${escapeHtml(categoryName)}">`;
+        grouped[categoryName].forEach(service => {
+            const rate = Number(service.rate || 0).toFixed(2);
+            const min = service.min_quantity;
+            const max = service.max_quantity;
+            const datasetMax = max === Infinity ? 'Infinity' : max;
+            const hasPublicId = Number.isFinite(service.publicId);
+            const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
+            html += `<option value="${escapeHtml(String(service.id))}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
+                    ${labelId} · ${escapeHtml(service.name || 'Untitled Service')} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
+                </option>`;
+        });
+        html += '</optgroup>';
+    });
+
+    serviceSelect.innerHTML = html;
+}
+
+(function registerOrderFetchGuardHooks() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    function isServiceEndpoint(endpoint) {
+        return typeof endpoint === 'string' && endpoint.includes('/.netlify/functions/services');
+    }
+
+    window.addEventListener('fetchguard:network-status', (event) => {
+        const isOnline = event?.detail?.online !== false;
+        networkStatusController?.setStatus?.(isOnline);
+    });
+
+    window.addEventListener('fetchguard:retry', (event) => {
+        if (!isServiceEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        serviceStatusController?.setState('retrying', {
+            helper: 'We are retrying the services API automatically.'
+        });
+    });
+
+    window.addEventListener('fetchguard:circuit-open', (event) => {
+        if (!isServiceEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        serviceStatusController?.setState('error', {
+            helper: 'The API is cooling down; please retry in a few seconds.'
+        });
+    });
+
+    window.addEventListener('fetchguard:failure', (event) => {
+        if (!isServiceEndpoint(event?.detail?.endpoint)) {
+            return;
+        }
+        serviceStatusController?.setState('error', {
+            helper: event?.detail?.error?.message || 'Unable to fetch curated services.'
+        });
+    });
+})();
 
 function escapeHtml(text) {
     if (!text) return '';
