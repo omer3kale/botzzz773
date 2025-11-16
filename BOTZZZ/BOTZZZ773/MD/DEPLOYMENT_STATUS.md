@@ -114,7 +114,7 @@
 
 | # | Issue | Priority | Status | Action |
 |---|-------|----------|--------|--------|
-| 1 | Payeer Merchant Credentials | Medium | ⚠️ Pending | User needs to get merchant ID and secret key from Payeer account (P1135223884) |
+| 1 | Payeer Merchant Credentials | Medium | ⚠️ Pending | User needs to get merchant ID and secret key from Payeer account (P1135369069) |
 | 2 | Netlify Deployment | High | 🔲 Ready | Run deployment commands |
 
 ---

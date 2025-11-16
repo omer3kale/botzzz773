@@ -70,7 +70,7 @@ Webhook URL: https://yoursite.netlify.app/.netlify/functions/payeer
 - ✅ All 12 backend APIs functional
 - ✅ Database deployed with all tables
 - ✅ Security (bcrypt, JWT, RLS)
-- ✅ Payeer account configured (P1135223884)
+- ✅ Payeer account configured (P1135369069)
 
 ---
 
@@ -80,7 +80,7 @@ Webhook URL: https://yoursite.netlify.app/.netlify/functions/payeer
 
 1. ✅ Database deployed ✓ DONE
 2. ✅ Code complete ✓ DONE  
-3. ✅ Payeer account exists ✓ DONE (P1135223884)
+3. ✅ Payeer account exists ✓ DONE (P1135369069)
 4. ❌ **Get Payeer merchant credentials** ← DO THIS NOW
 5. ❌ **Deploy to Netlify** ← 5 min
 6. ❌ **Set Payeer webhook URL** ← 2 min

@@ -2,7 +2,7 @@
 
 ## Step 1: Get Payeer Merchant Credentials (5 min)
 
-1. Login to https://payeer.com/ (Account: P1135223884)
+1. Login to https://payeer.com/ (Account: P1135369069)
 2. Go to **Merchant** → **Settings**
 3. Copy your **Merchant ID**
 4. Copy your **Secret Key**
@@ -46,7 +46,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
 JWT_SECRET=dvSFnsIPha...
 PAYEER_MERCHANT_ID=your_merchant_id
 PAYEER_SECRET_KEY=your_secret_key
-PAYEER_ACCOUNT=P1135223884
+PAYEER_ACCOUNT=P1135369069
 SITE_URL=https://your-smm-panel.netlify.app
 ```
 

@@ -285,7 +285,7 @@ function showManualPaymentInstructions(amount, orderId) {
                     </div>
                     <div class="detail-row highlight">
                         <span class="detail-label">Send to Payeer ID:</span>
-                        <span class="detail-value payeer-id">P1135223884</span>
+                        <span class="detail-value payeer-id">P1135369069</span>
                     </div>
                 </div>
                 <div class="payment-instructions">
@@ -293,7 +293,7 @@ function showManualPaymentInstructions(amount, orderId) {
                     <ol>
                         <li>Login to your Payeer account</li>
                         <li>Go to <strong>Transfer</strong> section</li>
-                        <li>Send <strong>$${amount.toFixed(2)} USD</strong> to Payeer ID: <strong>P1135223884</strong></li>
+                        <li>Send <strong>$${amount.toFixed(2)} USD</strong> to Payeer ID: <strong>P1135369069</strong></li>
                         <li>Include Order ID <strong>${orderId}</strong> in the transfer notes</li>
                         <li>After completing the transfer, contact us to confirm</li>
                     </ol>
@@ -304,7 +304,7 @@ function showManualPaymentInstructions(amount, orderId) {
                     </div>
                     <h3>Confirm Your Payment</h3>
                     <p>After sending the payment, please contact us to activate your funds:</p>
-                    <a href="mailto:omerdmvc@gmail.com?subject=Payment Confirmation - Order ${orderId}&body=I have sent $${amount.toFixed(2)} USD to Payeer ID P1135223884.%0D%0AOrder ID: ${orderId}%0D%0APlease confirm and activate my funds." 
+                    <a href="mailto:omerdmvc@gmail.com?subject=Payment Confirmation - Order ${orderId}&body=I have sent $${amount.toFixed(2)} USD to Payeer ID P1135369069.%0D%0AOrder ID: ${orderId}%0D%0APlease confirm and activate my funds." 
                        class="btn-primary btn-contact">
                         <i class="fas fa-envelope"></i>
                         Contact: omerdmvc@gmail.com
