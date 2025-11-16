@@ -117,6 +117,99 @@ function truncateText(text, maxLength = 48) {
     return `${normalized.substring(0, maxLength)}...`;
 }
 
+function normalizeIdentifierCandidate(value) {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? String(value) : null;
+    }
+
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            return null;
+        }
+        const lowered = trimmed.toLowerCase();
+        if (lowered === 'null' || lowered === 'undefined') {
+            return null;
+        }
+        return trimmed;
+    }
+
+    return null;
+}
+
+function resolveProviderOrderIdFromRecord(order) {
+    if (!order || typeof order !== 'object') {
+        return null;
+    }
+
+    const candidates = [
+        order.provider_order_id,
+        order.providerOrderId,
+        order.external_order_id,
+        order.externalOrderId,
+        order.provider_ticket_id,
+        order.providerTicketId,
+        order.provider_ticket,
+        order.providerTicket,
+        order.meta?.provider_order_id,
+        order.meta?.providerOrderId,
+        order.meta?.provider_reference,
+        order.meta?.provider_order,
+        order.provider_response?.order,
+        order.provider_response?.order_id,
+        order.provider_response?.id,
+        order.provider_response?.result?.order,
+        order.provider_response?.result?.order_id,
+        order.provider_response?.data?.order,
+        order.provider_response?.data?.order_id,
+        order.provider_response?.response?.order,
+        order.provider_response?.response?.order_id,
+        order.provider_response?.details?.order,
+        order.provider_response?.details?.order_id,
+        order.provider_response?.info?.order,
+        order.provider_response?.info?.order_id,
+        order.provider_status_payload?.order,
+        order.provider_status_payload?.order_id,
+        order.provider_sync_payload?.order,
+        order.provider_sync_payload?.order_id,
+        order.status_summary?.provider?.order_id,
+        order.status_summary?.provider?.reference,
+        order.status_summary?.provider?.raw,
+        order.sync_status?.provider_order_id,
+        order.providerReference,
+        order.provider_reference
+    ];
+
+    if (Array.isArray(order.identifiers)) {
+        order.identifiers.forEach(identifier => {
+            candidates.push(identifier);
+        });
+    }
+
+    if (Array.isArray(order.provider_response_history)) {
+        order.provider_response_history.forEach(entry => {
+            if (!entry) {
+                return;
+            }
+            candidates.push(entry.order);
+            candidates.push(entry.order_id);
+        });
+    }
+
+    for (const candidate of candidates) {
+        const normalized = normalizeIdentifierCandidate(candidate);
+        if (normalized) {
+            return normalized;
+        }
+    }
+
+    return null;
+}
+
 function formatProviderOrderId(value) {
     if (value === undefined || value === null) return null;
     const normalized = String(value).trim();
@@ -327,12 +420,18 @@ function resolveOrderProvider(order, orderService) {
 }
 
 // Build consistent provider order ID markup with graceful fallback
-function buildProviderOrderIdMarkup(providerName, providerOrderId) {
+function buildProviderOrderIdMarkup(providerName, providerOrderDisplay, providerOrderRaw) {
     const safeName = providerName && providerName.trim().length > 0 ? providerName.trim() : 'Unknown Provider';
 
-    if (providerOrderId) {
-        const label = truncateText(String(providerOrderId), 30);
-        const title = escapeHtml(String(providerOrderId));
+    if (providerOrderDisplay) {
+        const label = truncateText(String(providerOrderDisplay), 34);
+        const tooltipParts = [safeName];
+        if (providerOrderRaw && providerOrderRaw !== providerOrderDisplay) {
+            tooltipParts.push(String(providerOrderRaw));
+        } else {
+            tooltipParts.push(String(providerOrderDisplay));
+        }
+        const title = escapeHtml(tooltipParts.filter(Boolean).join(' · '));
         return `<span class="order-id-provider" title="${title}"><strong>${escapeHtml(safeName)}:</strong> ${escapeHtml(label)}</span>`;
     }
 
@@ -342,22 +441,7 @@ function buildProviderOrderIdMarkup(providerName, providerOrderId) {
 // Normalize order identifiers for consistent display
 function resolveOrderIdentifiers(order) {
     const uuidRaw = order?.id ? String(order.id) : null;
-
-    const providerOrderIdCandidates = [
-        order?.provider_order_id,
-        order?.providerOrderId,
-        order?.external_order_id,
-        order?.meta?.provider_order_id
-    ];
-
-    const providerOrderId = providerOrderIdCandidates.find(value => {
-        if (value === undefined || value === null) {
-            return false;
-        }
-        const stringValue = String(value).trim();
-        return stringValue.length > 0 && stringValue.toLowerCase() !== 'null';
-    }) || null;
-
+    const providerOrderId = resolveProviderOrderIdFromRecord(order);
     const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
 
     const customerCandidates = [
@@ -414,14 +498,23 @@ function resolveOrderIdentifiers(order) {
 
     const providerTitle = providerOrderDisplay || 'Provider order pending';
 
+    const primaryLabel = providerOrderDisplay || normalizedCustomer;
+    const primaryTitle = providerOrderDisplay ? `Provider order ${providerOrderDisplay}` : normalizedCustomer;
+    const secondaryLabel = providerOrderDisplay && normalizedCustomer !== '#—'
+        ? `Customer ref: ${normalizedCustomer}`
+        : null;
+
     return {
-        primaryLabel: normalizedCustomer,
-        primaryTitle: normalizedCustomer,
+        primaryLabel: primaryLabel || '#—',
+        primaryTitle: primaryTitle || '#—',
+        secondaryLabel,
+        secondaryTitle: secondaryLabel,
         providerLabel,
         providerTitle,
         providerOrderId,
         providerOrderDisplay,
-        internalUuid: uuidRaw
+        internalUuid: uuidRaw,
+        customerLabel: normalizedCustomer
     };
 }
 
@@ -1377,14 +1470,15 @@ async function loadOrders({ skipSync = false } = {}) {
                 const formattedProviderOrderId = identifierMeta.providerOrderDisplay;
                 const orderPrimaryTitle = identifierMeta.primaryTitle ? escapeHtml(identifierMeta.primaryTitle) : '';
                 const orderPrimaryLabel = escapeHtml(identifierMeta.primaryLabel);
-                
-                // Display order ID and provider ID in neon design palette
-                const providerOrderClass = identifierMeta.providerOrderId ? 'order-id-provider-display' : 'order-id-provider-display order-id-missing';
-                const providerOrderMarkup = identifierMeta.providerOrderId
-                    ? `<span class="${providerOrderClass}" title="Provider Order: ${escapeHtml(identifierMeta.providerOrderId)}">
-                         <i class="fas fa-external-link-alt"></i> ${escapeHtml(formattedProviderOrderId)}
-                       </span>`
-                    : `<span class="${providerOrderClass}"><i class="fas fa-hourglass-half"></i> Pending</span>`;
+                const orderSecondaryMarkup = identifierMeta.secondaryLabel
+                    ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
+                    : '';
+                const providerInfo = resolveOrderProvider(order, orderService);
+                const providerOrderMarkup = buildProviderOrderIdMarkup(
+                    providerInfo.providerName,
+                    formattedProviderOrderId,
+                    identifierMeta.providerOrderId
+                );
                 const internalOrderMarkup = '';
 
 
@@ -1448,11 +1542,12 @@ async function loadOrders({ skipSync = false } = {}) {
                 const actions = buildOrderActions(order);
 
                 const row = `
-                    <tr data-status="${orderStatusKey}" data-order-id="${orderSelectionAttr}">
+                    <tr data-status="${orderStatusKey}" data-order-id="${orderSelectionAttr}"${orderIdString ? ` data-internal-id="${escapeHtml(orderIdString)}"` : ''}>
                         <td><input type="checkbox" class="order-checkbox" data-order-id="${orderSelectionAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="order-id-cell">
                                 <span class="order-id-primary"${orderPrimaryTitle ? ` title="${orderPrimaryTitle}"` : ''}>${orderPrimaryLabel}</span>
+                                ${orderSecondaryMarkup}
                                 ${providerOrderMarkup}
                                 ${internalOrderMarkup}
                             </div>

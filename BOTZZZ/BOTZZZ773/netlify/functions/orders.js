@@ -236,6 +236,91 @@ function formatStatusLabelText(rawStatus, fallback = 'Unknown') {
   return label || fallback;
 }
 
+function coerceJsonObject(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      console.warn('[ORDERS] Failed to parse JSON payload for provider resolution:', error?.message);
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function normalizeProviderIdentifierCandidate(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'null' || lowered === 'undefined') {
+      return null;
+    }
+    return trimmed;
+  }
+
+  return null;
+}
+
+function resolveProviderOrderIdFromRecord(order) {
+  if (!order || typeof order !== 'object') {
+    return null;
+  }
+
+  const meta = coerceJsonObject(order.meta);
+  const providerResponse = coerceJsonObject(order.provider_response);
+
+  const candidates = [
+    order.provider_order_id,
+    order.providerOrderId,
+    order.external_order_id,
+    order.externalOrderId,
+    order.provider_reference,
+    order.providerReference,
+    order.order_reference,
+    order.display_order_id,
+    meta?.provider_order_id,
+    meta?.provider_order,
+    meta?.provider_reference,
+    meta?.providerOrderId,
+    providerResponse?.order,
+    providerResponse?.order_id,
+    providerResponse?.id,
+    providerResponse?.result?.order,
+    providerResponse?.result?.order_id,
+    providerResponse?.data?.order,
+    providerResponse?.data?.order_id
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeProviderIdentifierCandidate(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
+
 function buildStatusSummary(order) {
   const customerRaw = order?.status
     ?? order?.order_status
@@ -409,6 +494,13 @@ async function handleGetOrders(user, headers) {
           // Ensure provider_order_id is consistently available
           if (!normalized.provider_order_id && order.providerOrderId) {
             normalized.provider_order_id = order.providerOrderId;
+          }
+
+          if (!normalized.provider_order_id) {
+            const derivedProviderOrderId = resolveProviderOrderIdFromRecord(normalized);
+            if (derivedProviderOrderId) {
+              normalized.provider_order_id = derivedProviderOrderId;
+            }
           }
 
           return normalized;
@@ -1233,8 +1325,7 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
 
   let ordersQuery = supabaseAdmin
     .from('orders')
-    .select('id, service_id, provider_order_id, status')
-    .not('provider_order_id', 'is', null);
+    .select('id, service_id, provider_order_id, status, provider_response, meta, external_order_id, order_reference, display_order_id');
 
   if (orderIds && orderIds.length > 0) {
     ordersQuery = ordersQuery.in('id', orderIds);
@@ -1242,7 +1333,7 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     ordersQuery = ordersQuery.in('status', statusesToSync);
   }
 
-  const { data: ordersToSync, error: ordersError } = await ordersQuery.limit(limit);
+  const { data: ordersData, error: ordersError } = await ordersQuery.limit(limit);
 
   if (ordersError) {
     console.error('[ORDER SYNC] Failed to load orders for sync:', ordersError);
@@ -1254,11 +1345,56 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     };
   }
 
-  if (!ordersToSync || ordersToSync.length === 0) {
+  if (!ordersData || ordersData.length === 0) {
     return { success: true, updated: 0, results: [] };
   }
 
-  const serviceIds = Array.from(new Set(ordersToSync.map((order) => order.service_id).filter(Boolean)));
+  const derivedIdUpdates = [];
+  const resolvableOrders = [];
+  const skippedResults = [];
+
+  for (const order of ordersData) {
+    const resolvedProviderId = resolveProviderOrderIdFromRecord(order);
+    if (!resolvedProviderId) {
+      skippedResults.push({
+        orderId: order.id,
+        providerOrderId: null,
+        success: false,
+        error: 'Provider order ID unavailable'
+      });
+      continue;
+    }
+
+    if (!order.provider_order_id || order.provider_order_id !== resolvedProviderId) {
+      derivedIdUpdates.push({ orderId: order.id, providerOrderId: resolvedProviderId });
+    }
+
+    resolvableOrders.push({
+      ...order,
+      provider_order_id: resolvedProviderId
+    });
+  }
+
+  if (derivedIdUpdates.length > 0) {
+    try {
+      await Promise.all(
+        derivedIdUpdates.map((entry) =>
+          supabaseAdmin
+            .from('orders')
+            .update({ provider_order_id: entry.providerOrderId })
+            .eq('id', entry.orderId)
+        )
+      );
+    } catch (persistError) {
+      console.error('[ORDER SYNC] Failed to persist derived provider IDs:', persistError);
+    }
+  }
+
+  if (resolvableOrders.length === 0) {
+    return { success: true, updated: 0, results: skippedResults };
+  }
+
+  const serviceIds = Array.from(new Set(resolvableOrders.map((order) => order.service_id).filter(Boolean)));
   const servicesMap = new Map();
   const providerMap = new Map();
 
@@ -1308,10 +1444,10 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
     }
   }
 
-  const results = [];
+  const results = [...skippedResults];
   const nowIso = new Date().toISOString();
 
-  for (const order of ordersToSync) {
+  for (const order of resolvableOrders) {
     const service = order.service_id ? servicesMap.get(order.service_id) : null;
     const provider = service && service.provider_id ? providerMap.get(service.provider_id) : null;
 
