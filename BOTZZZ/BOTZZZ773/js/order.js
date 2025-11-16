@@ -143,14 +143,14 @@ function createServiceStatusController() {
     const defaults = {
         loading: {
             icon: '⏳',
-            label: 'Checking curated services…',
-            helper: 'Hang tight while we reach Netlify.',
+            label: 'Loading services…',
+            helper: 'Fetching available services from the catalog.',
             showRetry: false
         },
         retrying: {
             icon: '🔁',
-            label: 'Retrying curated services…',
-            helper: 'We are giving it another go automatically.',
+            label: 'Retrying…',
+            helper: 'Attempting to reconnect to the service.',
             showRetry: false
         },
         success: {
