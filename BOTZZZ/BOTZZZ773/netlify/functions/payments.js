@@ -1,34 +1,18 @@
 // Payments API - Process Payments, Add Balance
 const { supabase, supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
+const { getStripeClient, isStripeConfigured } = require('./utils/stripe-client');
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 
 // Validate required environment variables
-const requiredEnvVars = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
+const requiredEnvVars = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
 requiredEnvVars.forEach(varName => {
   if (!process.env[varName]) {
     console.error(`❌ Missing required environment variable: ${varName}`);
   }
 });
-
-// Lazy-load Stripe only when needed and configured
-function getStripeClient() {
-  const key = (STRIPE_SECRET_KEY || '').trim();
-  if (!key || key === 'undefined' || key === 'null' || key === '') {
-    return null;
-  }
-
-  try {
-    const stripe = require('stripe');
-    return stripe(key);
-  } catch (error) {
-    console.error('Failed to initialize Stripe:', error.message);
-    return null;
-  }
-}
 
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -245,7 +229,7 @@ async function handleCreateCheckout(user, data, headers) {
 
 async function handleWebhook(event, headers) {
   const stripe = getStripeClient();
-  if (!stripe || !STRIPE_WEBHOOK_SECRET) {
+  if (!stripe || !STRIPE_WEBHOOK_SECRET || !isStripeConfigured()) {
     return {
       statusCode: 400,
       headers,
@@ -261,10 +245,10 @@ async function handleWebhook(event, headers) {
       stripeEvent = stripe.webhooks.constructEvent(
         event.body,
         sig,
-        process.env.STRIPE_WEBHOOK_SECRET
+        STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.error('Webhook signature verification failed:', err);
+      console.error('Webhook signature verification failed:', err.message);
       return {
         statusCode: 400,
         headers,
@@ -272,46 +256,24 @@ async function handleWebhook(event, headers) {
       };
     }
 
-    // Handle the event
-    if (stripeEvent.type === 'checkout.session.completed') {
-      const session = stripeEvent.data.object;
-      
-      // Update payment record
-      const { data: payment } = await supabaseAdmin
-        .from('payments')
-        .update({ status: 'completed' })
-        .eq('transaction_id', session.id)
-        .select()
-        .single();
+    const eventType = stripeEvent.type;
+    const payload = stripeEvent.data.object;
 
-      if (payment) {
-        // Add balance to user
-        const { data: userData } = await supabaseAdmin
-          .from('users')
-          .select('balance')
-          .eq('id', payment.user_id)
-          .single();
-
-        await supabaseAdmin
-          .from('users')
-          .update({ 
-            balance: (parseFloat(userData.balance) + parseFloat(payment.amount)).toFixed(2)
-          })
-          .eq('id', payment.user_id);
-
-        // Log activity
-        await supabaseAdmin
-          .from('activity_logs')
-          .insert({
-            user_id: payment.user_id,
-            action: 'payment_completed',
-            details: {
-              amount: payment.amount,
-              method: payment.method,
-              transaction_id: payment.transaction_id
-            }
-          });
-      }
+    switch (eventType) {
+      case 'checkout.session.completed':
+        await finalizeCheckoutSession(payload);
+        break;
+      case 'payment_intent.succeeded':
+        await finalizeStripePaymentIntent(payload, 'completed');
+        break;
+      case 'payment_intent.payment_failed':
+        await finalizeStripePaymentIntent(payload, 'failed');
+        break;
+      case 'payment_intent.canceled':
+        await finalizeStripePaymentIntent(payload, 'cancelled');
+        break;
+      default:
+        break;
     }
 
     return {
@@ -365,6 +327,132 @@ async function handleGetHistory(user, headers) {
       body: JSON.stringify({ error: 'Internal server error' })
     };
   }
+}
+
+async function finalizeCheckoutSession(session) {
+  try {
+    const { data: payment } = await supabaseAdmin
+      .from('payments')
+      .update({
+        status: 'completed',
+        details: {
+          session_id: session.id,
+          payment_status: session.payment_status,
+          payment_method_types: session.payment_method_types
+        }
+      })
+      .eq('transaction_id', session.id)
+      .select()
+      .single();
+
+    if (payment) {
+      await creditUserBalance(payment, {
+        provider: 'stripe-checkout',
+        sessionId: session.id
+      });
+    }
+  } catch (error) {
+    console.error('Failed to finalize checkout session:', error);
+  }
+}
+
+async function finalizeStripePaymentIntent(intent, status) {
+  try {
+    const paymentRecord = await findPaymentByIdentifiers(intent.id, intent.metadata?.orderId);
+    if (!paymentRecord) {
+      console.warn('Payment intent received without matching record', intent.id);
+      return;
+    }
+
+    const details = {
+      ...(paymentRecord.details || {}),
+      payment_intent: {
+        id: intent.id,
+        status: intent.status,
+        amount_received: intent.amount_received,
+        currency: intent.currency
+      }
+    };
+
+    if (status === 'completed') {
+      if (paymentRecord.status === 'completed') {
+        return;
+      }
+
+      await supabaseAdmin
+        .from('payments')
+        .update({ status: 'completed', details })
+        .eq('id', paymentRecord.id);
+
+      await creditUserBalance(paymentRecord, {
+        provider: 'stripe-google-pay',
+        intentId: intent.id
+      });
+    } else {
+      await supabaseAdmin
+        .from('payments')
+        .update({ status, details })
+        .eq('id', paymentRecord.id);
+    }
+  } catch (error) {
+    console.error('Failed to finalize payment intent:', error);
+  }
+}
+
+async function findPaymentByIdentifiers(primaryId, fallbackId) {
+  const { data: payment } = await supabaseAdmin
+    .from('payments')
+    .select('*')
+    .eq('transaction_id', primaryId)
+    .maybeSingle();
+
+  if (payment) {
+    return payment;
+  }
+
+  if (!fallbackId) {
+    return null;
+  }
+
+  const { data: fallbackPayment } = await supabaseAdmin
+    .from('payments')
+    .select('*')
+    .eq('transaction_id', fallbackId)
+    .maybeSingle();
+
+  return fallbackPayment || null;
+}
+
+async function creditUserBalance(payment, activityDetails = {}) {
+  const { data: userData } = await supabaseAdmin
+    .from('users')
+    .select('balance')
+    .eq('id', payment.user_id)
+    .single();
+
+  if (!userData) {
+    return;
+  }
+
+  const newBalance = (parseFloat(userData.balance || 0) + parseFloat(payment.amount)).toFixed(2);
+
+  await supabaseAdmin
+    .from('users')
+    .update({ balance: newBalance })
+    .eq('id', payment.user_id);
+
+  await supabaseAdmin
+    .from('activity_logs')
+    .insert({
+      user_id: payment.user_id,
+      action: 'payment_completed',
+      details: {
+        amount: payment.amount,
+        method: payment.method,
+        transaction_id: payment.transaction_id,
+        ...activityDetails
+      }
+    });
 }
 
 async function handleAdminAddPayment(user, data, headers) {

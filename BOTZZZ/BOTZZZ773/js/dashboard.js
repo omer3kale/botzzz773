@@ -218,6 +218,44 @@
             : formatted;
     }
 
+    function formatProviderOrderId(value) {
+        if (value === undefined || value === null) return null;
+        const normalized = String(value).trim();
+        if (!normalized) return null;
+        return normalized.startsWith('#') ? normalized : `#${normalized}`;
+    }
+
+    function resolveProviderOrderId(order = {}) {
+        const raw = order.provider_order_id
+            ?? order.provider_order
+            ?? order.providerOrderId
+            ?? order.provider?.order_id
+            ?? order.meta?.provider_order_id
+            ?? order.details?.provider_order_id
+            ?? order.external_id
+            ?? null;
+        return formatProviderOrderId(raw);
+    }
+
+    function buildStatusKey(status) {
+        return String(status || 'unknown')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            || 'unknown';
+    }
+
+    function formatOrderStatusLabel(status) {
+        if (!status) return 'Unknown';
+        return String(status)
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .split(' ')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+    }
+
     const CAPABILITY_BADGES = [
         { key: 'refill', label: 'Refill' },
         { key: 'cancel', label: 'Cancel' },
@@ -797,6 +835,24 @@
 
         ordersTableBody.innerHTML = orders.map(order => {
             const reference = order.order_number || order.id || '—';
+            const primaryLabel = reference !== '—' ? reference : 'Order';
+            const hasDistinctUuid = Boolean(
+                order.order_number && order.id && String(order.order_number).trim() !== String(order.id).trim()
+            );
+            const uuidMarkup = hasDistinctUuid
+                ? `<span class="order-id-secondary">UUID: ${escapeHtml(order.id)}</span>`
+                : '';
+            
+            // Don't show provider info to customers - it's admin-only data
+            const providerOrderId = resolveProviderOrderId(order);
+            const providerMarkup = ''; // Removed provider display for customer dashboard
+            
+            const orderIdCell = `
+                <div class="order-id-cell">
+                    <span class="order-id-primary">${escapeHtml(primaryLabel)}</span>
+                    ${uuidMarkup}
+                </div>
+            `;
             const createdAt = order.created_at ? new Date(order.created_at).toLocaleDateString() : '—';
             const orderLink = typeof order.link === 'string' && order.link.trim().length > 0
                 ? order.link.trim()
@@ -804,6 +860,7 @@
             const linkLabel = orderLink
                 ? `${orderLink.substring(0, 30)}${orderLink.length > 30 ? '…' : ''}`
                 : 'No link provided';
+            const safeOrderLink = orderLink ? escapeHtml(orderLink) : '';
 
             const currencyGuess = order.currency
                 || order.retail_currency
@@ -820,21 +877,23 @@
                 || order.service?.name
                 || 'Service';
             const serviceLabel = serviceName.length > 40 ? `${serviceName.substring(0, 40)}…` : serviceName;
+            const statusKey = buildStatusKey(order.status);
+            const statusLabel = formatOrderStatusLabel(order.status);
 
             return `
                 <tr>
-                    <td><strong>${reference}</strong></td>
+                    <td>${orderIdCell}</td>
                     <td>${createdAt}</td>
                     <td>${orderLink
-                        ? `<a href="${orderLink}" target="_blank" style="color: var(--primary-pink);">${linkLabel}</a>`
+                        ? `<a href="${safeOrderLink}" target="_blank" rel="noopener" style="color: var(--primary-pink);">${escapeHtml(linkLabel)}</a>`
                         : '<span style="color: var(--text-muted, #94a3b8); font-style: italic;">No link</span>'}
                     </td>
                     <td>${chargeDisplay}</td>
-                    <td>${order.start_count || 0}</td>
-                    <td>${quantity}</td>
-                    <td>${serviceLabel}</td>
-                    <td><span class="status-badge status-${order.status}">${order.status}</span></td>
-                    <td>${order.remains || 0}</td>
+                    <td>${escapeHtml(order.start_count || 0)}</td>
+                    <td>${escapeHtml(quantity)}</td>
+                    <td>${escapeHtml(serviceLabel)}</td>
+                    <td><span class="status-badge status-${statusKey}">${escapeHtml(statusLabel)}</span></td>
+                    <td>${escapeHtml(order.remains || 0)}</td>
                 </tr>
             `;
         }).join('');

@@ -266,15 +266,15 @@ function createModal(title, content, actions = '') {
         </div>
     `;
     
-    const existing = document.getElementById('activeModal');
+    const existing = document.querySelector('#activeModal');
     if (existing) existing.remove();
     
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
 }
 
 function closeModal() {
-    const modal = document.getElementById('activeModal');
+    const modal = document.querySelector('#activeModal');
     if (modal) {
         modal.classList.remove('show');
         setTimeout(() => modal.remove(), 300);
@@ -326,7 +326,6 @@ async function addPayment() {
                         <option value="payeer">Payeer</option>
                         <option value="stripe">Stripe</option>
                         <option value="paypal">PayPal</option>
-                        <option value="crypto">Cryptocurrency</option>
                         <option value="bank">Bank Transfer</option>
                         <option value="cash">Cash</option>
                         <option value="other">Other</option>
@@ -679,7 +678,7 @@ async function loadPayments() {
                 const memo = payment.memo ? escapeHtml(payment.memo) : '-';
                 const ariaLabel = `Select payment ${paymentIdRaw || 'without id'} for ${userLabel}`;
                 const modeLabel = payment.gateway_response?.manual ? 'Manual' : 'Live';
-                const methodOptions = ['payeer', 'stripe', 'paypal', 'crypto', 'bank', 'cash', 'other']
+                const methodOptions = ['payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
                     .map(method => `<option value="${method}"${payment.method === method ? ' selected' : ''}>${method}</option>`)
                     .join('');
 

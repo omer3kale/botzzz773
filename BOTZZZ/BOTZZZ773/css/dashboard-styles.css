@@ -590,6 +590,38 @@
     color: var(--text-gray);
 }
 
+.order-id-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    line-height: 1.3;
+}
+
+.order-id-primary {
+    font-weight: 600;
+    color: var(--text-white);
+}
+
+.order-id-secondary {
+    font-size: 0.75rem;
+    color: var(--text-light-gray);
+}
+
+.order-id-provider {
+    font-size: 0.78rem;
+    color: var(--text-gray);
+}
+
+.order-id-provider strong {
+    color: var(--primary-pink);
+    font-weight: 600;
+}
+
+.order-id-provider.order-id-missing {
+    color: #f97316;
+    font-weight: 600;
+}
+
 .orders-table tbody tr {
     transition: var(--transition-fast);
 }

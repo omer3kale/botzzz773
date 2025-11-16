@@ -14,8 +14,8 @@ exports.handler = async (event) => {
     statusCode: 410,
     headers,
     body: JSON.stringify({
-      error: 'Crypto payments are currently disabled. Please use the Payeer manual transfer workflow.',
-      code: 'CRYPTO_DISABLED'
+      error: 'Google Pay integration has been disabled. Please use the Payeer manual transfer option instead.',
+      code: 'GOOGLE_PAY_DISABLED'
     })
   };
 };

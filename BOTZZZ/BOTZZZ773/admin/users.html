@@ -104,36 +104,25 @@
         <!-- SHOW TOTALS Bar -->
         <div class="totals-bar">SHOW TOTALS</div>
 
-        <!-- Users Table -->
-        <div class="users-layout">
-            <div class="users-quick-actions">
-                <article class="users-quick-card" id="selectedUsersCard" role="button" tabindex="0" aria-label="Open selected users quick view" aria-pressed="false" aria-haspopup="dialog">
-                    <div class="users-quick-card-header">
-                        <h3>Selected Users</h3>
-                        <span class="users-quick-card-icon">
-                            <i class="fas fa-user-check"></i>
-                        </span>
-                    </div>
-                    <p class="users-quick-card-primary" id="selectedUsersCount">0 selected</p>
-                    <p class="users-quick-card-secondary" id="selectedUsersDetail">
-                        Choose a user in the table to unlock quick actions.
-                    </p>
-                    <span class="users-quick-card-hint">Click to open quick view</span>
-                </article>
-                <article class="users-quick-card accent" id="addUserCard" role="button" tabindex="0" aria-label="Add a new user" aria-haspopup="dialog">
-                    <div class="users-quick-card-header">
-                        <h3>Add User</h3>
-                        <span class="users-quick-card-icon">
-                            <i class="fas fa-user-plus"></i>
-                        </span>
-                    </div>
-                    <p class="users-quick-card-primary">Create Profile</p>
-                    <p class="users-quick-card-secondary">
-                        Launch the Inter Miami styled modal to onboard a new customer.
-                    </p>
-                    <span class="users-quick-card-hint">Click to launch form</span>
-                </article>
+        <div class="admin-inline-toolbar">
+            <article class="toolbar-card interactive" id="selectedUsersCard" role="button" tabindex="0" aria-label="Open selected users quick view" aria-pressed="false" aria-haspopup="dialog">
+                <div class="toolbar-card-header">
+                    <h3>Selected Users</h3>
+                    <span class="toolbar-hint">Quick view</span>
+                </div>
+                <p class="toolbar-card-primary" id="selectedUsersCount">0 selected</p>
+                <p class="toolbar-card-secondary" id="selectedUsersDetail">Choose a user in the table to unlock quick actions.</p>
+            </article>
+            <div class="toolbar-actions">
+                <button class="toolbar-action primary" id="addUserCard" type="button">
+                    <i class="fas fa-user-plus"></i>
+                    <span>Add User</span>
+                </button>
             </div>
+        </div>
+
+        <!-- Users Table -->
+        <div class="users-layout no-quick-actions">
             <div class="users-table-panel">
                 <div class="table-container">
                     <table class="admin-table" id="usersTable">

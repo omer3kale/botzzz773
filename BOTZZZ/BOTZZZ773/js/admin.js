@@ -7,6 +7,95 @@ function toggleSidebar() {
     document.body.classList.toggle('sidebar-collapsed');
 }
 
+const adminNetworkNotice = (() => {
+    let bannerEl = null;
+    let hideTimer = null;
+
+    function ensureBanner() {
+        if (bannerEl) {
+            return bannerEl;
+        }
+        bannerEl = document.createElement('div');
+        bannerEl.className = 'admin-network-banner';
+        bannerEl.innerHTML = `
+            <span class="admin-network-banner__dot"></span>
+            <span class="admin-network-banner__text">Network status</span>
+        `;
+        document.body.appendChild(bannerEl);
+        return bannerEl;
+    }
+
+    function render(message, variant = 'warning', sticky = false) {
+        const el = ensureBanner();
+        const textEl = el.querySelector('.admin-network-banner__text');
+        if (textEl) {
+            textEl.textContent = message;
+        }
+        el.dataset.variant = variant;
+        el.classList.add('show');
+        if (hideTimer) {
+            clearTimeout(hideTimer);
+            hideTimer = null;
+        }
+        if (!sticky) {
+            hideTimer = setTimeout(() => {
+                el.classList.remove('show');
+            }, 6000);
+        }
+    }
+
+    return {
+        flash(message, variant) {
+            render(message, variant, false);
+        },
+        stick(message, variant) {
+            render(message, variant, true);
+        },
+        hide() {
+            if (bannerEl) {
+                bannerEl.classList.remove('show');
+            }
+        }
+    };
+})();
+
+(function registerAdminFetchGuardListeners() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    let lastFailureToast = 0;
+    const failureCooldownMs = 7000;
+
+    window.addEventListener('fetchguard:failure', () => {
+        const now = Date.now();
+        if (now - lastFailureToast < failureCooldownMs) {
+            return;
+        }
+        lastFailureToast = now;
+        adminNetworkNotice.flash('Retrying admin API request…', 'error');
+    });
+
+    window.addEventListener('fetchguard:circuit-open', (event) => {
+        const endpoint = event.detail?.endpoint || 'Admin API';
+        adminNetworkNotice.stick(`${endpoint} paused after repeated failures. Cooling down briefly.`, 'warning');
+    });
+
+    window.addEventListener('fetchguard:circuit-reset', () => {
+        adminNetworkNotice.flash('Connection stabilized. Resuming operations.', 'success');
+    });
+
+    window.addEventListener('fetchguard:network-status', (event) => {
+        const online = event.detail?.online !== false;
+        document.body.dataset.networkStatus = online ? 'online' : 'offline';
+        if (!online) {
+            adminNetworkNotice.stick('You appear to be offline. Actions are paused.', 'warning');
+        } else {
+            adminNetworkNotice.flash('Back online. Reloading data…', 'success');
+        }
+    });
+})();
+
 // Toggle User Menu
 function toggleUserMenu() {
     const menu = document.getElementById('userDropdownMenu');
@@ -141,9 +230,19 @@ async function populateRecentOrders() {
     tbody.innerHTML = orders.map(order => {
         const orderNumber = order.order_number || order.id;
         const uuidMarkup = order.order_number ? `<div class="cell-secondary cell-muted">${order.id}</div>` : '';
+        const providerOrderId = order.provider_order_id || order.meta?.provider_order_id;
+        const providerMarkup = providerOrderId
+            ? `<div class="order-id-provider"><strong>Provider:</strong> ${providerOrderId}</div>`
+            : `<div class="order-id-provider order-id-missing">Provider order pending</div>`;
         return `
         <tr>
-            <td><strong>${orderNumber}</strong>${uuidMarkup}</td>
+            <td>
+                <div class="order-id-cell">
+                    <div class="cell-primary">${orderNumber}</div>
+                    ${uuidMarkup}
+                    ${providerMarkup}
+                </div>
+            </td>
             <td>${order.user_id || order.username || 'N/A'}</td>
             <td>${order.service_id || order.service || 'N/A'}</td>
             <td>$${(order.charge || 0).toFixed(2)}</td>
@@ -415,15 +514,15 @@ function createModal(title, content, actions = '') {
         </div>
     `;
     
-    const existing = document.getElementById('activeModal');
+    const existing = document.querySelector('#activeModal');
     if (existing) existing.remove();
     
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
 }
 
 function closeModal() {
-    const modal = document.getElementById('activeModal');
+    const modal = document.querySelector('#activeModal');
     if (modal) {
         modal.classList.remove('show');
         setTimeout(() => modal.remove(), 300);

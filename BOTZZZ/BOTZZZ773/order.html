@@ -52,6 +52,18 @@
         <div class="container">
             <div class="order-wrapper">
                 <div class="order-form-container">
+                    <div class="network-pill" data-network-pill aria-live="polite" hidden>
+                        <span class="status-dot"></span>
+                        <span data-network-label>Offline</span>
+                    </div>
+                    <div class="service-state-card" data-service-status aria-live="polite">
+                        <div class="service-state-icon" data-status-icon>⏳</div>
+                        <div class="service-state-copy">
+                            <p class="service-state-label" data-status-label>Checking curated services…</p>
+                            <p class="service-state-helper" data-status-helper>Hang tight while we reach Netlify.</p>
+                        </div>
+                        <button type="button" class="service-state-action" data-retry-services hidden>Retry</button>
+                    </div>
                     <form id="orderForm" class="order-form">
                         <div class="form-group">
                             <label for="service" class="form-label">Service *</label>
@@ -127,7 +139,7 @@
                             <span class="payment-icon">💰</span>
                             <span class="payment-icon">🏦</span>
                         </div>
-                        <p class="payment-text">Credit Cards, Crypto, PayPal & More</p>
+                        <p class="payment-text">Manual Payeer Transfers</p>
                     </div>
                 </div>
             </div>
@@ -150,7 +162,7 @@
                 </div>
                 <div class="faq-item">
                     <h3 class="faq-question">What payment methods do you accept?</h3>
-                    <p class="faq-answer">We accept credit cards, cryptocurrency, PayPal, and various other payment methods.</p>
+                    <p class="faq-answer">We currently process deposits through secure manual Payeer transfers.</p>
                 </div>
                 <div class="faq-item">
                     <h3 class="faq-question">Do you offer refills?</h3>

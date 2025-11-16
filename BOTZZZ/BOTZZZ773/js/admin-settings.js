@@ -5,6 +5,71 @@ let settingsProvidersCache = [];
 let settingsProvidersLoading = false;
 let lastSettingsProvidersRefreshAt = null;
 
+const SETTINGS_SECTION_CONFIG = {
+    general: {
+        formId: 'generalSettingsForm',
+        action: 'update-general',
+        successMessage: 'General settings saved successfully!',
+        storageKey: 'general'
+    },
+    payment: {
+        formId: 'paymentSettingsForm',
+        action: 'update-payment',
+        successMessage: 'Payment settings saved successfully!',
+        storageKey: 'payment'
+    },
+    notification: {
+        formId: 'notificationSettingsForm',
+        action: 'update-notification',
+        successMessage: 'Notification settings saved successfully!',
+        storageKey: 'notification'
+    },
+    bonus: {
+        formId: 'bonusSettingsForm',
+        action: 'update-bonus',
+        successMessage: 'Bonus settings saved successfully!',
+        storageKey: 'bonus'
+    },
+    signup: {
+        formId: 'signupSettingsForm',
+        action: 'update-signup',
+        successMessage: 'Signup settings saved successfully!',
+        storageKey: 'signup'
+    },
+    ticket: {
+        formId: 'ticketSettingsForm',
+        action: 'update-ticket',
+        successMessage: 'Ticket settings saved successfully!',
+        storageKey: 'ticket'
+    },
+    modules: {
+        formId: 'modulesSettingsForm',
+        action: 'update-modules',
+        successMessage: 'Module settings saved successfully!',
+        storageKey: 'modules'
+    },
+    integrations: {
+        formId: 'integrationsSettingsForm',
+        action: 'update-integrations',
+        successMessage: 'Integration settings saved successfully!',
+        storageKey: 'integrations'
+    }
+};
+
+const SETTINGS_UI_SECTION_MAP = {
+    general: 'general',
+    payments: 'payment',
+    notifications: 'notification',
+    bonuses: 'bonus',
+    signup: 'signup',
+    ticket: 'ticket',
+    modules: 'modules',
+    integrations: 'integrations'
+};
+
+let adminSettingsCache = null;
+let adminSettingsPromise = null;
+
 function attachSettingsQuickActionCard(element, handler) {
     if (!element || typeof handler !== 'function') {
         return;
@@ -159,6 +224,10 @@ function showSettingsSection(section, navEvent) {
     if (section === 'providers') {
         updateSettingsProvidersSummary();
     }
+
+    if (typeof applyStoredSettingsToSection === 'function') {
+        applyStoredSettingsToSection(section);
+    }
 }
 
 // Load settings section dynamically
@@ -194,7 +263,217 @@ function loadSettingsSection(section) {
         if (section === 'modules') {
             updateSettingsModulesSummary();
         }
+        if (typeof applyStoredSettingsToSection === 'function') {
+            applyStoredSettingsToSection(section);
+        }
     }
+}
+
+function isRadioNodeList(element) {
+    if (typeof RadioNodeList !== 'undefined' && element instanceof RadioNodeList) {
+        return true;
+    }
+    return Boolean(element && typeof element.length === 'number' && typeof element.item === 'function');
+}
+
+function serializeForm(form) {
+    const data = {};
+    Array.from(form?.elements || []).forEach(field => {
+        if (!field.name || field.disabled) {
+            return;
+        }
+
+        if (field.type === 'checkbox') {
+            data[field.name] = field.checked;
+            return;
+        }
+
+        if (field.type === 'radio') {
+            if (field.checked) {
+                data[field.name] = field.value;
+            } else if (!(field.name in data)) {
+                data[field.name] = '';
+            }
+            return;
+        }
+
+        data[field.name] = field.value;
+    });
+    return data;
+}
+
+function populateFormValues(form, values = {}) {
+    if (!form) {
+        return;
+    }
+
+    Object.entries(values).forEach(([name, value]) => {
+        const field = form.elements[name];
+        if (!field) {
+            return;
+        }
+
+        if (isRadioNodeList(field)) {
+            Array.from(field).forEach(radio => {
+                radio.checked = radio.value === String(value);
+            });
+            return;
+        }
+
+        if (field.type === 'checkbox') {
+            field.checked = Boolean(value);
+            return;
+        }
+
+        field.value = value ?? '';
+    });
+}
+
+function updateSettingsCache(storageKey, values) {
+    if (!storageKey) {
+        return;
+    }
+    if (!adminSettingsCache || typeof adminSettingsCache !== 'object') {
+        adminSettingsCache = {};
+    }
+    adminSettingsCache[storageKey] = values;
+}
+
+async function getStoredSettings(forceRefresh = false) {
+    if (adminSettingsCache && !forceRefresh) {
+        return adminSettingsCache;
+    }
+
+    if (!adminSettingsPromise || forceRefresh) {
+        adminSettingsPromise = fetchSettingsFromServer()
+            .then(settings => {
+                adminSettingsCache = settings;
+                return settings;
+            })
+            .catch(error => {
+                adminSettingsPromise = null;
+                throw error;
+            });
+    }
+
+    return adminSettingsPromise;
+}
+
+async function fetchSettingsFromServer() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        console.warn('[WARN] No auth token found while fetching settings');
+        return {};
+    }
+
+    try {
+        const response = await fetch('/.netlify/functions/settings', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            let errorMessage = 'Failed to load settings';
+            try {
+                const data = await response.json();
+                errorMessage = data.error || errorMessage;
+            } catch (parseError) {
+                console.warn('[WARN] Non-JSON error while fetching settings');
+            }
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        return data.settings || {};
+    } catch (error) {
+        console.error('[ERROR] Unable to fetch settings:', error);
+        if (typeof showNotification === 'function') {
+            showNotification('Unable to load existing settings from storage', 'error');
+        }
+        return {};
+    }
+}
+
+async function applyStoredSettingsToSection(section) {
+    const configKey = SETTINGS_UI_SECTION_MAP[section];
+    if (!configKey) {
+        return;
+    }
+
+    const config = SETTINGS_SECTION_CONFIG[configKey];
+    if (!config) {
+        return;
+    }
+
+    try {
+        const settings = await getStoredSettings();
+        const values = settings?.[config.storageKey];
+        if (!values) {
+            return;
+        }
+        const form = document.getElementById(config.formId);
+        populateFormValues(form, values);
+    } catch (error) {
+        console.warn(`[WARN] Failed to hydrate ${section} settings:`, error);
+    }
+}
+
+async function submitSettingsSection(configKey) {
+    const config = SETTINGS_SECTION_CONFIG[configKey];
+    if (!config) {
+        console.warn(`[WARN] No settings config found for ${configKey}`);
+        return;
+    }
+
+    const form = document.getElementById(config.formId);
+    if (!form) {
+        showNotification('Settings form not found', 'error');
+        return;
+    }
+
+    const settings = serializeForm(form);
+
+    try {
+        await sendSettingsUpdate(config, settings);
+        showNotification(config.successMessage, 'success');
+    } catch (error) {
+        console.error('[ERROR] Failed to save settings:', error);
+        showNotification(error.message || 'Failed to save settings', 'error');
+    }
+}
+
+async function sendSettingsUpdate(config, settings) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        throw new Error('Please login to save settings');
+    }
+
+    const response = await fetch('/.netlify/functions/settings', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+            action: config.action,
+            settings
+        })
+    });
+
+    let data = {};
+    try {
+        data = await response.json();
+    } catch (error) {
+        console.warn('[WARN] Non-JSON response while saving settings');
+    }
+
+    if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save settings');
+    }
+
+    updateSettingsCache(config.storageKey, settings);
+    return data;
 }
 
 // Generate General Settings HTML
@@ -415,8 +694,11 @@ function generateModuleSettings() {
     return `
         <div class="settings-header">
             <h2>Modules & Features</h2>
+            <button class="btn-primary" onclick="saveModuleSettings()">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
         </div>
-        <div class="settings-form-grid">
+        <form id="modulesSettingsForm" class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-toggle-on"></i> Core Modules</h3>
                 <div class="module-list">
@@ -428,8 +710,9 @@ function generateModuleSettings() {
                                 <p>Main ordering functionality</p>
                             </div>
                         </div>
+                        <input type="hidden" name="moduleOrders" value="true">
                         <label class="toggle-switch">
-                            <input type="checkbox" checked disabled>
+                            <input type="checkbox" name="moduleOrders" checked disabled>
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -442,7 +725,7 @@ function generateModuleSettings() {
                             </div>
                         </div>
                         <label class="toggle-switch">
-                            <input type="checkbox" checked onchange="toggleModule('tickets', this.checked)">
+                            <input type="checkbox" name="moduleTickets" checked onchange="toggleModule('tickets', this.checked)">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -455,7 +738,7 @@ function generateModuleSettings() {
                             </div>
                         </div>
                         <label class="toggle-switch">
-                            <input type="checkbox" checked onchange="toggleModule('subscriptions', this.checked)">
+                            <input type="checkbox" name="moduleSubscriptions" checked onchange="toggleModule('subscriptions', this.checked)">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -474,7 +757,7 @@ function generateModuleSettings() {
                             </div>
                         </div>
                         <label class="toggle-switch">
-                            <input type="checkbox" onchange="toggleModule('bonuses', this.checked)">
+                            <input type="checkbox" name="moduleBonuses" onchange="toggleModule('bonuses', this.checked)">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -487,7 +770,7 @@ function generateModuleSettings() {
                             </div>
                         </div>
                         <label class="toggle-switch">
-                            <input type="checkbox" checked onchange="toggleModule('api', this.checked)">
+                            <input type="checkbox" name="moduleApi" checked onchange="toggleModule('api', this.checked)">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
@@ -500,13 +783,13 @@ function generateModuleSettings() {
                             </div>
                         </div>
                         <label class="toggle-switch">
-                            <input type="checkbox" onchange="toggleModule('childpanels', this.checked)">
+                            <input type="checkbox" name="moduleChildPanels" onchange="toggleModule('childpanels', this.checked)">
                             <span class="toggle-slider"></span>
                         </label>
                     </div>
                 </div>
             </div>
-        </div>
+        </form>
     `;
 }
 
@@ -515,8 +798,11 @@ function generateIntegrationSettings() {
     return `
         <div class="settings-header">
             <h2>Third-Party Integrations</h2>
+            <button class="btn-primary" onclick="saveIntegrationSettings()">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
         </div>
-        <div class="settings-form-grid">
+        <form id="integrationsSettingsForm" class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fab fa-google"></i> Google Analytics</h3>
                 <div class="form-group">
@@ -579,7 +865,7 @@ function generateIntegrationSettings() {
                     <input type="text" name="telegramChatId" placeholder="123456789">
                 </div>
             </div>
-        </div>
+        </form>
     `;
 }
 
@@ -937,216 +1223,35 @@ function generateTicketSettings() {
 
 // Save Functions
 async function saveGeneralSettings() {
-    const form = document.getElementById('generalSettingsForm');
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            showNotification('Please login to save settings', 'error');
-            return;
-        }
-        
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-general',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            showNotification('General settings saved successfully!', 'success');
-        } else {
-            showNotification(data.error || 'Failed to save settings', 'error');
-        }
-    } catch (error) {
-        console.error('Save settings error:', error);
-        showNotification('Failed to save settings', 'error');
-    }
+    return submitSettingsSection('general');
 }
 
 async function savePaymentSettings() {
-    const form = document.getElementById('paymentSettingsForm');
-    if (!form) {
-        showNotification('Payment settings saved successfully!', 'success');
-        return;
-    }
-    
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-payment',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Payment settings saved successfully!', 'success');
-        }
-    } catch (error) {
-        console.error('Save payment settings error:', error);
-        showNotification('Payment settings saved successfully!', 'success');
-    }
+    return submitSettingsSection('payment');
 }
 
 async function saveNotificationSettings() {
-    const form = document.getElementById('notificationSettingsForm');
-    if (!form) {
-        showNotification('Notification settings saved successfully!', 'success');
-        return;
-    }
-    
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-notification',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Notification settings saved successfully!', 'success');
-        }
-    } catch (error) {
-        console.error('Save notification settings error:', error);
-        showNotification('Notification settings saved successfully!', 'success');
-    }
+    return submitSettingsSection('notification');
 }
 
 async function saveBonusSettings() {
-    const form = document.getElementById('bonusSettingsForm');
-    if (!form) {
-        showNotification('Bonus settings saved successfully!', 'success');
-        return;
-    }
-    
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-bonus',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Bonus settings saved successfully!', 'success');
-        } else {
-            showNotification(data.error || 'Failed to save bonus settings', 'error');
-        }
-    } catch (error) {
-        console.error('Save bonus settings error:', error);
-        showNotification('Bonus settings saved successfully!', 'success');
-    }
+    return submitSettingsSection('bonus');
 }
 
 async function saveSignupSettings() {
-    const form = document.getElementById('signupSettingsForm');
-    if (!form) {
-        showNotification('Signup settings saved successfully!', 'success');
-        return;
-    }
-    
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-signup',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Signup settings saved successfully!', 'success');
-        } else {
-            showNotification(data.error || 'Failed to save signup settings', 'error');
-        }
-    } catch (error) {
-        console.error('Save signup settings error:', error);
-        showNotification('Signup settings saved successfully!', 'success');
-    }
+    return submitSettingsSection('signup');
 }
 
 async function saveTicketSettings() {
-    const form = document.getElementById('ticketSettingsForm');
-    if (!form) {
-        showNotification('Ticket settings saved successfully!', 'success');
-        return;
-    }
-    
-    const formData = new FormData(form);
-    const settings = Object.fromEntries(formData);
-    
-    try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/settings', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'update-ticket',
-                settings
-            })
-        });
-        
-        const data = await response.json();
-        if (data.success) {
-            showNotification('Ticket settings saved successfully!', 'success');
-        } else {
-            showNotification(data.error || 'Failed to save ticket settings', 'error');
-        }
-    } catch (error) {
-        console.error('Save ticket settings error:', error);
-        showNotification('Ticket settings saved successfully!', 'success');
-    }
+    return submitSettingsSection('ticket');
+}
+
+async function saveModuleSettings() {
+    return submitSettingsSection('modules');
+}
+
+async function saveIntegrationSettings() {
+    return submitSettingsSection('integrations');
 }
 
 function toggleModule(module, enabled) {
@@ -1828,8 +1933,13 @@ async function testProvider(providerId) {
 }
 
 // Initialize on load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initializeSettingsQuickActions();
+    try {
+        await getStoredSettings();
+    } catch (error) {
+        console.warn('[WARN] Settings preload failed:', error);
+    }
     showSettingsSection('providers');
     loadProviders();
 });

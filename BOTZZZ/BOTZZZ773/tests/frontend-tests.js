@@ -110,7 +110,7 @@ class FrontendTests {
   // Payment Tests
   async testPaymentBackendLoaded() {
     await this.runTest('Payment Backend Script Loaded', () => {
-      if (document.getElementById('paymentForm')) {
+  if (document.querySelector('#paymentForm')) {
         this.assert(typeof handlePaymentSubmit === 'function' || typeof window.handlePayment === 'function',
           'Payment handler should be defined');
       }

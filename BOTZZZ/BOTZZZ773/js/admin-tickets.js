@@ -354,15 +354,15 @@ function createModal(title, content, actions = '') {
         </div>
     `;
     
-    const existing = document.getElementById('activeModal');
+    const existing = document.querySelector('#activeModal');
     if (existing) existing.remove();
     
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
 }
 
 function closeModal() {
-    const modal = document.getElementById('activeModal');
+    const modal = document.querySelector('#activeModal');
     if (modal) {
         modal.classList.remove('show');
         setTimeout(() => modal.remove(), 300);

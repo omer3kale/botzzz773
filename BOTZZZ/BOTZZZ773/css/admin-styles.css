@@ -1978,6 +1978,51 @@ body.sidebar-collapsed .admin-main {
     font-weight: 600;
 }
 
+.settings-info-banner {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    color: #cfe3ff;
+    margin-bottom: 24px;
+}
+
+.settings-info-banner i {
+    font-size: 20px;
+    color: #60a5fa;
+    margin-top: 2px;
+}
+
+.settings-card-description {
+    margin: 0 0 16px;
+    color: rgba(255, 255, 255, 0.78);
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+.settings-alert {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 159, 64, 0.45);
+    background: rgba(255, 159, 64, 0.12);
+    color: #ffd9b2;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.settings-alert i {
+    color: #ff9f40;
+    font-size: 16px;
+    margin-top: 2px;
+}
+
 /* Providers Grid */
 .providers-grid {
     display: grid;
@@ -2182,7 +2227,7 @@ body.sidebar-collapsed .admin-main {
 
 .modal-header h3 {
     margin: 0;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
     color: var(--admin-light-text);
 }
@@ -2204,7 +2249,38 @@ body.sidebar-collapsed .admin-main {
 }
 
 .modal-body {
-    padding: 24px 32px 32px;
+    padding: 20px 24px 24px;
+    font-size: 13px;
+}
+
+/* Compact Modal Styles - Reduce font sizes for better fit */
+.modal-content {
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.modal-header h3 {
+    font-size: 16px !important; /* Reduced from 18px */
+}
+
+.modal-body .form-group label {
+    font-size: 12px !important; /* Reduced from 13px */
+}
+
+.modal-body .form-group input,
+.modal-body .form-group select,
+.modal-body .form-group textarea {
+    font-size: 13px !important; /* Already 13px, keeping consistent */
+    padding: 8px 12px !important; /* Reduced from 10px 14px */
+}
+
+.modal-body .form-group small {
+    font-size: 11px !important; /* Reduced from 12px */
+}
+
+.modal-footer button {
+    font-size: 13px !important; /* Reduced from default */
+    padding: 8px 16px !important; /* More compact */
 }
 
 .settings-form {
@@ -2216,12 +2292,12 @@ body.sidebar-collapsed .admin-main {
 .form-group {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     position: relative;
 }
 
 .form-group label {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--admin-light-text);
 }
@@ -2229,12 +2305,12 @@ body.sidebar-collapsed .admin-main {
 .form-group input,
 .form-group select,
 .form-group textarea {
-    padding: 12px 16px;
+    padding: 10px 14px;
     background: var(--admin-darker-bg);
     border: 1px solid var(--admin-border);
     border-radius: 8px;
     color: var(--admin-light-text);
-    font-size: 14px;
+    font-size: 13px;
     transition: all 0.2s ease;
 }
 
@@ -2247,8 +2323,14 @@ body.sidebar-collapsed .admin-main {
 }
 
 .form-group textarea {
-    min-height: 100px;
+    min-height: 80px;
     resize: vertical;
+}
+
+.form-group small {
+    font-size: 11px;
+    color: var(--admin-gray-text);
+    margin-top: 2px;
 }
 
 .toggle-password {

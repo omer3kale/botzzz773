@@ -40,7 +40,7 @@
         <div class="container">
             <div class="section-header">
                 <h1>Add Funds</h1>
-                <p>Add funds to your account using Payeer or crypto invoices powered by NOWPayments.</p>
+                <p>Add funds to your account using secure manual Payeer transfers.</p>
             </div>
 
             <div class="funds-wrapper">
@@ -148,45 +148,6 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="payment-method-card" data-method="crypto" data-pay-currency="usdttrc20" role="button" tabindex="0">
-                                <div class="payment-method-header">
-                                    <div class="payment-method-icon">
-                                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                                            <rect width="32" height="32" rx="6" fill="#6a11cb"/>
-                                            <path d="M10 16h12M12 12h8M12 20h8" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                    </div>
-                                    <div class="payment-method-info">
-                                        <h3>Crypto Invoice</h3>
-                                        <p>USDT (TRC20) via NOWPayments</p>
-                                    </div>
-                                    <div class="payment-method-badge">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                    </div>
-                                </div>
-                                <div class="payment-method-details">
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>Hosted invoice with QR code</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>Automatic balance credit after confirmations</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>Supports global customers including Turkey</span>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
 
                         <!-- Order Summary -->
@@ -261,6 +222,21 @@
                         </div>
                         <h3>24/7 Support</h3>
                         <p>Our support team is available round the clock for payment assistance</p>
+                    </div>
+                </div>
+
+                <!-- Payment History -->
+                <div class="payment-history-card">
+                    <div class="payment-history-header">
+                        <div>
+                            <h3>Payment History</h3>
+                            <p>Track your most recent deposits and manual credits.</p>
+                        </div>
+                    </div>
+                    <div class="payment-history-body" id="paymentHistory">
+                        <div class="history-placeholder">
+                            Payment history loads automatically once you're signed in.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -355,5 +331,6 @@
     </script>
     <script src="js/main.js"></script>
     <script src="js/addfunds.js"></script>
+    <script src="js/payment-backend.js"></script>
 </body>
 </html>

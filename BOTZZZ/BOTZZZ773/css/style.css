@@ -136,6 +136,88 @@ ul {
     align-items: center;
 }
 
+.nav-auth-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+}
+
+.auth-buttons {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.auth-buttons .btn {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+    border-radius: var(--radius-sm);
+}
+
+.btn.btn-outline {
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: transparent;
+    color: var(--text-light-gray);
+}
+
+.btn.btn-outline:hover {
+    border-color: var(--primary-pink);
+    color: var(--text-white);
+    box-shadow: var(--shadow-pink);
+}
+
+.nav-auth-controls .user-menu {
+    position: relative;
+    display: none;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.nav-auth-controls .user-menu-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 20, 148, 0.3);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-light-gray);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.nav-auth-controls .user-menu-btn i {
+    font-size: 0.9rem;
+    color: var(--primary-pink);
+}
+
+.nav-auth-controls .user-menu .username {
+    font-weight: 600;
+    color: var(--text-white);
+}
+
+.nav-auth-controls .user-menu .balance {
+    font-size: 0.85rem;
+    color: var(--primary-pink);
+}
+
+.nav-auth-controls .user-menu .user-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-10px);
+    transition: all var(--transition-normal);
+    min-width: 180px;
+}
+
+.nav-auth-controls .user-menu:hover .user-dropdown {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
 .nav-link {
     font-weight: 500;
     font-size: 0.95rem;
@@ -354,6 +436,43 @@ ul {
 .btn-block {
     display: block;
     width: 100%;
+}
+
+/* ==========================================
+   TOAST & STATE UTILITIES
+   ========================================== */
+.message-toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.9);
+    color: var(--text-white);
+    padding: 14px 20px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 20, 148, 0.4);
+    box-shadow: var(--shadow-pink);
+    z-index: 1500;
+    min-width: 260px;
+    font-weight: 600;
+    display: none;
+}
+
+.message-toast.success,
+.success {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: #34d399;
+}
+
+.message-toast.error {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #f87171;
+}
+
+.show {
+    opacity: 1 !important;
+    visibility: visible !important;
 }
 
 /* ==========================================
@@ -828,6 +947,130 @@ section {
     border: 1px solid rgba(255, 20, 148, 0.1);
     border-radius: var(--radius-lg);
     padding: var(--spacing-xl);
+}
+
+.network-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    margin-bottom: var(--spacing-md);
+}
+
+.network-pill .status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #94a3b8;
+    box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
+    transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.network-pill[data-status="online"] {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.12);
+    color: #bbf7d0;
+}
+
+.network-pill[data-status="online"] .status-dot {
+    background: #10b981;
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.25);
+}
+
+.network-pill[data-status="offline"] {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.12);
+    color: #fecaca;
+}
+
+.network-pill[data-status="offline"] .status-dot {
+    background: #ef4444;
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.25);
+}
+
+.service-state-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 23, 42, 0.7);
+    padding: 16px 20px;
+    margin-bottom: var(--spacing-md);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.service-state-card .service-state-icon {
+    font-size: 1.6rem;
+}
+
+.service-state-card .service-state-label {
+    font-weight: 600;
+    color: #e2e8f0;
+}
+
+.service-state-card .service-state-helper {
+    margin-top: 2px;
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+.service-state-card[data-state="loading"],
+.service-state-card[data-state="retrying"] {
+    border-color: rgba(59, 130, 246, 0.4);
+    background: rgba(59, 130, 246, 0.12);
+}
+
+.service-state-card[data-state="success"] {
+    border-color: rgba(16, 185, 129, 0.4);
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.service-state-card[data-state="error"],
+.service-state-card[data-state="empty"] {
+    border-color: rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.service-state-card[data-state="empty"] .service-state-helper {
+    color: #fecaca;
+}
+
+.service-state-card .service-state-copy {
+    flex: 1;
+}
+
+.service-state-card .service-state-action {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: transparent;
+    color: #f8fafc;
+    border-radius: var(--radius-sm);
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.service-state-card .service-state-action:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.service-status-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-md);
+    align-items: stretch;
+    margin-top: var(--spacing-md);
+}
+
+.service-status-row .service-state-card {
+    flex: 1;
+    min-width: 260px;
+    margin-bottom: 0;
 }
 
 .order-form,
@@ -1411,6 +1654,137 @@ select option:checked {
     margin: 0;
 }
 
+/* Payment History */
+.payment-history-card {
+    margin-top: var(--spacing-xl);
+    background: var(--bg-darker);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    box-shadow: 0 40px 80px rgba(0, 0, 0, 0.4);
+}
+
+.payment-history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+}
+
+.payment-history-header h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.payment-history-header p {
+    color: var(--text-gray);
+    margin: 0;
+}
+
+.payment-history-body {
+    margin-top: var(--spacing-lg);
+    overflow-x: auto;
+}
+
+.payment-history-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 540px;
+}
+
+.payment-history-table th {
+    text-align: left;
+    padding: 0.75rem 1rem;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-gray);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.payment-history-table td {
+    padding: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-light-gray);
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.payment-history-table tr:last-child td {
+    border-bottom: none;
+}
+
+.history-label {
+    color: var(--text-gray);
+    font-size: 0.85rem;
+}
+
+.transaction-id {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.65);
+    word-break: break-all;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.status-badge.status-pending,
+.status-badge.status-awaiting {
+    background: rgba(250, 204, 21, 0.15);
+    color: #facc15;
+}
+
+.status-badge.status-completed,
+.status-badge.status-success {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+}
+
+.status-badge.status-failed,
+.status-badge.status-error,
+.status-badge.status-canceled {
+    background: rgba(248, 113, 113, 0.15);
+    color: #f87171;
+}
+
+.history-placeholder {
+    padding: var(--spacing-lg);
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-md);
+    text-align: center;
+    color: var(--text-gray);
+    font-size: 0.95rem;
+}
+
+.history-placeholder.loading {
+    animation: historyPulse 1.6s ease-in-out infinite;
+}
+
+.history-placeholder.error {
+    border-color: rgba(248, 113, 113, 0.4);
+    color: #ffb4b4;
+}
+
+.history-placeholder.empty {
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes historyPulse {
+    0% { opacity: 0.5; }
+    50% { opacity: 1; }
+    100% { opacity: 0.5; }
+}
+
 /* Responsive Design for Add Funds */
 @media (max-width: 768px) {
     .add-funds-section {
@@ -1693,6 +2067,45 @@ select option:checked {
         transform: translateX(-100%);
         transition: var(--transition-normal);
         border-bottom: 2px solid var(--primary-pink);
+    }
+    
+    .nav-auth-controls {
+        display: none;
+    }
+
+    .nav-menu.active + .nav-auth-controls {
+        display: flex;
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        padding: var(--spacing-lg);
+        background: rgba(0, 0, 0, 0.98);
+        border-top: 1px solid rgba(255, 20, 148, 0.2);
+        z-index: 1000;
+    }
+
+    .nav-auth-controls {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        margin-top: var(--spacing-md);
+    }
+    
+    .auth-buttons {
+        width: 100%;
+        justify-content: space-between;
+    }
+    
+    .auth-buttons .btn {
+        flex: 1;
+        text-align: center;
+    }
+    
+    .nav-auth-controls .user-menu,
+    .nav-auth-controls .user-menu-btn {
+        width: 100%;
+        justify-content: space-between;
     }
     
     .nav-menu.active {

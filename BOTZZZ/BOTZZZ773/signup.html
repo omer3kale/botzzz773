@@ -33,8 +33,26 @@
                     <li><a href="api.html" class="nav-link">API</a></li>
                     <li><a href="tickets.html" class="nav-link">Tickets</a></li>
                     <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li><a href="signup.html" class="nav-link btn-primary active">Sign Up</a></li>
                 </ul>
+                <div class="nav-auth-controls">
+                    <div class="auth-buttons">
+                        <a href="signin.html" class="btn btn-outline">Sign In</a>
+                        <a href="signup.html" class="btn btn-primary">Sign Up</a>
+                    </div>
+                    <div class="user-menu" style="display: none;">
+                        <button class="user-menu-btn" type="button">
+                            <span class="username">Account</span>
+                            <span class="balance">$0.00</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div class="user-dropdown">
+                            <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
+                            <a href="addfunds.html"><i class="fas fa-wallet"></i> Add Funds</a>
+                            <a href="tickets.html"><i class="fas fa-ticket-alt"></i> Tickets</a>
+                            <a href="#" onclick="handleLogout(); return false;"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>
@@ -123,7 +141,7 @@
                                     autocomplete="new-password"
                                     minlength="8"
                                 >
-                                <button type="button" class="toggle-password" onclick="toggleConfirmPassword()">
+                                <button type="button" class="toggle-password toggle-confirm-password" onclick="toggleConfirmPassword()">
                                     <svg class="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                                         <circle cx="12" cy="12" r="3"></circle>

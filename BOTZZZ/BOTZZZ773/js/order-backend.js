@@ -108,7 +108,10 @@ async function handleOrderSubmit(e) {
 
             // Reset form
             e.target.reset();
-            document.getElementById('totalPrice').textContent = '$0.00';
+            const priceEl = document.getElementById('estimatedPrice');
+            if (priceEl) {
+                priceEl.textContent = '$0.00';
+            }
             
             // Redirect to orders page after 2 seconds
             setTimeout(() => {
@@ -130,7 +133,7 @@ async function handleOrderSubmit(e) {
 function updatePrice() {
     const serviceSelect = document.getElementById('service');
     const quantityInput = document.getElementById('quantity');
-    const totalPriceEl = document.getElementById('totalPrice');
+    const totalPriceEl = document.getElementById('estimatedPrice');
 
     if (!serviceSelect || !quantityInput || !totalPriceEl) return;
 

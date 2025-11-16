@@ -75,6 +75,21 @@
             <div class="search-box">
                 <input type="text" id="serviceSearch" placeholder="🔍 Search services..." class="search-input">
             </div>
+
+            <div class="service-status-row">
+                <div class="network-pill" data-network-pill aria-live="polite" hidden>
+                    <span class="status-dot"></span>
+                    <span data-network-label>Offline</span>
+                </div>
+                <div class="service-state-card service-state-card--inline" data-service-status aria-live="polite">
+                    <div class="service-state-icon" data-status-icon>⏳</div>
+                    <div class="service-state-copy">
+                        <p class="service-state-label" data-status-label>Checking curated services…</p>
+                        <p class="service-state-helper" data-status-helper>Hang tight while we reach Netlify.</p>
+                    </div>
+                    <button type="button" class="service-state-action" data-retry-services hidden>Retry</button>
+                </div>
+            </div>
         </div>
     </section>
 

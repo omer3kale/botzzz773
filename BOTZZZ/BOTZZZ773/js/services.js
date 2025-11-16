@@ -440,9 +440,7 @@ async function loadServicesFromAPI(options = {}) {
                 const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
                     ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
                     : 'Provider Ref: Pending';
-                const providerName = escapeHtml(service.provider?.name || 'Unknown Provider');
-                const providerStatus = service.provider?.status ? ` (${escapeHtml(service.provider.status)})` : '';
-                const providerBadge = `<span class="service-meta-tag service-meta-tag--provider">Provider: ${providerName}${providerStatus}</span>`;
+                // Provider names are hidden from customers - only admins see them
                 const avgTimeBadge = service.average_time
                     ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
                     : '';
@@ -457,7 +455,7 @@ async function loadServicesFromAPI(options = {}) {
                 if (capabilityBadges) {
                     metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
                 }
-                metaRows.push(`<div class="service-meta-row service-meta-row--secondary">${providerBadge}</div>`);
+                // No provider badge for customers - white-label experience
                 const serviceMetaMarkup = metaRows.join('');
                 
                 html += `

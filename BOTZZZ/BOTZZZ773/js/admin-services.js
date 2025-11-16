@@ -17,15 +17,15 @@ function createModal(title, content, actions = '') {
         </div>
     `;
     
-    const existing = document.getElementById('activeModal');
+    const existing = document.querySelector('#activeModal');
     if (existing) existing.remove();
     
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-    setTimeout(() => document.getElementById('activeModal').classList.add('show'), 10);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
 }
 
 function closeModal() {
-    const modal = document.getElementById('activeModal');
+    const modal = document.querySelector('#activeModal');
     if (modal) {
         modal.classList.remove('show');
         setTimeout(() => modal.remove(), 300);
@@ -949,8 +949,8 @@ async function importServices() {
 async function loadProviderServices(providerId) {
     if (!providerId) return;
     
-    const preview = document.getElementById('providerServicesPreview');
-    const list = document.getElementById('servicesPreviewList');
+    const preview = document.querySelector('#providerServicesPreview');
+    const list = document.querySelector('#servicesPreviewList');
     
     try {
         // Fetch real provider's services from backend
@@ -1468,7 +1468,7 @@ async function confirmToggleService(serviceId) {
     const confirmButtonLabel = targetState
         ? '<i class="fas fa-eye"></i> Feature in Customer Portal'
         : '<i class="fas fa-eye-slash"></i> Remove from Customer Portal';
-    const confirmButton = document.getElementById('toggleVisibilityConfirm');
+    const confirmButton = document.querySelector('#toggleVisibilityConfirm');
     if (confirmButton) {
         confirmButton.disabled = true;
         confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
@@ -1817,7 +1817,7 @@ async function loadServices() {
 // ==========================================
 
 async function showSyncedServices() {
-    const providerSelect = document.getElementById('addServiceProviderSelect');
+    const providerSelect = document.querySelector('#addServiceProviderSelect');
     const providerId = providerSelect?.value;
     
     if (!providerId) {
@@ -1911,7 +1911,7 @@ async function showSyncedServices() {
 
 function selectSyncedService(serviceId, serviceName, rate) {
     // Fill the form with selected service data
-    const serviceIdInput = document.getElementById('providerServiceIdInput');
+    const serviceIdInput = document.querySelector('#providerServiceIdInput');
     const serviceNameInput = document.querySelector('input[name="serviceName"]');
     const rateInput = document.querySelector('input[name="rate"]');
     const providerRateInput = document.querySelector('input[name="providerRate"]');
@@ -1921,7 +1921,10 @@ function selectSyncedService(serviceId, serviceName, rate) {
     if (rateInput) rateInput.value = rate;
     if (providerRateInput) providerRateInput.value = rate;
 
-    updateMarkupForForm(document.getElementById('addServiceForm'), { force: true });
+    const addServiceForm = document.querySelector('#addServiceForm');
+    if (addServiceForm) {
+        updateMarkupForForm(addServiceForm, { force: true });
+    }
     
     closeModal();
     showNotification('Service selected! Update other fields as needed.', 'success');

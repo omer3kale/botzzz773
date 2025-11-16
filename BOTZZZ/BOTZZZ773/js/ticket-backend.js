@@ -121,7 +121,7 @@ function renderTicketDetails(ticket) {
 
 // Send reply
 async function sendReply() {
-    const message = document.getElementById('replyMessage')?.value.trim();
+    const message = document.querySelector('#replyMessage')?.value.trim();
     
     if (!message) {
         showTicketMessage('Please enter a message', 'error');
@@ -133,7 +133,10 @@ async function sendReply() {
         
         if (data.success) {
             showTicketMessage('Reply sent successfully', 'success');
-            document.getElementById('replyMessage').value = '';
+            const replyInput = document.querySelector('#replyMessage');
+            if (replyInput) {
+                replyInput.value = '';
+            }
             
             // Reload ticket details
             await selectTicket(selectedTicketId);
@@ -185,7 +188,7 @@ function setupNewTicketForm() {
         newTicketForm.addEventListener('submit', handleCreateTicket);
     }
 
-    const newTicketBtn = document.getElementById('newTicketBtn');
+    const newTicketBtn = document.querySelector('#newTicketBtn');
     if (newTicketBtn) {
         newTicketBtn.addEventListener('click', openNewTicketModal);
     }
@@ -214,7 +217,7 @@ async function handleCreateTicket(e) {
 
     const subject = document.getElementById('ticketSubject')?.value.trim();
     const category = document.getElementById('ticketCategory')?.value;
-    const priority = document.getElementById('ticketPriority')?.value || 'medium';
+    const priority = document.querySelector('#ticketPriority')?.value || 'medium';
     const message = document.getElementById('ticketMessage')?.value.trim();
 
     if (!subject || !category || !message) {

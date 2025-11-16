@@ -1,7 +1,11 @@
 // Payeer Payment Integration
 const { supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+const {
+  buildGatewayOrderId,
+  generatePayeerSignature,
+  verifyPayeerWebhookSignature
+} = require('./utils/payment-gateway-helpers');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const PAYEER_MERCHANT_ID = process.env.PAYEER_MERCHANT_ID;
@@ -88,8 +92,8 @@ async function handleCreatePayment(event, data, headers) {
       };
     }
 
-    // Create unique order ID
-    const orderId = `PYEER-${Date.now()}-${user.userId}`;
+  // Create unique order ID
+  const orderId = buildGatewayOrderId('PYEER', user.userId);
 
     // Create payment record
     const { data: payment, error } = await supabaseAdmin
@@ -114,7 +118,7 @@ async function handleCreatePayment(event, data, headers) {
     }
 
     // Generate Payeer payment URL
-    const paymentUrl = generatePayeerUrl(orderId, amount, user.email);
+  const paymentUrl = generatePayeerUrl(orderId, amount, user.email);
 
     return {
       statusCode: 200,
@@ -136,24 +140,30 @@ async function handleCreatePayment(event, data, headers) {
 }
 
 function generatePayeerUrl(orderId, amount, userEmail) {
-  // Payeer payment parameters
+  const description = `Balance top-up for ${userEmail}`;
   const params = {
     m_shop: PAYEER_MERCHANT_ID,
     m_orderid: orderId,
     m_amount: amount.toFixed(2),
     m_curr: 'USD',
-    m_desc: Buffer.from(`Balance top-up for ${userEmail}`).toString('base64'),
+    m_desc: Buffer.from(description).toString('base64'),
     m_sign: '',
     success_url: `${SITE_URL}/payment-success.html`,
     fail_url: `${SITE_URL}/payment-failed.html`,
     status_url: `${SITE_URL}/api/payeer?action=webhook`
   };
 
-  // Generate signature
-  const signString = `${params.m_shop}:${params.m_orderid}:${params.m_amount}:${params.m_curr}:${params.m_desc}:${PAYEER_SECRET_KEY}`;
-  params.m_sign = crypto.createHash('sha256').update(signString).digest('hex').toUpperCase();
+  params.m_sign = generatePayeerSignature(
+    {
+      shopId: PAYEER_MERCHANT_ID,
+      orderId,
+      amount,
+      currency: 'USD',
+      description
+    },
+    PAYEER_SECRET_KEY
+  );
 
-  // Build URL
   const queryString = Object.keys(params)
     .map(key => `${key}=${encodeURIComponent(params[key])}`)
     .join('&');
@@ -179,11 +189,7 @@ async function handleWebhook(event, headers) {
       m_sign: params.get('m_sign')
     };
 
-    // Verify signature
-    const signString = `${data.m_operation_id}:${data.m_operation_ps}:${data.m_operation_date}:${data.m_operation_pay_date}:${data.m_shop}:${data.m_orderid}:${data.m_amount}:${data.m_curr}:${data.m_desc}:${data.m_status}:${PAYEER_SECRET_KEY}`;
-    const expectedSign = crypto.createHash('sha256').update(signString).digest('hex').toUpperCase();
-
-    if (data.m_sign !== expectedSign) {
+    if (!verifyPayeerWebhookSignature(data, PAYEER_SECRET_KEY)) {
       console.error('Invalid Payeer signature');
       return {
         statusCode: 400,

@@ -104,53 +104,40 @@
             </div>
         </div>
 
-        <div class="settings-layout">
-            <div class="settings-quick-actions">
-                <article class="settings-quick-card" id="settingsProvidersCard" role="button" tabindex="0" aria-label="View provider configuration" aria-haspopup="dialog" aria-pressed="false">
-                    <div class="settings-quick-card-header">
-                        <h3>Providers</h3>
-                        <span class="settings-quick-card-icon">
-                            <i class="fas fa-plug"></i>
-                        </span>
-                    </div>
-                    <p class="settings-quick-card-primary" id="settingsProvidersCount">No providers</p>
-                    <p class="settings-quick-card-secondary" id="settingsProvidersDetail">Connect an SMM provider to start syncing services.</p>
-                    <span class="settings-quick-card-hint">Tap to manage providers</span>
-                </article>
-                <article class="settings-quick-card accent" id="settingsAddProviderCard" role="button" tabindex="0" aria-label="Add a provider" aria-haspopup="dialog">
-                    <div class="settings-quick-card-header">
-                        <h3>Add Provider</h3>
-                        <span class="settings-quick-card-icon">
-                            <i class="fas fa-plus"></i>
-                        </span>
-                    </div>
-                    <p class="settings-quick-card-primary">Log New API</p>
-                    <p class="settings-quick-card-secondary">Launch the Inter Miami pop-up to register a provider and map services.</p>
-                    <span class="settings-quick-card-hint">Tap to launch modal</span>
-                </article>
-                <article class="settings-quick-card" id="settingsModulesCard" role="button" tabindex="0" aria-label="Review feature modules" aria-pressed="false">
-                    <div class="settings-quick-card-header">
-                        <h3>Modules</h3>
-                        <span class="settings-quick-card-icon">
-                            <i class="fas fa-toggle-on"></i>
-                        </span>
-                    </div>
-                    <p class="settings-quick-card-primary" id="settingsModulesStatus">Feature controls</p>
-                    <p class="settings-quick-card-secondary" id="settingsModulesDetail">Open the modules panel to review available features.</p>
-                    <span class="settings-quick-card-hint">Tap to open modules</span>
-                </article>
-                <article class="settings-quick-card" id="settingsRefreshCard" role="button" tabindex="0" aria-label="Refresh provider list" aria-pressed="false">
-                    <div class="settings-quick-card-header">
-                        <h3>Sync Settings</h3>
-                        <span class="settings-quick-card-icon">
-                            <i class="fas fa-sync-alt"></i>
-                        </span>
-                    </div>
-                    <p class="settings-quick-card-primary" id="settingsRefreshStatus">Sync latest updates</p>
-                    <p class="settings-quick-card-secondary">Pull the most recent provider credentials and service mappings.</p>
-                    <span class="settings-quick-card-hint">Tap to refresh</span>
-                </article>
+        <div class="admin-inline-toolbar">
+            <article class="toolbar-card interactive" id="settingsProvidersCard" role="button" tabindex="0" aria-label="View provider configuration" aria-haspopup="dialog" aria-pressed="false">
+                <div class="toolbar-card-header">
+                    <h3>Providers</h3>
+                    <span class="toolbar-hint">Manage</span>
+                </div>
+                <p class="toolbar-card-primary" id="settingsProvidersCount">No providers</p>
+                <p class="toolbar-card-secondary" id="settingsProvidersDetail">Connect an SMM provider to start syncing services.</p>
+            </article>
+            <article class="toolbar-card interactive" id="settingsModulesCard" role="button" tabindex="0" aria-label="Review feature modules" aria-pressed="false">
+                <div class="toolbar-card-header">
+                    <h3>Modules</h3>
+                    <span class="toolbar-hint">Toggle</span>
+                </div>
+                <p class="toolbar-card-primary" id="settingsModulesStatus">Feature controls</p>
+                <p class="toolbar-card-secondary" id="settingsModulesDetail">Open the modules panel to review available features.</p>
+            </article>
+            <div class="toolbar-actions">
+                <button class="toolbar-action primary" id="settingsAddProviderCard" type="button">
+                    <i class="fas fa-plus"></i>
+                    <span>Add Provider</span>
+                </button>
+                <button class="toolbar-action" id="settingsRefreshCard" type="button">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Sync</span>
+                </button>
             </div>
+            <div class="toolbar-status">
+                <span class="toolbar-status-label">Sync Status</span>
+                <span class="toolbar-status-value" id="settingsRefreshStatus">Sync latest updates</span>
+            </div>
+        </div>
+
+        <div class="settings-layout no-quick-actions">
 
             <div class="settings-container">
                 <div class="settings-sidebar">

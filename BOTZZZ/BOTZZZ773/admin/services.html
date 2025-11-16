@@ -110,75 +110,37 @@
             </div>
         </div>
 
-        <!-- Services Table -->
-        <div class="services-layout">
-            <div class="services-quick-actions">
-                <article class="services-quick-card" id="selectedServicesCard" role="button" tabindex="0" aria-label="Open selected services quick view" aria-pressed="false" aria-haspopup="dialog">
-                    <div class="services-quick-card-header">
-                        <h3>Selected Services</h3>
-                        <span class="services-quick-card-icon">
-                            <i class="fas fa-layer-group"></i>
-                        </span>
-                    </div>
-                    <p class="services-quick-card-primary" id="selectedServicesCount">0 selected</p>
-                    <p class="services-quick-card-secondary" id="selectedServicesDetail">
-                        Choose services to edit, duplicate, or toggle quickly.
-                    </p>
-                    <span class="services-quick-card-hint">Click for quick edit</span>
-                </article>
-                <article class="services-quick-card accent" id="addServiceCard" role="button" tabindex="0" aria-label="Add a new service" aria-haspopup="dialog">
-                    <div class="services-quick-card-header">
-                        <h3>Add Service</h3>
-                        <span class="services-quick-card-icon">
-                            <i class="fas fa-plus"></i>
-                        </span>
-                    </div>
-                    <p class="services-quick-card-primary">Create Listing</p>
-                    <p class="services-quick-card-secondary">
-                        Launch the Inter Miami form to publish a new service instantly.
-                    </p>
-                    <span class="services-quick-card-hint">Click to launch form</span>
-                </article>
-                <article class="services-quick-card" id="importServicesCard" role="button" tabindex="0" aria-label="Import services from provider" aria-haspopup="dialog">
-                    <div class="services-quick-card-header">
-                        <h3>Import Services</h3>
-                        <span class="services-quick-card-icon">
-                            <i class="fas fa-cloud-download-alt"></i>
-                        </span>
-                    </div>
-                    <p class="services-quick-card-primary">Sync Provider</p>
-                    <p class="services-quick-card-secondary">
-                        Pull the latest catalog and map it to your storefront in seconds.
-                    </p>
-                    <span class="services-quick-card-hint">Click to start sync</span>
-                </article>
-                <article class="services-quick-card" id="createCategoryCard" role="button" tabindex="0" aria-label="Create a new service category" aria-haspopup="dialog">
-                    <div class="services-quick-card-header">
-                        <h3>Create Category</h3>
-                        <span class="services-quick-card-icon">
-                            <i class="fas fa-folder-plus"></i>
-                        </span>
-                    </div>
-                    <p class="services-quick-card-primary">Organize</p>
-                    <p class="services-quick-card-secondary">
-                        Group services into themed categories for faster discovery.
-                    </p>
-                    <span class="services-quick-card-hint">Click to create</span>
-                </article>
-                <article class="services-quick-card" id="addSubscriptionCard" role="button" tabindex="0" aria-label="Add a subscription service" aria-haspopup="dialog">
-                    <div class="services-quick-card-header">
-                        <h3>Add Subscription</h3>
-                        <span class="services-quick-card-icon">
-                            <i class="fas fa-sync"></i>
-                        </span>
-                    </div>
-                    <p class="services-quick-card-primary">Recurring Boost</p>
-                    <p class="services-quick-card-secondary">
-                        Craft automated refill experiences with scheduled deliveries.
-                    </p>
-                    <span class="services-quick-card-hint">Click to configure</span>
-                </article>
+        <div class="admin-inline-toolbar">
+            <article class="toolbar-card interactive" id="selectedServicesCard" role="button" tabindex="0" aria-label="Open selected services quick view" aria-pressed="false" aria-haspopup="dialog">
+                <div class="toolbar-card-header">
+                    <h3>Selected Services</h3>
+                    <span class="toolbar-hint">Quick edit</span>
+                </div>
+                <p class="toolbar-card-primary" id="selectedServicesCount">0 selected</p>
+                <p class="toolbar-card-secondary" id="selectedServicesDetail">Choose services to edit, duplicate, or toggle quickly.</p>
+            </article>
+            <div class="toolbar-actions">
+                <button class="toolbar-action primary" id="addServiceCard" type="button">
+                    <i class="fas fa-plus"></i>
+                    <span>Add Service</span>
+                </button>
+                <button class="toolbar-action" id="importServicesCard" type="button">
+                    <i class="fas fa-cloud-download-alt"></i>
+                    <span>Import</span>
+                </button>
+                <button class="toolbar-action" id="createCategoryCard" type="button">
+                    <i class="fas fa-folder-plus"></i>
+                    <span>Category</span>
+                </button>
+                <button class="toolbar-action" id="addSubscriptionCard" type="button">
+                    <i class="fas fa-sync"></i>
+                    <span>Subscription</span>
+                </button>
             </div>
+        </div>
+
+        <!-- Services Table -->
+        <div class="services-layout no-quick-actions">
             <div class="services-table-panel">
                 <div class="table-container">
                     <table class="admin-table" id="servicesTable">

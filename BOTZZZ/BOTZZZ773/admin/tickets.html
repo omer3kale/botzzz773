@@ -104,61 +104,40 @@
             </div>
         </div>
 
-        <div class="tickets-layout">
-            <div class="tickets-quick-actions">
-                <article class="tickets-quick-card" id="selectedTicketsCard" role="button" tabindex="0" aria-label="Open selected tickets summary" aria-haspopup="dialog" aria-pressed="false">
-                    <div class="tickets-quick-card-header">
-                        <h3>Selected Tickets</h3>
-                        <span class="tickets-quick-card-icon">
-                            <i class="fas fa-ticket-alt"></i>
-                        </span>
-                    </div>
-                    <p class="tickets-quick-card-primary" id="selectedTicketsCount">0 selected</p>
-                    <p class="tickets-quick-card-secondary" id="selectedTicketsDetail">
-                        Choose tickets from the table to review, reply, or close them in bulk.
-                    </p>
-                    <span class="tickets-quick-card-hint">Tap to open summary</span>
-                </article>
-                <article class="tickets-quick-card accent" id="addTicketCard" role="button" tabindex="0" aria-label="Add a new ticket" aria-haspopup="dialog">
-                    <div class="tickets-quick-card-header">
-                        <h3>Add Ticket</h3>
-                        <span class="tickets-quick-card-icon">
-                            <i class="fas fa-plus"></i>
-                        </span>
-                    </div>
-                    <p class="tickets-quick-card-primary">Create Support Case</p>
-                    <p class="tickets-quick-card-secondary">
-                        Launch the Inter Miami pop-up to log issues for customers or internal teams.
-                    </p>
-                    <span class="tickets-quick-card-hint">Tap to launch modal</span>
-                </article>
-                <article class="tickets-quick-card" id="unreadTicketsCard" role="button" tabindex="0" aria-label="Filter unread tickets" aria-pressed="false">
-                    <div class="tickets-quick-card-header">
-                        <h3>Unread Focus</h3>
-                        <span class="tickets-quick-card-icon">
-                            <i class="fas fa-envelope-open-text"></i>
-                        </span>
-                    </div>
-                    <p class="tickets-quick-card-primary" id="unreadTicketsStatus">Show unread only</p>
-                    <p class="tickets-quick-card-secondary">
-                        Highlight open and pending tickets that still await a response.
-                    </p>
-                    <span class="tickets-quick-card-hint">Tap to filter queue</span>
-                </article>
-                <article class="tickets-quick-card" id="refreshTicketsCard" role="button" tabindex="0" aria-label="Refresh ticket list" aria-haspopup="dialog" aria-pressed="false">
-                    <div class="tickets-quick-card-header">
-                        <h3>Sync Tickets</h3>
-                        <span class="tickets-quick-card-icon">
-                            <i class="fas fa-sync-alt"></i>
-                        </span>
-                    </div>
-                    <p class="tickets-quick-card-primary" id="ticketsRefreshStatus">Sync latest updates</p>
-                    <p class="tickets-quick-card-secondary">
-                        Pull the most recent support activity, status changes, and assignments.
-                    </p>
-                    <span class="tickets-quick-card-hint">Tap to reload table</span>
-                </article>
+        <div class="admin-inline-toolbar">
+            <article class="toolbar-card interactive" id="selectedTicketsCard" role="button" tabindex="0" aria-label="Open selected tickets summary" aria-haspopup="dialog" aria-pressed="false">
+                <div class="toolbar-card-header">
+                    <h3>Selected Tickets</h3>
+                    <span class="toolbar-hint">Bulk actions</span>
+                </div>
+                <p class="toolbar-card-primary" id="selectedTicketsCount">0 selected</p>
+                <p class="toolbar-card-secondary" id="selectedTicketsDetail">Choose tickets from the table to review, reply, or close them in bulk.</p>
+            </article>
+            <article class="toolbar-card interactive" id="unreadTicketsCard" role="button" tabindex="0" aria-label="Filter unread tickets" aria-pressed="false">
+                <div class="toolbar-card-header">
+                    <h3>Unread Focus</h3>
+                    <span class="toolbar-hint">Toggle</span>
+                </div>
+                <p class="toolbar-card-primary" id="unreadTicketsStatus">Show unread only</p>
+                <p class="toolbar-card-secondary">Highlight open and pending tickets that still await a response.</p>
+            </article>
+            <div class="toolbar-actions">
+                <button class="toolbar-action primary" id="addTicketCard" type="button">
+                    <i class="fas fa-plus"></i>
+                    <span>Add Ticket</span>
+                </button>
+                <button class="toolbar-action" id="refreshTicketsCard" type="button">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Refresh</span>
+                </button>
             </div>
+            <div class="toolbar-status">
+                <span class="toolbar-status-label">Sync Status</span>
+                <span class="toolbar-status-value" id="ticketsRefreshStatus">Sync latest updates</span>
+            </div>
+        </div>
+
+        <div class="tickets-layout no-quick-actions">
             <div class="tickets-table-panel">
                 <div class="table-container">
                     <table class="admin-table" id="ticketsTable">

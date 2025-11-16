@@ -211,7 +211,7 @@ function renderTicketDetails() {
 
 // Send reply to backend
 async function sendReply() {
-    const replyMessage = document.getElementById('replyMessage');
+    const replyMessage = document.querySelector('#replyMessage');
     const message = replyMessage.value.trim();
 
     if (!message) {
