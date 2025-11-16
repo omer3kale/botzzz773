@@ -1695,7 +1695,7 @@ function deleteProvider(providerId) {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-danger" id="confirmDeleteBtn" onclick="confirmDeleteProvider(${JSON.stringify(providerId)})">
+        <button type="button" class="btn-danger" onclick="confirmDeleteProvider(${providerId})">
             <i class="fas fa-trash"></i> Delete Provider
         </button>
     `;
@@ -1705,14 +1705,6 @@ function deleteProvider(providerId) {
 
 function confirmDeleteProvider(providerId) {
     console.log('[DEBUG] Deleting provider:', providerId);
-
-    // disable confirm button and show loading
-    const btn = document.getElementById('confirmDeleteBtn');
-    const originalHTML = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
-    }
     
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'DELETE',
@@ -1739,12 +1731,6 @@ function confirmDeleteProvider(providerId) {
     .catch(error => {
         console.error('Error deleting provider:', error);
         showNotification(error.message || 'Failed to delete provider', 'error');
-    })
-    .finally(() => {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHTML;
-        }
     });
 }
 
