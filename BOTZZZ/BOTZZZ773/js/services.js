@@ -22,14 +22,14 @@ function createServiceStatusController() {
     const defaults = {
         loading: {
             icon: '⏳',
-            label: 'Checking curated services…',
-            helper: 'Hang tight while we reach Netlify.',
+            label: 'Loading services…',
+            helper: 'Fetching available services from the catalog.',
             showRetry: false
         },
         retrying: {
             icon: '🔁',
-            label: 'Retrying curated services…',
-            helper: 'We are trying the request again automatically.',
+            label: 'Retrying…',
+            helper: 'Attempting to reconnect to the service.',
             showRetry: false
         },
         success: {
@@ -304,7 +304,7 @@ async function loadServicesFromAPI(options = {}) {
         // Show loading state
         container.innerHTML = '<div class="loading-spinner" style="text-align: center; padding: 60px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px; color: #94A3B8;">Loading services...</p></div>';
         servicesStatusController?.setState(isRetry ? 'retrying' : 'loading', {
-            helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Hang tight while we reach Netlify.'
+            helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Fetching available services from the catalog.'
         });
         
         const headers = {
