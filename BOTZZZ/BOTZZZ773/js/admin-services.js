@@ -1425,9 +1425,10 @@ function duplicateService(serviceId) {
         </div>
     `;
     
+    const safeId = String(serviceId).replace(/'/g, "\\'");
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="confirmDuplicateService(${serviceId})">
+        <button type="button" class="btn-primary" onclick="confirmDuplicateService('${safeId}')">
             <i class="fas fa-copy"></i> Duplicate Service
         </button>
     `;
@@ -1500,9 +1501,10 @@ function toggleService(serviceId) {
         </div>
     `;
     
+    const safeId = String(serviceId).replace(/'/g, "\\'");
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" id="toggleVisibilityConfirm" onclick="confirmToggleService(${serviceId})">
+        <button type="button" class="btn-primary" id="toggleVisibilityConfirm" onclick="confirmToggleService('${safeId}')">
             <i class="${iconClass}"></i> ${actionVerb}
         </button>
     `;
@@ -1610,9 +1612,10 @@ function deleteService(serviceId) {
         </div>
     `;
     
+    const safeId = String(serviceId).replace(/'/g, "\\'");
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-danger" onclick="confirmDeleteService(${serviceId})">
+        <button type="button" class="btn-danger" onclick="confirmDeleteService('${safeId}')">
             <i class="fas fa-trash"></i> Delete Service
         </button>
     `;
