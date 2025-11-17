@@ -15,7 +15,7 @@
         <button class="sidebar-toggle" onclick="toggleSidebar()">
             <i class="fas fa-bars"></i>
         </button>
-        <div class="admin-logo">BOTZZZ773</div>
+        <div class="admin-logo" onclick="window.location.href='index.html'" style="cursor: pointer;">BOTZZZ773</div>
         <div class="admin-header-right">
             <div class="admin-search">
                 <i class="fas fa-search"></i>
@@ -101,39 +101,6 @@
                 <button class="btn-primary" onclick="saveGeneralSettings()">
                     <i class="fas fa-save"></i> Save Changes
                 </button>
-            </div>
-        </div>
-
-        <div class="admin-inline-toolbar">
-            <article class="toolbar-card interactive" id="settingsProvidersCard" role="button" tabindex="0" aria-label="View provider configuration" aria-haspopup="dialog" aria-pressed="false">
-                <div class="toolbar-card-header">
-                    <h3>Providers</h3>
-                    <span class="toolbar-hint">Manage</span>
-                </div>
-                <p class="toolbar-card-primary" id="settingsProvidersCount">No providers</p>
-                <p class="toolbar-card-secondary" id="settingsProvidersDetail">Connect an SMM provider to start syncing services.</p>
-            </article>
-            <article class="toolbar-card interactive" id="settingsModulesCard" role="button" tabindex="0" aria-label="Review feature modules" aria-pressed="false">
-                <div class="toolbar-card-header">
-                    <h3>Modules</h3>
-                    <span class="toolbar-hint">Toggle</span>
-                </div>
-                <p class="toolbar-card-primary" id="settingsModulesStatus">Feature controls</p>
-                <p class="toolbar-card-secondary" id="settingsModulesDetail">Open the modules panel to review available features.</p>
-            </article>
-            <div class="toolbar-actions">
-                <button class="toolbar-action primary" id="settingsAddProviderCard" type="button">
-                    <i class="fas fa-plus"></i>
-                    <span>Add Provider</span>
-                </button>
-                <button class="toolbar-action" id="settingsRefreshCard" type="button">
-                    <i class="fas fa-sync-alt"></i>
-                    <span>Sync</span>
-                </button>
-            </div>
-            <div class="toolbar-status">
-                <span class="toolbar-status-label">Sync Status</span>
-                <span class="toolbar-status-value" id="settingsRefreshStatus">Sync latest updates</span>
             </div>
         </div>
 
