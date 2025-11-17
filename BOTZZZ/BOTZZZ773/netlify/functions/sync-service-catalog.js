@@ -71,6 +71,11 @@ function normalizeCurrency(value, fallback = 'USD') {
   return str.toUpperCase().slice(0, 10);
 }
 
+function truncateString(value, maxLength) {
+  if (value === undefined || value === null) return '';
+  const s = String(value);
+  return s.length > maxLength ? s.slice(0, maxLength) : s;
+}
 async function fetchProviderServices(provider) {
   const params = new URLSearchParams();
   params.append('key', provider.api_key);
@@ -146,13 +151,13 @@ async function syncProviderServices(provider) {
     const serviceKey = String(providerServiceId);
     seenProviderIds.add(serviceKey);
 
-    const name = payload.name || `Service ${serviceKey}`;
-    const category = (payload.category || 'other').toLowerCase();
+    const name = truncateString(payload.name || `Service ${serviceKey}`, 255);
+    const category = truncateString((payload.category || 'other').toLowerCase(), 50);
     const rate = toRate(payload.rate ?? payload.price ?? payload.cost);
     const minQuantity = toQuantity(payload.min ?? payload.minimum);
     const rawMax = payload.max ?? payload.maximum;
     const maxQuantity = rawMax === undefined || rawMax === null ? null : toQuantity(rawMax);
-    const status = normalizeServiceStatus(payload.status ?? payload.state ?? payload.available);
+    const status = truncateString(normalizeServiceStatus(payload.status ?? payload.state ?? payload.available), 20);
     const description = payload.description || payload.desc || '';
 
     const averageTime = normalizeAverageTime(
@@ -168,7 +173,7 @@ async function syncProviderServices(provider) {
       category,
       status,
       description,
-      provider_order_id: serviceKey,
+      provider_order_id: truncateString(serviceKey, 50),
       currency,
       average_time: averageTime,
       refill_supported: toBooleanFlag(payload.refill ?? payload.refill_support ?? payload.needs_refill),
@@ -210,7 +215,7 @@ async function syncProviderServices(provider) {
       const insertPayload = {
         ...basePayload,
         provider_id: provider.id,
-        provider_service_id: serviceKey,
+        provider_service_id: truncateString(serviceKey, 50),
         min_quantity: basePayload.min_quantity ?? 10,
         max_quantity: basePayload.max_quantity,
         rate: basePayload.rate ?? 1,
