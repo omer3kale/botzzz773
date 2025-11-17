@@ -19,35 +19,29 @@ function createServiceStatusController() {
     const helperEl = container.querySelector('[data-status-helper]');
     const actionBtn = container.querySelector('[data-retry-services]');
 
+    // Hide status text elements from customers
+    if (labelEl) labelEl.style.display = 'none';
+    if (helperEl) helperEl.style.display = 'none';
+
     const defaults = {
         loading: {
             icon: '⏳',
-            label: 'Loading services…',
-            helper: 'Fetching available services from the catalog.',
             showRetry: false
         },
         retrying: {
             icon: '🔁',
-            label: 'Retrying…',
-            helper: 'Attempting to reconnect to the service.',
             showRetry: false
         },
         success: {
             icon: '✅',
-            label: 'Services synced',
-            helper: 'Filter or search to find what you need.',
             showRetry: false
         },
         empty: {
             icon: '📦',
-            label: 'No curated services yet',
-            helper: 'An admin needs to approve storefront slots.',
             showRetry: true
         },
         error: {
             icon: '⚠️',
-            label: 'Could not reach services',
-            helper: 'Check your connection or retry below.',
             showRetry: true
         }
     };
@@ -57,8 +51,6 @@ function createServiceStatusController() {
     function setState(state = 'loading', overrides = {}) {
         const config = { ...(defaults[state] || defaults.loading), ...overrides };
         if (iconEl) iconEl.textContent = config.icon;
-        if (labelEl) labelEl.textContent = config.label;
-        if (helperEl) helperEl.textContent = config.helper;
         container.dataset.state = state;
         if (actionBtn) {
             actionBtn.hidden = !config.showRetry;
@@ -303,9 +295,7 @@ async function loadServicesFromAPI(options = {}) {
     try {
         // Show loading state
         container.innerHTML = '<div class="loading-spinner" style="text-align: center; padding: 60px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px; color: #94A3B8;">Loading services...</p></div>';
-        servicesStatusController?.setState(isRetry ? 'retrying' : 'loading', {
-            helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Fetching available services from the catalog.'
-        });
+        servicesStatusController?.setState(isRetry ? 'retrying' : 'loading');
         
         const headers = {
             'Content-Type': 'application/json'
@@ -339,10 +329,7 @@ async function loadServicesFromAPI(options = {}) {
                     <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
                 </div>
             `;
-            servicesStatusController?.setState('error', {
-                label: 'Session expired',
-                helper: 'Sign back in to browse the catalog.'
-            });
+            servicesStatusController?.setState('error');
             return false;
         }
 
@@ -362,9 +349,7 @@ async function loadServicesFromAPI(options = {}) {
                     <p style="color: #64748B; font-size: 16px;">Services will appear once an admin approves them for customers.</p>
                 </div>
             `;
-            servicesStatusController?.setState('empty', {
-                helper: 'Ask an admin to approve storefront slots.'
-            });
+            servicesStatusController?.setState('empty');
             return true;
         }
         
@@ -487,9 +472,7 @@ async function loadServicesFromAPI(options = {}) {
         
         container.innerHTML = html;
         console.log('[SUCCESS] Services loaded and displayed');
-        servicesStatusController?.setState('success', {
-            helper: `${approvedServices.length} curated services are ready.`
-        });
+        servicesStatusController?.setState('success');
         
         // Return true to signal completion
         return true;
@@ -517,9 +500,7 @@ async function loadServicesFromAPI(options = {}) {
                 <button onclick="location.reload()" class="btn btn-primary">Retry</button>
             </div>
         `;
-        servicesStatusController?.setState('error', {
-            helper: error.message || 'Unable to fetch curated services.'
-        });
+        servicesStatusController?.setState('error');
         
         // Return false to signal error
         return false;
@@ -810,27 +791,21 @@ function closeServiceDescription() {
         if (!isServicesEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        servicesStatusController?.setState('retrying', {
-            helper: 'We are retrying the services API automatically.'
-        });
+        servicesStatusController?.setState('retrying');
     });
 
     window.addEventListener('fetchguard:circuit-open', (event) => {
         if (!isServicesEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        servicesStatusController?.setState('error', {
-            helper: 'The API is cooling down; retry in a few seconds.'
-        });
+        servicesStatusController?.setState('error');
     });
 
     window.addEventListener('fetchguard:failure', (event) => {
         if (!isServicesEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        servicesStatusController?.setState('error', {
-            helper: event?.detail?.error?.message || 'Unable to fetch curated services.'
-        });
+        servicesStatusController?.setState('error');
     });
 })();
 

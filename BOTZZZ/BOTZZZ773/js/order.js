@@ -140,35 +140,29 @@ function createServiceStatusController() {
     const helperEl = container.querySelector('[data-status-helper]');
     const actionBtn = container.querySelector('[data-retry-services]');
 
+    // Hide status text elements from customers
+    if (labelEl) labelEl.style.display = 'none';
+    if (helperEl) helperEl.style.display = 'none';
+
     const defaults = {
         loading: {
             icon: '⏳',
-            label: 'Loading services…',
-            helper: 'Fetching available services from the catalog.',
             showRetry: false
         },
         retrying: {
             icon: '🔁',
-            label: 'Retrying…',
-            helper: 'Attempting to reconnect to the service.',
             showRetry: false
         },
         success: {
             icon: '✅',
-            label: 'Services synced',
-            helper: 'Select the option that fits your campaign best.',
             showRetry: false
         },
         error: {
             icon: '⚠️',
-            label: 'Could not reach services',
-            helper: 'Check your connection or retry below.',
             showRetry: true
         },
         empty: {
             icon: '📦',
-            label: 'No curated services yet',
-            helper: 'Contact support or try again later.',
             showRetry: true
         }
     };
@@ -178,8 +172,6 @@ function createServiceStatusController() {
     function setState(state = 'loading', overrides = {}) {
         const config = { ...(defaults[state] || defaults.loading), ...overrides };
         if (iconEl) iconEl.textContent = config.icon;
-        if (labelEl) labelEl.textContent = config.label;
-        if (helperEl) helperEl.textContent = config.helper;
         container.dataset.state = state;
         if (actionBtn) {
             actionBtn.hidden = !config.showRetry;
@@ -599,9 +591,7 @@ async function loadServices(options = {}) {
     console.log('[ORDER] Loading services...');
     setServiceSelectPlaceholder(serviceSelect, 'Loading curated services...');
 
-    serviceStatusController?.setState(isRetry ? 'retrying' : 'loading', {
-        helper: isRetry ? 'Requesting a fresh copy from the API…' : 'Hang tight while we reach Netlify.'
-    });
+    serviceStatusController?.setState(isRetry ? 'retrying' : 'loading');
 
     const token = localStorage.getItem('token');
     const fetchHeaders = { 'Content-Type': 'application/json' };
@@ -621,10 +611,7 @@ async function loadServices(options = {}) {
                 console.warn('[ORDER] Services request unauthorized. Response:', data);
                 setServiceSelectPlaceholder(serviceSelect, 'Sign in required to load services', true);
                 showMessage('Your session expired. Please sign in again to view services.', 'error');
-                serviceStatusController?.setState('error', {
-                    label: 'Session expired',
-                    helper: 'Sign in again to keep placing orders.'
-                });
+                serviceStatusController?.setState('error');
                 setTimeout(() => {
                     window.location.href = 'signin.html?redirect=order.html';
                 }, 1500);
@@ -672,18 +659,14 @@ async function loadServices(options = {}) {
             if (servicesData.length === 0) {
                 setServiceSelectPlaceholder(serviceSelect, 'No services available', true);
                 showMessage('No admin-approved services are available yet. Please contact support.', 'info');
-                serviceStatusController?.setState('empty', {
-                    helper: 'Ping support so we can curate fresh services for you.'
-                });
+                serviceStatusController?.setState('empty');
                 return;
             }
 
             renderServiceOptions(serviceSelect);
             serviceSelect.disabled = false;
             showMessage(`${servicesData.length} curated services ready`, 'success');
-            serviceStatusController?.setState('success', {
-                helper: `${servicesData.length} curated services are ready for ordering.`
-            });
+            serviceStatusController?.setState('success');
             applyPendingServiceSelection();
             return;
         } catch (error) {
@@ -701,9 +684,7 @@ async function loadServices(options = {}) {
     if (lastError) {
         showMessage('Failed to load services: ' + lastError.message, 'error');
     }
-    serviceStatusController?.setState('error', {
-        helper: lastError ? lastError.message : 'Unknown error occurred. '
-    });
+    serviceStatusController?.setState('error');
 }
 
 async function fetchServicesOnce(headers) {
@@ -794,27 +775,21 @@ function renderServiceOptions(serviceSelect) {
         if (!isServiceEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        serviceStatusController?.setState('retrying', {
-            helper: 'We are retrying the services API automatically.'
-        });
+        serviceStatusController?.setState('retrying');
     });
 
     window.addEventListener('fetchguard:circuit-open', (event) => {
         if (!isServiceEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        serviceStatusController?.setState('error', {
-            helper: 'The API is cooling down; please retry in a few seconds.'
-        });
+        serviceStatusController?.setState('error');
     });
 
     window.addEventListener('fetchguard:failure', (event) => {
         if (!isServiceEndpoint(event?.detail?.endpoint)) {
             return;
         }
-        serviceStatusController?.setState('error', {
-            helper: event?.detail?.error?.message || 'Unable to fetch curated services.'
-        });
+        serviceStatusController?.setState('error');
     });
 })();
 

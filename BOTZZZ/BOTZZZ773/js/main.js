@@ -486,17 +486,19 @@ function showMessage(message, type = 'success') {
     const toastCooldownMs = 8000;
 
     window.addEventListener('fetchguard:failure', () => {
-        const now = Date.now();
-        if (now - lastToastAt < toastCooldownMs) {
-            return;
-        }
-        lastToastAt = now;
-        showMessage('We are retrying the backend request. Hang tight!', 'error');
+        // Suppress retry messages to customers
+        // const now = Date.now();
+        // if (now - lastToastAt < toastCooldownMs) {
+        //     return;
+        // }
+        // lastToastAt = now;
+        // showMessage('We are retrying the backend request. Hang tight!', 'error');
     });
 
     window.addEventListener('fetchguard:circuit-open', (event) => {
-        const endpoint = event.detail?.endpoint || 'backend';
-        showMessage(`${endpoint} is cooling down for a few seconds due to repeated failures.`, 'warning');
+        // Suppress circuit breaker messages to customers
+        // const endpoint = event.detail?.endpoint || 'backend';
+        // showMessage(`${endpoint} is cooling down for a few seconds due to repeated failures.`, 'warning');
     });
 
     window.addEventListener('fetchguard:network-status', (event) => {
