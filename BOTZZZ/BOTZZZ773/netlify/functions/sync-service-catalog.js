@@ -17,7 +17,18 @@ function normalizeServiceStatus(rawStatus) {
 
 function toRate(value) {
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? Number(numeric.toFixed(4)) : null;
+  if (!Number.isFinite(numeric)) return null;
+
+  // Round to 4 decimals (DB uses numeric(10,4) so max absolute value must be < 1e6)
+  const rounded = Number(numeric.toFixed(4));
+  const MAX_ABS = 999999.9999; // numeric(10,4) allows up to 999999.9999
+
+  if (Math.abs(rounded) > MAX_ABS) {
+    // Value cannot be stored in DB safely; treat as missing so we don't cause numeric overflow
+    return null;
+  }
+
+  return rounded;
 }
 
 function toQuantity(value) {
@@ -180,7 +191,15 @@ async function syncProviderServices(provider) {
       cancel_supported: toBooleanFlag(payload.cancel ?? payload.cancel_support ?? payload.cancellable),
       dripfeed_supported: toBooleanFlag(payload.dripfeed ?? payload.drip_feed ?? payload.drip),
       subscription_supported: toBooleanFlag(payload.subscription ?? payload.subscriptions ?? payload.subscription_supported),
-      provider_metadata: payload
+      // provider_metadata must be valid JSON for PostgREST/Supabase; deep-clone to remove
+      // undefined values and any non-serializable parts coming from provider responses.
+      provider_metadata: (() => {
+        try {
+          return JSON.parse(JSON.stringify(payload));
+        } catch (e) {
+          return {};
+        }
+      })()
     };
 
     if (minQuantity !== null) {
