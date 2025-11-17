@@ -1317,8 +1317,9 @@ async function submitEditService(event, serviceId) {
     const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
     const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
     const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
+    const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
     const payload = {
-        serviceId,
+        serviceId: numericServiceId,
         name: serviceData.serviceName,
         category: serviceData.category,
         min_quantity: Number.isFinite(minQuantityValue) ? minQuantityValue : null,
@@ -1358,9 +1359,9 @@ async function submitEditService(event, serviceId) {
     
     try {
         const token = localStorage.getItem('token');
-        // Debug: log payload and token presence to help server-side debugging
+        // Debug: log final payload and token presence to help server-side debugging
         try {
-            console.debug('[DEBUG] submitEditService payload:', payload);
+            console.debug('[DEBUG] submitEditService final payload:', JSON.parse(JSON.stringify(payload)));
             console.debug('[DEBUG] token present:', !!token);
         } catch (e) {
             /* ignore logging errors */
@@ -1437,16 +1438,19 @@ function duplicateService(serviceId) {
 async function confirmDuplicateService(serviceId) {
     try {
         const token = localStorage.getItem('token');
+        const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
+        const bodyPayload = { action: 'duplicate', serviceId: numericServiceId };
+        try {
+            console.debug('[DEBUG] confirmDuplicateService payload:', bodyPayload, 'token present:', !!token);
+        } catch (e) {/* ignore */}
+
     const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                action: 'duplicate',
-                serviceId: serviceId
-            })
+            body: JSON.stringify(bodyPayload)
         });
         
         const data = await parseApiResponse(response);
@@ -1549,18 +1553,24 @@ async function confirmToggleService(serviceId) {
             throw new Error('Missing admin authentication token');
         }
 
+        const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
+        const bodyPayload = {
+            serviceId: numericServiceId,
+            adminApproved: targetState,
+            customerPortalEnabled: targetState,
+            customerPortalSlot: desiredSlot
+        };
+        try {
+            console.debug('[DEBUG] confirmToggleService payload:', bodyPayload, 'token present:', !!token);
+        } catch (e) {/* ignore */}
+
         const response = await fetch(buildAdminServicesUrl(), {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                serviceId,
-                adminApproved: targetState,
-                customerPortalEnabled: targetState,
-                customerPortalSlot: desiredSlot
-            })
+            body: JSON.stringify(bodyPayload)
         });
 
         const data = await parseApiResponse(response);
@@ -1613,15 +1623,19 @@ function deleteService(serviceId) {
 async function confirmDeleteService(serviceId) {
     try {
         const token = localStorage.getItem('token');
+        const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
+        const bodyPayload = { serviceId: numericServiceId };
+        try {
+            console.debug('[DEBUG] confirmDeleteService payload:', bodyPayload, 'token present:', !!token);
+        } catch (e) {/* ignore */}
+
     const response = await fetch(buildAdminServicesUrl(), {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                serviceId: serviceId
-            })
+            body: JSON.stringify(bodyPayload)
         });
         
         const data = await parseApiResponse(response);
@@ -1992,4 +2006,3 @@ function onProviderChange(providerId) {
     // Optional: Could auto-clear or validate fields when provider changes
     console.log('Provider changed to:', providerId);
 }
-
