@@ -914,10 +914,24 @@ async function handleUpdateService(user, data, headers) {
 
     if (error) {
       console.error('Update service error:', error);
+      const payload = { error: 'Failed to update service' };
+      try {
+        if (error && typeof error === 'object') {
+          if (error.message) payload.message = error.message;
+          if (error.details) payload.details = error.details;
+          if (error.hint) payload.hint = error.hint;
+          if (error.code) payload.code = error.code;
+        } else if (error) {
+          payload.details = String(error);
+        }
+      } catch (e) {
+        payload.details = 'Failed to serialize error';
+      }
+
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to update service' })
+        body: JSON.stringify(payload)
       };
     }
 
@@ -1090,3 +1104,4 @@ async function handleDuplicateService(data, headers) {
     };
   }
 }
+
