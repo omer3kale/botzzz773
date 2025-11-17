@@ -266,7 +266,6 @@ async function syncProviderServices(provider) {
       cancel_supported: toBooleanFlag(payload.cancel ?? payload.cancel_support ?? payload.cancellable),
       dripfeed_supported: toBooleanFlag(payload.dripfeed ?? payload.drip_feed ?? payload.drip),
       subscription_supported: toBooleanFlag(payload.subscription ?? payload.subscriptions ?? payload.subscription_supported),
-<<<<<<< HEAD
       // provider_metadata must be valid JSON for PostgREST/Supabase; sanitize to remove
       // undefined/non-serializable values and to cap sizes/depth.
       provider_metadata: sanitizeMetadata(payload)
