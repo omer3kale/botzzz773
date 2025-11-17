@@ -804,16 +804,34 @@ function generateIntegrationSettings() {
         </div>
         <form id="integrationsSettingsForm" class="settings-form-grid">
             <div class="settings-card">
-                <h3><i class="fab fa-google"></i> Google Analytics</h3>
+                <h3><i class="fab fa-google"></i> Analytics Tracking</h3>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" name="gaEnabled">
-                        Enable Google Analytics
+                        Enable Analytics Tracking
                     </label>
                 </div>
                 <div class="form-group">
-                    <label>Tracking ID</label>
+                    <label>Analytics Provider</label>
+                    <select name="analyticsProvider">
+                        <option value="gtag" selected>Google Analytics 4 (gtag)</option>
+                        <option value="ua">Universal Analytics (legacy)</option>
+                        <option value="custom">Custom Script</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>GA4 Measurement ID</label>
+                    <input type="text" name="gaMeasurementId" placeholder="G-XXXXXXXXXX">
+                </div>
+                <div class="form-group">
+                    <label>Universal Analytics ID</label>
                     <input type="text" name="gaTrackingId" placeholder="UA-XXXXXXXXX-X">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="analyticsAutoPageview" checked>
+                        Auto track page views
+                    </label>
                 </div>
             </div>
 
@@ -845,6 +863,98 @@ function generateIntegrationSettings() {
                 <div class="form-group">
                     <label>Widget Code</label>
                     <textarea name="chatCode" rows="4" placeholder="Paste chat widget code"></textarea>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <h3><i class="fas fa-bug"></i> Error Tracking (Sentry)</h3>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="sentryEnabled">
+                        Enable Sentry Monitoring
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>DSN</label>
+                    <input type="text" name="sentryDsn" placeholder="https://public@sentry.io/12345">
+                </div>
+                <div class="form-group">
+                    <label>Environment</label>
+                    <input type="text" name="sentryEnvironment" placeholder="production">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Traces Sample Rate</label>
+                        <input type="number" name="sentryTracesSampleRate" step="0.01" min="0" max="1" placeholder="0.2">
+                    </div>
+                    <div class="form-group">
+                        <label>Replay Sample Rate</label>
+                        <input type="number" name="sentryReplaysSessionSampleRate" step="0.01" min="0" max="1" placeholder="0.05">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Replay on Error Sample Rate</label>
+                    <input type="number" name="sentryReplaysOnErrorSampleRate" step="0.1" min="0" max="1" placeholder="1.0">
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <h3><i class="fas fa-video"></i> Session Replay (LogRocket)</h3>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="logRocketEnabled">
+                        Enable LogRocket Sessions
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>App ID</label>
+                    <input type="text" name="logRocketAppId" placeholder="team/app">
+                </div>
+                <div class="form-group">
+                    <label>Release Tag</label>
+                    <input type="text" name="logRocketRelease" placeholder="botzzz@1.0.0">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="logRocketConsoleLogging" checked>
+                        Capture console logs
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-card">
+                <h3><i class="fas fa-heartbeat"></i> Uptime Monitoring</h3>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="uptimeEnabled">
+                        Enable Heartbeat Endpoint
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label>Monitoring Provider</label>
+                    <select name="uptimeProvider">
+                        <option value="custom" selected>Custom / Netlify</option>
+                        <option value="uptime-kuma">Uptime Kuma</option>
+                        <option value="betterstack">Better Stack</option>
+                        <option value="statuspage">StatusPage</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Heartbeat URL</label>
+                    <input type="url" name="uptimeHeartbeatUrl" placeholder="/.netlify/functions/heartbeat">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Ping Interval (ms)</label>
+                        <input type="number" name="uptimePingInterval" placeholder="120000" min="60000">
+                    </div>
+                    <div class="form-group">
+                        <label>Transport</label>
+                        <select name="uptimeTransport">
+                            <option value="fetch" selected>Fetch</option>
+                            <option value="beacon">Navigator Beacon</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 

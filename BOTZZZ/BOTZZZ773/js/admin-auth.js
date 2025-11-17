@@ -1,6 +1,24 @@
 // Admin Authentication Protection
 // This script must be loaded FIRST on all admin pages
 
+(function bootstrapMonitoringScript(windowObject, documentObject) {
+    if (!windowObject || !documentObject) {
+        return;
+    }
+    if (windowObject.__BOTZZZ_MONITORING_SCRIPT__) {
+        return;
+    }
+    windowObject.__BOTZZZ_MONITORING_SCRIPT__ = true;
+
+    const script = documentObject.createElement('script');
+    script.src = '/js/monitoring.js?v=20250217';
+    script.async = true;
+    script.crossOrigin = 'anonymous';
+    script.dataset.botzzzMonitoring = 'true';
+
+    (documentObject.head || documentObject.documentElement || documentObject.body || documentObject).appendChild(script);
+})(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
+
 (function installFetchGuard(windowObject) {
     if (typeof windowObject === 'undefined' || typeof windowObject.fetch !== 'function' || windowObject.__FETCH_GUARD_INSTALLED__) {
         return;
