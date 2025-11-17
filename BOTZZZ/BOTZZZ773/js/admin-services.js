@@ -128,6 +128,22 @@ function escapeHtml(text = '') {
         .replace(/'/g, '&#39;');
 }
 
+// Robustly parse API responses (handles JSON and plain text errors)
+async function parseApiResponse(response) {
+    try {
+        const ct = response.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+            const json = await response.json();
+            return json && typeof json === 'object' ? json : { success: response.ok, error: json };
+        }
+        const text = await response.text();
+        return { success: response.ok, error: text };
+    } catch (err) {
+        console.error('parseApiResponse error:', err);
+        return { success: response.ok, error: `HTTP ${response.status} ${response.statusText}` };
+    }
+}
+
 function buildProviderOptions(providers, includePlaceholder = true) {
     const placeholder = includePlaceholder ? '<option value="">Select provider</option>' : '';
     const options = (providers || []).map(provider => {
@@ -724,14 +740,16 @@ async function submitAddService(event) {
             })
         });
 
-        const data = await response.json();
+        const data = await parseApiResponse(response);
 
-        if (data.success) {
+        if (response.ok && data && data.success) {
             showNotification(data.message || 'Service created successfully!', 'success');
             closeModal();
             await loadServices();
         } else {
-            showNotification(data.error || 'Failed to create service', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Create service failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to create service', 'error');
         }
     } catch (error) {
         console.error('Create service error:', error);
@@ -1014,13 +1032,15 @@ async function submitImportServices(event) {
             })
         });
         
-        const data = await response.json();
-        if (data.success) {
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
             showNotification(`Successfully imported ${data.added || 0} new services and updated ${data.updated || 0} existing services!`, 'success');
             closeModal();
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showNotification(data.error || 'Failed to import services', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Import services failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to import services', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fas fa-download"></i> Import Services';
@@ -1115,13 +1135,15 @@ async function submitCreateCategory(event) {
             })
         });
         
-        const data = await response.json();
-        if (data.success) {
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
             showNotification(`Category "${categoryData.categoryName}" created successfully!`, 'success');
             closeModal();
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showNotification(data.error || 'Failed to create category', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Create category failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to create category', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fas fa-folder-plus"></i> Create Category';
@@ -1256,13 +1278,15 @@ async function submitAddSubscription(event) {
             })
         });
         
-        const data = await response.json();
-        if (data.success) {
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
             showNotification('Subscription service created successfully!', 'success');
             closeModal();
             loadServices();
         } else {
-            showNotification(data.error || 'Failed to create subscription', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Create subscription failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to create subscription', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Create Subscription';
@@ -1334,6 +1358,13 @@ async function submitEditService(event, serviceId) {
     
     try {
         const token = localStorage.getItem('token');
+        // Debug: log payload and token presence to help server-side debugging
+        try {
+            console.debug('[DEBUG] submitEditService payload:', payload);
+            console.debug('[DEBUG] token present:', !!token);
+        } catch (e) {
+            /* ignore logging errors */
+        }
     const response = await fetch(buildAdminServicesUrl(), {
             method: 'PUT',
             headers: {
@@ -1343,21 +1374,37 @@ async function submitEditService(event, serviceId) {
             body: JSON.stringify(payload)
         });
         
-        const data = await response.json();
-        if (data.success) {
-            showNotification(`Service #${serviceId} updated successfully!`, 'success');
-            closeModal();
-            await loadServices();
-        } else {
-            showNotification(data.error || 'Failed to update service', 'error');
+        // Parse response robustly (handle non-JSON errors too)
+        let data = null;
+        try {
+            const ct = response.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                data = { success: response.ok, error: text };
+            }
+        } catch (parseErr) {
+            console.error('Failed to parse response body', parseErr);
+            data = { success: response.ok, error: `HTTP ${response.status} ${response.statusText}` };
+        }
+
+        if (!response.ok || !data || !data.success) {
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Update service failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to update service', 'error');
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
             }
+        } else {
+            showNotification(`Service #${serviceId} updated successfully!`, 'success');
+            closeModal();
+            await loadServices();
         }
     } catch (error) {
         console.error('Update service error:', error);
-        showNotification('Failed to update service. Please try again.', 'error');
+        showNotification(error.message || 'Failed to update service. Please try again.', 'error');
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
@@ -1402,13 +1449,15 @@ async function confirmDuplicateService(serviceId) {
             })
         });
         
-        const data = await response.json();
-        if (data.success) {
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
             showNotification(`Service #${serviceId} duplicated successfully!`, 'success');
             closeModal();
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showNotification(data.error || 'Failed to duplicate service', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Duplicate service failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to duplicate service', 'error');
         }
     } catch (error) {
         console.error('Duplicate service error:', error);
@@ -1514,9 +1563,16 @@ async function confirmToggleService(serviceId) {
             })
         });
 
-        const data = await response.json();
-        if (!response.ok || !data.success) {
-            throw new Error(data.error || 'Failed to update customer visibility');
+        const data = await parseApiResponse(response);
+        if (!response.ok || !data || !data.success) {
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Toggle service visibility failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to update visibility. Please try again.', 'error');
+            if (confirmButton) {
+                confirmButton.disabled = false;
+                confirmButton.innerHTML = confirmButtonLabel;
+            }
+            return;
         }
 
         showNotification(`Service #${serviceId} ${targetState ? 'added to the customer portal.' : 'removed from the customer portal.'}`, 'success');
@@ -1568,13 +1624,15 @@ async function confirmDeleteService(serviceId) {
             })
         });
         
-        const data = await response.json();
-        if (data.success) {
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
             showNotification(`Service #${serviceId} deleted successfully`, 'success');
             closeModal();
             setTimeout(() => window.location.reload(), 1000);
         } else {
-            showNotification(data.error || 'Failed to delete service', 'error');
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            console.error('Delete service failed:', response.status, serverMessage, data);
+            showNotification(serverMessage || 'Failed to delete service', 'error');
         }
     } catch (error) {
         console.error('Delete service error:', error);
@@ -1934,3 +1992,4 @@ function onProviderChange(providerId) {
     // Optional: Could auto-clear or validate fields when provider changes
     console.log('Provider changed to:', providerId);
 }
+
