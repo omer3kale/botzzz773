@@ -493,15 +493,17 @@ function resolveOrderIdentifiers(order) {
     }
 
     const providerLabel = providerOrderDisplay
-        ? `Provider ID: ${providerOrderDisplay}`
+        ? `Provider order ${providerOrderDisplay}`
         : 'Provider order pending';
 
     const providerTitle = providerOrderDisplay || 'Provider order pending';
 
-    const primaryLabel = providerOrderDisplay || normalizedCustomer;
-    const primaryTitle = providerOrderDisplay ? `Provider order ${providerOrderDisplay}` : normalizedCustomer;
-    const secondaryLabel = providerOrderDisplay && normalizedCustomer !== '#—'
-        ? `Customer ref: ${normalizedCustomer}`
+    // Primary = Our Order ID (customer reference)
+    // Secondary = Provider Order ID
+    const primaryLabel = normalizedCustomer;
+    const primaryTitle = `Order ${normalizedCustomer}`;
+    const secondaryLabel = providerOrderDisplay
+        ? `Provider order: ${providerOrderDisplay}`
         : null;
 
     return {
