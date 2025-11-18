@@ -441,36 +441,6 @@ function resolveOrderIdentifiers(order) {
     const providerOrderId = resolveProviderOrderIdFromRecord(order);
     const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
 
-    // Get our internal order number (starting from 37 million)
-    const customerCandidates = [
-        order?.order_number,
-        order?.display_order_id,
-        order?.public_id,
-        order?.order_reference,
-        order?.customer_order_number,
-        order?.customer_order_id,
-        order?.reference
-    ];
-
-    const fallbackInternalId = () => {
-        if (order?.order_number) {
-            return formatWithHash(order.order_number);
-        }
-        if (order?.id !== undefined && order?.id !== null) {
-            const trimmed = String(order.id).replace(/[^a-zA-Z0-9]/g, '');
-            if (trimmed) {
-                return formatWithHash(trimmed);
-            }
-        }
-        if (uuidRaw) {
-            const trimmed = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
-            if (trimmed) {
-                return formatWithHash(trimmed);
-            }
-        }
-        return '#—';
-    };
-
     function formatWithHash(value) {
         const trimmed = String(value).trim();
         if (!trimmed) {
@@ -479,36 +449,55 @@ function resolveOrderIdentifiers(order) {
         return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
     }
 
-    let customerReference = customerCandidates.find(value => {
-        if (value === undefined || value === null) {
-            return false;
-        }
-        if (typeof value === 'number') {
-            return Number.isFinite(value);
-        }
-        if (typeof value === 'string') {
-            return value.trim().length > 0;
-        }
-        return false;
-    }) || null;
-
-    if (typeof customerReference === 'number') {
-        customerReference = String(customerReference);
-    }
-
+    // PRIORITY 1: Use order_number (37M range) if available
     let normalizedCustomer = null;
-    if (customerReference) {
-        const trimmed = String(customerReference).trim();
-        if (trimmed) {
-            normalizedCustomer = formatWithHash(trimmed);
+    if (order?.order_number !== undefined && order?.order_number !== null && String(order.order_number).trim().length > 0) {
+        normalizedCustomer = formatWithHash(order.order_number);
+    }
+    // PRIORITY 2: Fallback to other customer-facing IDs (for old orders)
+    else {
+        const customerCandidates = [
+            order?.display_order_id,
+            order?.public_id,
+            order?.customer_order_number,
+            order?.customer_order_id,
+            order?.order_reference,
+            order?.reference
+        ];
+
+        const customerReference = customerCandidates.find(value => {
+            if (value === undefined || value === null) {
+                return false;
+            }
+            if (typeof value === 'number') {
+                return Number.isFinite(value);
+            }
+            if (typeof value === 'string') {
+                return value.trim().length > 0;
+            }
+            return false;
+        }) || null;
+
+        if (customerReference) {
+            const refString = typeof customerReference === 'number' ? String(customerReference) : customerReference;
+            const trimmed = refString.trim();
+            if (trimmed) {
+                normalizedCustomer = formatWithHash(trimmed);
+            }
         }
     }
 
+    // PRIORITY 3: Final fallback to UUID-based ID (for very old orders)
     if (!normalizedCustomer && uuidRaw) {
         const compact = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
         if (compact) {
             normalizedCustomer = formatWithHash(compact);
         }
+    }
+
+    // Ensure we never show nothing
+    if (!normalizedCustomer) {
+        normalizedCustomer = '#—';
     }
 
     const normalizedProvider = providerOrderDisplay
@@ -518,12 +507,13 @@ function resolveOrderIdentifiers(order) {
         ? normalizedCustomer.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
         : null;
 
-    if (!normalizedCustomerValue || (normalizedProvider && normalizedCustomerValue === normalizedProvider)) {
-        normalizedCustomer = fallbackInternalId();
-    }
-
-    if (!normalizedCustomer) {
-        normalizedCustomer = '#—';
+    // If customer ID is same as provider ID, it means we don't have a proper customer ID
+    // In this case, use the UUID fallback
+    if (normalizedProvider && normalizedCustomerValue === normalizedProvider && uuidRaw) {
+        const compact = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
+        if (compact) {
+            normalizedCustomer = formatWithHash(compact);
+        }
     }
 
     const providerLabel = providerOrderDisplay
