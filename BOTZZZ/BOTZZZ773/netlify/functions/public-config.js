@@ -1,6 +1,4 @@
-const _supabaseUtils = require('./utils/supabase');
-const supabaseAdmin = _supabaseUtils.supabaseAdmin || _supabaseUtils.supabase;
-const safeSelectFrom = typeof _supabaseUtils.safeSelectFrom === 'function' ? _supabaseUtils.safeSelectFrom : null;
+const { supabaseAdmin, safeSelectFrom } = require('./utils/supabase');
 
 const CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_HEARTBEAT_ENDPOINT = '/.netlify/functions/heartbeat';
@@ -38,17 +36,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    let data, error;
-    if (typeof safeSelectFrom === 'function') {
-      const res = await safeSelectFrom(supabaseAdmin, 'settings', ['key','value'], qb => qb.eq('key', 'integrations').maybeSingle());
-      data = res.data;
-      error = res.error;
-    } else {
-      // Fallback: safeSelectFrom not present in deployed utils — use direct supabase call
-      const res = await supabaseAdmin.from('settings').select('key, value').eq('key', 'integrations').maybeSingle();
-      data = res.data;
-      error = res.error;
-    }
+    const { data, error } = await safeSelectFrom(supabaseAdmin, 'settings', ['key','value'], qb => qb.eq('key', 'integrations').maybeSingle());
 
     if (error) {
       throw error;
