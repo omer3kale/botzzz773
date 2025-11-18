@@ -429,10 +429,11 @@ function buildProviderOrderIdMarkup(providerName, providerOrderDisplay, provider
             tooltipParts.push(String(providerOrderDisplay));
         }
         const title = escapeHtml(tooltipParts.filter(Boolean).join(' · '));
-        return `<span class="order-id-provider" title="${title}"><strong>${escapeHtml(safeName)}:</strong> ${escapeHtml(label)}</span>`;
+        // Show "Provider order ID:" instead of provider name
+        return `<span class="order-id-provider" title="${title}"><strong>Provider order ID:</strong> ${escapeHtml(label)}</span>`;
     }
 
-    return `<span class="order-id-provider order-id-missing"><strong>${escapeHtml(safeName)}:</strong> Not submitted</span>`;
+    return `<span class="order-id-provider order-id-missing"><strong>Provider order ID:</strong> Not submitted</span>`;
 }
 
 // Normalize order identifiers for consistent display
@@ -1555,12 +1556,7 @@ async function loadOrders({ skipSync = false } = {}) {
                     lastSyncLabel,
                     modeLabel: statusSummary.mode ? `${statusSummary.mode} Mode` : null
                 });
-                const providerIdSecondaryLabel = formattedProviderOrderId
-                    ? formattedProviderOrderId
-                    : 'Provider order pending';
-                const providerIdSecondaryTitle = formattedProviderOrderId
-                    ? formattedProviderOrderId
-                    : '';
+                // Remove duplicate provider ID display - already shown in Order IDs column
                 const ariaLabelId = orderIdString ? `Select order #${orderIdString}` : 'Select order';
                 const selectionKeyRaw = buildOrderSelectionKey(order, index);
                 const orderSelectionAttr = escapeHtml(selectionKeyRaw);
@@ -1595,7 +1591,6 @@ async function loadOrders({ skipSync = false } = {}) {
                                 <span class="status-badge ${orderStatusKey}">${escapeHtml(orderStatusLabel)}</span>
                                 ${statusChipsMarkup}
                                 ${providerStatusMarkup}
-                                    <span class="cell-secondary cell-muted"${providerIdSecondaryTitle ? ` title="${escapeHtml(providerIdSecondaryTitle)}"` : ''}>${escapeHtml(providerIdSecondaryLabel)}</span>
                             </div>
                         </td>
                         <td>${escapeHtml(String(remains))}</td>
