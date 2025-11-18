@@ -410,16 +410,9 @@ async function loadServicesFromAPI(options = {}) {
                 const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
                     ? null
                     : Number(rawPublicId);
-                const labelId = Number.isFinite(publicIdValue)
-                    ? `#${publicIdValue}`
-                    : 'ID Pending';
-                const panelOrderLabel = Number.isFinite(publicIdValue)
-                    ? `Panel ID: #${publicIdValue}`
-                    : 'Panel ID: Pending';
-                const providerOrderRaw = service.provider_order_id ?? service.provider_service_id;
-                const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
-                    ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
-                    : 'Provider Ref: Pending';
+                const serviceHeading = Number.isFinite(publicIdValue)
+                    ? `#${publicIdValue} · ${escapeHtml(service.name)}`
+                    : escapeHtml(service.name);
                 // Provider names are hidden from customers - only admins see them
                 const avgTimeBadge = service.average_time
                     ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
@@ -441,11 +434,7 @@ async function loadServicesFromAPI(options = {}) {
                 html += `
                     <div class="service-row" data-service-id="${service.id}">
                         <div class="service-col">
-                            <strong>${labelId} · ${escapeHtml(service.name)}</strong>
-                            <div class="service-id-meta">
-                                <span class="service-id-chip">${panelOrderLabel}</span>
-                                <span class="service-id-chip service-id-chip--secondary">${providerOrderLabel}</span>
-                            </div>
+                            <strong>${serviceHeading}</strong>
                             <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
                             ${serviceMetaMarkup}
                         </div>
@@ -624,17 +613,7 @@ function showServiceDescription(serviceKey) {
         : Number(rawPublicId);
     const labelId = Number.isFinite(publicIdValue) ? `#${publicIdValue}` : 'ID Pending';
     
-    // Enhanced fallback pattern for provider identifiers (consistent with admin-orders.js)
-    const providerOrderRaw = service.provider_order_id 
-        ?? service.providerOrderId 
-        ?? service.provider_service_id 
-        ?? service.providerServiceId 
-        ?? service.meta?.provider_order_id 
-        ?? service.meta?.providerOrderId;
     
-    const providerOrderLabel = providerOrderRaw && String(providerOrderRaw).trim().length > 0
-        ? `Provider Ref: ${escapeHtml(String(providerOrderRaw).trim())}`
-        : 'Provider Ref: Pending';
     const description = escapeHtml(service.description || 'No description available');
     const currency = (service.currency || 'USD').toUpperCase();
     const priceLabel = formatCurrencyValue(service.rate, currency);
@@ -644,16 +623,7 @@ function showServiceDescription(serviceKey) {
     const maxValue = maxRaw === null || maxRaw === undefined ? Infinity : Number(maxRaw);
     const max = formatNumber(Number.isFinite(maxValue) ? maxValue : Infinity);
     const averageTime = service.average_time ? escapeHtml(service.average_time) : 'Not provided';
-    const providerName = escapeHtml(service.provider?.name || 'Unknown Provider');
-    const providerStatus = service.provider?.status ? escapeHtml(service.provider.status) : 'unknown';
-    const providerMarkup = Number.isFinite(Number(service.provider?.markup))
-        ? `${Number(service.provider.markup).toFixed(1)}%`
-        : '—';
     const capabilityBadges = renderSupportBadges(service, { showDisabled: true, fallbackLabel: '<span class="service-meta-tag service-capability service-capability--off">No automation flags reported</span>' });
-    const providerMetadataRaw = service.provider_metadata;
-    const providerMetadataBlock = providerMetadataRaw
-        ? `<div style="margin-top: 20px;"><h4 style="margin: 0 0 8px; font-size: 14px; color: #475569;">Provider Metadata</h4><pre style="max-height: 280px; overflow: auto; background: #0F172A; color: #E2E8F0; padding: 16px; border-radius: 12px; font-size: 12px;">${escapeHtml(JSON.stringify(providerMetadataRaw, null, 2))}</pre></div>`
-        : '';
     const serviceRecordId = service.id ?? service.provider_service_id ?? serviceKey;
     const orderLinkParam = encodeURIComponent(serviceRecordId);
 
@@ -662,7 +632,7 @@ function showServiceDescription(serviceKey) {
             <div class="modal-content" style="background: white; border-radius: 16px; padding: 32px; max-width: 720px; width: 92%; box-shadow: 0 20px 60px rgba(0,0,0,0.35); animation: modalSlideIn 0.3s ease;">
                 <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 24px;">
                     <div>
-                        <p style="margin: 0; color: #94A3B8; font-size: 0.85rem;">${labelId} · ${providerOrderLabel}</p>
+                        <p style="margin: 0; color: #94A3B8; font-size: 0.85rem;">${labelId}</p>
                         <h2 style="color: #0F172A; margin: 4px 0 0; font-size: 26px; font-weight: 700;">${escapeHtml(service.name)}</h2>
                     </div>
                     <button onclick="closeServiceDescription()" style="background: none; border: none; font-size: 28px; color: #64748B; cursor: pointer; padding: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 10px; transition: all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
@@ -697,25 +667,6 @@ function showServiceDescription(serviceKey) {
                 <div style="margin-bottom: 24px;">
                     <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Automation & Support</h3>
                     <div class="service-meta-row service-meta-row--wrap">${capabilityBadges}</div>
-                </div>
-
-                <div style="background: #F8FAFC; border-radius: 16px; padding: 20px; margin-bottom: 24px;">
-                    <h3 style="color: #0F172A; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Provider Details</h3>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
-                        <div>
-                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Name</p>
-                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A;">${providerName}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Status</p>
-                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A; text-transform: capitalize;">${providerStatus}</p>
-                        </div>
-                        <div>
-                            <p style="margin: 0; font-size: 0.8rem; color: #94A3B8;">Markup</p>
-                            <p style="margin: 4px 0 0; font-weight: 600; color: #0F172A;">${providerMarkup}</p>
-                        </div>
-                    </div>
-                    ${providerMetadataBlock}
                 </div>
 
                 <div style="display: flex; flex-wrap: wrap; gap: 12px;">

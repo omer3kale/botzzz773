@@ -982,11 +982,7 @@ body.sidebar-collapsed .admin-main {
 }
 
 .sync-status-meta {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: var(--admin-gray-text);
+    display: none;
 }
 
 .sync-status-dot {

@@ -311,9 +311,6 @@ function buildOrderStatusChipRow({
         chips.push(`<span class="order-status-chip order-status-chip--muted">${escapeHtml(modeLabel)}</span>`);
     }
 
-    const syncLabel = lastSyncLabel || 'Sync pending';
-    chips.push(`<span class="order-status-chip order-status-chip--info" title="Last provider sync">${escapeHtml(syncLabel)}</span>`);
-
     const filtered = chips.filter(Boolean);
     return filtered.length ? `<div class="order-status-chip-row">${filtered.join('')}</div>` : '';
 }
@@ -452,10 +449,35 @@ function resolveOrderIdentifiers(order) {
         order?.order_reference,
         order?.customer_order_number,
         order?.customer_order_id,
-        order?.reference,
-        order?.external_order_id,
-        order?.external_id
+        order?.reference
     ];
+
+    const fallbackInternalId = () => {
+        if (order?.order_number) {
+            return formatWithHash(order.order_number);
+        }
+        if (order?.id !== undefined && order?.id !== null) {
+            const trimmed = String(order.id).replace(/[^a-zA-Z0-9]/g, '');
+            if (trimmed) {
+                return formatWithHash(trimmed);
+            }
+        }
+        if (uuidRaw) {
+            const trimmed = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10);
+            if (trimmed) {
+                return formatWithHash(trimmed);
+            }
+        }
+        return '#—';
+    };
+
+    function formatWithHash(value) {
+        const trimmed = String(value).trim();
+        if (!trimmed) {
+            return '#—';
+        }
+        return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+    }
 
     let customerReference = customerCandidates.find(value => {
         if (value === undefined || value === null) {
@@ -478,16 +500,26 @@ function resolveOrderIdentifiers(order) {
     if (customerReference) {
         const trimmed = String(customerReference).trim();
         if (trimmed) {
-            // Format as #37000001, #37000002, etc. - no ORD- prefix
-            normalizedCustomer = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+            normalizedCustomer = formatWithHash(trimmed);
         }
     }
 
     if (!normalizedCustomer && uuidRaw) {
-        const compact = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8).toUpperCase();
+        const compact = uuidRaw.replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
         if (compact) {
-            normalizedCustomer = `#${compact}`;
+            normalizedCustomer = formatWithHash(compact);
         }
+    }
+
+    const normalizedProvider = providerOrderDisplay
+        ? providerOrderDisplay.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+        : null;
+    const normalizedCustomerValue = normalizedCustomer
+        ? normalizedCustomer.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()
+        : null;
+
+    if (!normalizedCustomerValue || (normalizedProvider && normalizedCustomerValue === normalizedProvider)) {
+        normalizedCustomer = fallbackInternalId();
     }
 
     if (!normalizedCustomer) {
@@ -505,7 +537,7 @@ function resolveOrderIdentifiers(order) {
     const primaryLabel = normalizedCustomer;
     const primaryTitle = `Order ${normalizedCustomer}`;
     const secondaryLabel = providerOrderDisplay
-        ? `Provider: ${providerOrderDisplay}`
+        ? `Provider order ID: ${providerOrderDisplay}`
         : null;
 
     return {
