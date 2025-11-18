@@ -1325,7 +1325,7 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
 
   let ordersQuery = supabaseAdmin
     .from('orders')
-    .select('id, service_id, provider_order_id, status, provider_response, meta, external_order_id, order_reference, display_order_id');
+    .select('id, service_id, provider_order_id, status, provider_response, meta, external_order_id, order_number, public_id');
 
   if (orderIds && orderIds.length > 0) {
     ordersQuery = ordersQuery.in('id', orderIds);
