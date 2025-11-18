@@ -873,10 +873,6 @@
             const quantity = Number.isFinite(Number(order.quantity))
                 ? Number(order.quantity)
                 : 0;
-            const serviceName = order.service_name
-                || order.service?.name
-                || 'Service';
-            const serviceLabel = serviceName.length > 40 ? `${serviceName.substring(0, 40)}…` : serviceName;
             const statusKey = buildStatusKey(order.status);
             const statusLabel = formatOrderStatusLabel(order.status);
 
@@ -891,7 +887,6 @@
                     <td>${chargeDisplay}</td>
                     <td>${escapeHtml(order.start_count || 0)}</td>
                     <td>${escapeHtml(quantity)}</td>
-                    <td>${escapeHtml(serviceLabel)}</td>
                     <td><span class="status-badge status-${statusKey}">${escapeHtml(statusLabel)}</span></td>
                     <td>${escapeHtml(order.remains || 0)}</td>
                 </tr>
