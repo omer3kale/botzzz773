@@ -615,6 +615,8 @@ body.admin-body textarea {
 .payments-table-panel,
 .tickets-table-panel {
     min-width: 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .selected-payments-summary,
@@ -1162,6 +1164,29 @@ body.sidebar-collapsed .admin-main {
 .admin-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: auto;
+}
+
+/* Column width optimization for better horizontal layout */
+.admin-table th:nth-child(1),
+.admin-table td:nth-child(1) {
+    width: 40px; /* Checkbox column */
+}
+
+.admin-table th:nth-child(2),
+.admin-table td:nth-child(2) {
+    min-width: 220px; /* Order IDs column - ensure enough space */
+    max-width: 280px;
+}
+
+.admin-table th:nth-child(3),
+.admin-table td:nth-child(3) {
+    min-width: 120px; /* User column */
+}
+
+.admin-table th:nth-child(4),
+.admin-table td:nth-child(4) {
+    min-width: 140px; /* Amount column */
 }
 
 .admin-table thead {
@@ -1222,19 +1247,21 @@ body.sidebar-collapsed .admin-main {
 .order-id-cell {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    line-height: 1.25;
+    gap: 6px;
+    line-height: 1.4;
+    min-width: 200px;
 }
 
 .order-id-primary {
     font-weight: 700;
-    font-size: 14px;
+    font-size: 15px;
     color: #ff1494;
     background: linear-gradient(135deg, #ff1494 0%, #ff6ec7 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
 }
 
 .order-id-provider-display {
@@ -1275,17 +1302,20 @@ body.sidebar-collapsed .admin-main {
 }
 
 .order-id-secondary {
-    font-size: 12px;
-    color: var(--admin-gray-text);
+    font-size: 11.5px;
+    color: #64748b;
     display: block;
     letter-spacing: 0.01em;
+    line-height: 1.4;
+    font-weight: 500;
 }
 
 .order-id-provider {
-    font-size: 12px;
-    color: var(--admin-gray-text);
+    font-size: 11.5px;
+    color: #64748b;
     display: block;
     margin-top: 2px;
+    font-weight: 500;
 }
 
 .order-id-provider strong {
