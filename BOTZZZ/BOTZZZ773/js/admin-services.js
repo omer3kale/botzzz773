@@ -1815,7 +1815,7 @@ async function loadServices() {
                         <td>
                             <div class="cell-stack cell-stack-ids">
                                 <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
-                                <span class="cell-secondary cell-muted" title="Provider reference">${escapeHtml(providerLabel)}</span>
+                                <span class="cell-secondary cell-highlight" title="Provider reference">${escapeHtml(providerLabel)}</span>
                             </div>
                         </td>
                         <td>

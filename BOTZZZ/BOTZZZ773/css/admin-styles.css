@@ -1329,14 +1329,13 @@ body.sidebar-collapsed .admin-main {
 }
 
 .cell-primary {
-    font-weight: 400;
-    color: var(--admin-gray-text);
+    font-weight: 600;
+    color: var(--admin-light-text);
 }
 
 .cell-secondary {
     font-size: 12px;
-    font-weight: 600;
-    color: #22c55e;
+    color: var(--admin-gray-text);
 }
 
 .cell-muted {
