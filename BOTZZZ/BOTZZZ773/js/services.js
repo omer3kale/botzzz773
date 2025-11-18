@@ -19,29 +19,25 @@ function createServiceStatusController() {
     const helperEl = container.querySelector('[data-status-helper]');
     const actionBtn = container.querySelector('[data-retry-services]');
 
-    // Hide status text elements from customers
+    // Hide all status elements from customers
+    if (iconEl) iconEl.style.display = 'none';
     if (labelEl) labelEl.style.display = 'none';
     if (helperEl) helperEl.style.display = 'none';
 
     const defaults = {
         loading: {
-            icon: '⏳',
             showRetry: false
         },
         retrying: {
-            icon: '🔁',
             showRetry: false
         },
         success: {
-            icon: '✅',
             showRetry: false
         },
         empty: {
-            icon: '📦',
             showRetry: true
         },
         error: {
-            icon: '⚠️',
             showRetry: true
         }
     };
@@ -50,7 +46,6 @@ function createServiceStatusController() {
 
     function setState(state = 'loading', overrides = {}) {
         const config = { ...(defaults[state] || defaults.loading), ...overrides };
-        if (iconEl) iconEl.textContent = config.icon;
         container.dataset.state = state;
         if (actionBtn) {
             actionBtn.hidden = !config.showRetry;
