@@ -1501,11 +1501,8 @@ async function loadOrders({ skipSync = false } = {}) {
                     ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
                     : '';
                 const providerInfo = resolveOrderProvider(order, orderService);
-                const providerOrderMarkup = buildProviderOrderIdMarkup(
-                    providerInfo.providerName,
-                    formattedProviderOrderId,
-                    identifierMeta.providerOrderId
-                );
+                // Provider ID is already shown in orderSecondaryMarkup - no need for duplicate
+                const providerOrderMarkup = '';
                 const internalOrderMarkup = '';
 
 

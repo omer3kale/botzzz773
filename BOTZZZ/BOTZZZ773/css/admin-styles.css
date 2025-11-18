@@ -1151,18 +1151,21 @@ body.sidebar-collapsed .admin-main {
     background: var(--admin-dark-bg);
     border: 1px solid var(--admin-border);
     border-radius: 12px;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: visible;
     margin-bottom: 24px;
 }
 
 .table-card {
     box-shadow: 0 18px 30px rgba(5, 6, 10, 0.35);
     border-radius: 16px;
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: visible;
 }
 
 .admin-table {
     width: 100%;
+    min-width: 1400px; /* Ensure table doesn't squish on small screens */
     border-collapse: collapse;
     table-layout: auto;
 }
@@ -1625,6 +1628,20 @@ body.sidebar-collapsed .admin-main {
         margin-left: 0;
     }
 
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table-card {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .admin-table {
+        min-width: 1400px !important;
+    }
+
     .admin-search input {
         width: 180px;
     }
@@ -1654,11 +1671,17 @@ body.sidebar-collapsed .admin-main {
     }
 
     .table-container {
-        overflow-x: auto;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table-card {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
     }
 
     .admin-table {
-        min-width: 1000px;
+        min-width: 1400px !important;
     }
 }
 
