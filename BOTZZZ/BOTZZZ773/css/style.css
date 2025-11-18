@@ -843,20 +843,14 @@ section {
     margin-bottom: 6px;
 }
 
+/* Hide service ID metadata from customers - white label experience */
+.service-id-meta,
 .service-id-chip {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    background: rgba(255, 20, 148, 0.15);
-    color: var(--primary-pink);
+    display: none !important;
 }
 
 .service-id-chip--secondary {
-    background: rgba(148, 163, 184, 0.2);
-    color: #94A3B8;
+    display: none !important;
 }
 
 .service-meta-row {
