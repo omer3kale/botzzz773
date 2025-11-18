@@ -834,23 +834,25 @@
         }
 
         ordersTableBody.innerHTML = orders.map(order => {
-            const reference = order.order_number || order.id || '—';
-            const primaryLabel = reference !== '—' ? reference : 'Order';
-            const hasDistinctUuid = Boolean(
-                order.order_number && order.id && String(order.order_number).trim() !== String(order.id).trim()
-            );
-            const uuidMarkup = hasDistinctUuid
-                ? `<span class="order-id-secondary">UUID: ${escapeHtml(order.id)}</span>`
-                : '';
+            // Prioritize order_number (37M range) for display
+            let primaryLabel = '—';
+            if (order.order_number !== undefined && order.order_number !== null && String(order.order_number).trim().length > 0) {
+                primaryLabel = `#${String(order.order_number).trim()}`;
+            } else if (order.id) {
+                const compactId = String(order.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
+                primaryLabel = `#${compactId}`;
+            }
             
-            // Don't show provider info to customers - it's admin-only data
+            // Show provider order ID as secondary if available
             const providerOrderId = resolveProviderOrderId(order);
-            const providerMarkup = ''; // Removed provider display for customer dashboard
+            const providerMarkup = providerOrderId 
+                ? `<span class="order-id-secondary">Provider: ${escapeHtml(providerOrderId)}</span>`
+                : '';
             
             const orderIdCell = `
                 <div class="order-id-cell">
                     <span class="order-id-primary">${escapeHtml(primaryLabel)}</span>
-                    ${uuidMarkup}
+                    ${providerMarkup}
                 </div>
             `;
             const createdAt = order.created_at ? new Date(order.created_at).toLocaleDateString() : '—';
