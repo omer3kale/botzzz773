@@ -444,10 +444,11 @@ function resolveOrderIdentifiers(order) {
     const providerOrderId = resolveProviderOrderIdFromRecord(order);
     const providerOrderDisplay = providerOrderId ? formatProviderOrderId(providerOrderId) : null;
 
+    // Get our internal order number (starting from 37 million)
     const customerCandidates = [
+        order?.order_number,
         order?.display_order_id,
         order?.public_id,
-        order?.order_number,
         order?.order_reference,
         order?.customer_order_number,
         order?.customer_order_id,
@@ -477,6 +478,7 @@ function resolveOrderIdentifiers(order) {
     if (customerReference) {
         const trimmed = String(customerReference).trim();
         if (trimmed) {
+            // Format as #37000001, #37000002, etc. - no ORD- prefix
             normalizedCustomer = trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
         }
     }
@@ -498,12 +500,12 @@ function resolveOrderIdentifiers(order) {
 
     const providerTitle = providerOrderDisplay || 'Provider order pending';
 
-    // Primary = Our Order ID (customer reference)
+    // Primary = Our Order ID (starting from 37 million)
     // Secondary = Provider Order ID
     const primaryLabel = normalizedCustomer;
     const primaryTitle = `Order ${normalizedCustomer}`;
     const secondaryLabel = providerOrderDisplay
-        ? `Provider order: ${providerOrderDisplay}`
+        ? `Provider: ${providerOrderDisplay}`
         : null;
 
     return {
