@@ -48,12 +48,13 @@ BEGIN
     RAISE NOTICE '===========================================';
 END $$;
 
--- Step 3: Backfill NULL or old-format order numbers with 37M range
+-- Step 3: Backfill NULL, old-format, or sub-37M order numbers with 37M range
 UPDATE orders
 SET order_number = public.generate_order_number()
 WHERE order_number IS NULL 
    OR order_number = '' 
-   OR order_number LIKE 'ORD-%';
+   OR order_number LIKE 'ORD-%'
+   OR (order_number ~ '^[0-9]+$' AND (order_number::BIGINT < 37000000));
 
 -- Step 4: Get summary after backfill
 DO $$
