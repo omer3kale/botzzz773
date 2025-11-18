@@ -257,6 +257,49 @@ function coerceJsonObject(value) {
   return null;
 }
 
+function unwrapProviderPayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+
+  // Prefer most specific nested payloads many providers use
+  if (payload.data && typeof payload.data === 'object') return payload.data;
+  if (payload.result && typeof payload.result === 'object') return payload.result;
+  if (payload.response && typeof payload.response === 'object') return payload.response;
+
+  return payload;
+}
+
+function resolveProviderOrderIdFromResponse(resp) {
+  if (!resp) return null;
+
+  const flat = unwrapProviderPayload(resp);
+
+  const candidates = [
+    flat.order,
+    flat.order_id,
+    flat.id,
+    flat.orderid,
+    flat.orderId,
+    flat.provider_order_id,
+    flat.providerOrderId,
+    flat.external_order_id,
+    flat.externalOrderId,
+    flat.reference,
+    flat.display_order_id,
+    flat.result && flat.result.order,
+    flat.data && flat.data.order,
+    resp.order,
+    resp.order_id,
+    resp.id
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeProviderIdentifierCandidate(candidate);
+    if (normalized) return normalized;
+  }
+
+  return null;
+}
+
 function normalizeProviderIdentifierCandidate(value) {
   if (value === undefined || value === null) {
     return null;
@@ -1632,7 +1675,8 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
       throw new Error(`Provider status error: ${response.data.error}`);
     }
 
-    return response.data;
+    // Prefer nested payloads if present (many providers wrap under `data` or `result`)
+    return unwrapProviderPayload(response.data);
   } catch (error) {
     if (provider?.id) {
       try {
@@ -1717,17 +1761,15 @@ async function submitOrderToProvider(provider, orderData) {
       throw new Error(`Provider error: ${response.data.error}`);
     }
 
-    // Verify order ID was returned
-    if (!response.data.order) {
-      console.error('[PROVIDER] No order ID in response:', response.data);
+    // Try to extract order id from a variety of keys and nested payloads
+    const extractedOrderId = resolveProviderOrderIdFromResponse(response.data) || resolveProviderOrderIdFromResponse(unwrapProviderPayload(response.data));
+
+    if (!extractedOrderId) {
+      console.error('[PROVIDER] No order ID found in response:', response.data);
       throw new Error('Provider did not return an order ID');
     }
 
-    // Validate order ID is not null/undefined/empty
-    const orderId = String(response.data.order).trim();
-    if (!orderId || orderId === 'null' || orderId === 'undefined') {
-      throw new Error('Provider returned invalid order ID');
-    }
+    const orderId = extractedOrderId;
 
     console.log(`[PROVIDER] Order successfully submitted: ${orderId}`);
     
