@@ -668,17 +668,16 @@ async function loadServices(options = {}) {
             lastError = error;
             console.error(`[ORDER] Failed to load services (attempt ${attempt + 1}):`, error);
             if (attempt < SERVICES_FETCH_RETRIES) {
-                setServiceSelectPlaceholder(serviceSelect, 'Retrying service load...', true);
+                // Silent retry - no customer notification
                 await delay(400 * (attempt + 1));
                 continue;
             }
         }
     }
 
-    setServiceSelectPlaceholder(serviceSelect, 'Error loading services - retry', true);
-    if (lastError) {
-        showMessage('Failed to load services: ' + lastError.message, 'error');
-    }
+    // Keep trying silently without notifying customer
+    setServiceSelectPlaceholder(serviceSelect, 'Loading services...', true);
+    console.warn('[ORDER] All service load attempts failed:', lastError);
     serviceStatusController?.setState('error');
 }
 

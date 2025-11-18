@@ -725,7 +725,7 @@
                 }
             } catch (error) {
                 console.error('Order submission error:', error);
-                showToast('Network error. Please try again.', 'error');
+                // Network error message removed - silent failure
             }
         });
     }

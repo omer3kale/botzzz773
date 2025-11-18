@@ -20,8 +20,8 @@ async function loadServices() {
             populateServiceDropdown(data.services);
         }
     } catch (error) {
-        console.error('Failed to load services:', error);
-        showMessage('Failed to load services. Please refresh the page.', 'error');
+        console.error('[ORDER-BACKEND] Failed to load services:', error);
+        // Silent failure - no customer notification
     }
 }
 
