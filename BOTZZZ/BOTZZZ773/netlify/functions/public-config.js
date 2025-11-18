@@ -1,4 +1,4 @@
-const { supabaseAdmin, safeSelectFrom } = require('./utils/supabase');
+const { supabaseAdmin } = require('./utils/supabase');
 
 const CACHE_TTL_MS = 60 * 1000;
 const DEFAULT_HEARTBEAT_ENDPOINT = '/.netlify/functions/heartbeat';
@@ -36,7 +36,11 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { data, error } = await safeSelectFrom(supabaseAdmin, 'settings', ['key','value'], qb => qb.eq('key', 'integrations').maybeSingle());
+    const { data, error } = await supabaseAdmin
+      .from('settings')
+      .select('key, value')
+      .eq('key', 'integrations')
+      .maybeSingle();
 
     if (error) {
       throw error;
@@ -60,19 +64,6 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     console.error('[public-config] Failed to load settings', error);
-
-    // If debug flag is present, return the underlying error message/stack (truncated)
-    const debug = event?.queryStringParameters && String(event.queryStringParameters.debug) === '1';
-    if (debug) {
-      const safeMessage = (error && error.message) ? String(error.message) : 'Unknown error';
-      const safeStack = (error && error.stack) ? String(error.stack).slice(0, 2000) : undefined;
-      return {
-        statusCode: 500,
-        headers: baseHeaders,
-        body: JSON.stringify({ success: false, error: safeMessage, stack: safeStack })
-      };
-    }
-
     return {
       statusCode: 500,
       headers: baseHeaders,
