@@ -297,7 +297,7 @@ async function handleGetServices(event, user, headers) {
         .order('customer_portal_slot', { ascending: true, nullsLast: true })
         .order('category', { ascending: true })
         .order('name', { ascending: true })
-        .limit(100);
+        .limit(7);
     } else {
       query = query
         .order('category', { ascending: true })
