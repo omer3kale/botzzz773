@@ -238,10 +238,10 @@ function showManualPaymentInstructions(amount, orderId) {
                     </div>
                     <h3>Confirm Your Payment</h3>
                     <p>After sending the payment, please contact us to activate your funds:</p>
-                    <a href="mailto:omerdmvc@gmail.com?subject=Payment Confirmation - Order ${orderId}&body=I have sent $${amount.toFixed(2)} USD to Payeer ID P1135369069.%0D%0AOrder ID: ${orderId}%0D%0APlease confirm and activate my funds." 
+                    <a href="mailto:botzzz773@gmail.com?subject=Payment Confirmation - Order ${orderId}&body=I have sent $${amount.toFixed(2)} USD to Payeer ID P1135369069.%0D%0AOrder ID: ${orderId}%0D%0APlease confirm and activate my funds." 
                        class="btn-primary btn-contact">
                         <i class="fas fa-envelope"></i>
-                        Contact: omerdmvc@gmail.com
+                        Contact: botzzz773@gmail.com
                     </a>
                 </div>
             </div>
