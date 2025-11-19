@@ -275,10 +275,12 @@ body.admin-body textarea {
 .payments-layout,
 .tickets-layout {
     display: grid;
-    grid-template-columns: minmax(260px, 320px) 1fr;
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     gap: 24px;
     margin-bottom: 24px;
     align-items: flex-start;
+    width: 100%;
+    max-width: 100%;
 }
 
 .orders-layout.no-quick-actions {
@@ -615,8 +617,12 @@ body.admin-body textarea {
 .payments-table-panel,
 .tickets-table-panel {
     min-width: 0;
-    overflow-x: auto;
+    overflow-x: auto !important;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
+    /* Ensure panel can scroll */
+    width: 100%;
+    max-width: 100%;
 }
 
 .selected-payments-summary,
@@ -773,6 +779,9 @@ body.admin-body textarea {
     margin-top: var(--header-height);
     padding: 32px;
     min-height: calc(100vh - var(--header-height));
+    overflow-x: visible; /* Allow child elements to overflow horizontally */
+    width: 100%;
+    max-width: 100%;
 }
 
 body.sidebar-collapsed .admin-main {
@@ -1151,45 +1160,126 @@ body.sidebar-collapsed .admin-main {
     background: var(--admin-dark-bg);
     border: 1px solid var(--admin-border);
     border-radius: 12px;
-    overflow-x: auto;
+    overflow-x: auto !important;
     overflow-y: visible;
     margin-bottom: 24px;
+    width: 100%;
+    /* Enable smooth scrolling on touch devices */
+    -webkit-overflow-scrolling: touch;
+    /* Ensure scrollbar is visible */
+    scrollbar-width: thin;
+    scrollbar-color: var(--admin-primary) var(--admin-darker-bg);
+}
+
+/* Webkit browsers scrollbar styling */
+.table-container::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-container::-webkit-scrollbar-track {
+    background: var(--admin-darker-bg);
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+    background: var(--admin-primary);
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover {
+    background: #ff1494;
 }
 
 .table-card {
     box-shadow: 0 18px 30px rgba(5, 6, 10, 0.35);
     border-radius: 16px;
-    overflow-x: auto;
-    overflow-y: visible;
+    overflow: visible;
 }
 
 .admin-table {
     width: 100%;
-    min-width: 1400px; /* Ensure table doesn't squish on small screens */
+    min-width: 1600px !important; /* Force horizontal scroll on all screens smaller than this */
     border-collapse: collapse;
-    table-layout: auto;
+    table-layout: fixed;
 }
 
 /* Column width optimization for better horizontal layout */
 .admin-table th:nth-child(1),
 .admin-table td:nth-child(1) {
     width: 40px; /* Checkbox column */
+    min-width: 40px;
 }
 
 .admin-table th:nth-child(2),
 .admin-table td:nth-child(2) {
-    min-width: 220px; /* Order IDs column - ensure enough space */
-    max-width: 280px;
+    width: 220px; /* Order IDs column - ensure enough space */
+    min-width: 220px;
 }
 
 .admin-table th:nth-child(3),
 .admin-table td:nth-child(3) {
-    min-width: 120px; /* User column */
+    width: 140px; /* User column */
+    min-width: 140px;
 }
 
 .admin-table th:nth-child(4),
 .admin-table td:nth-child(4) {
-    min-width: 140px; /* Amount column */
+    width: 160px; /* Amount column */
+    min-width: 160px;
+}
+
+.admin-table th:nth-child(5),
+.admin-table td:nth-child(5) {
+    width: 180px; /* Link column */
+    min-width: 180px;
+}
+
+.admin-table th:nth-child(6),
+.admin-table td:nth-child(6) {
+    width: 100px; /* Start count */
+    min-width: 100px;
+}
+
+.admin-table th:nth-child(7),
+.admin-table td:nth-child(7) {
+    width: 100px; /* Quantity */
+    min-width: 100px;
+}
+
+.admin-table th:nth-child(8),
+.admin-table td:nth-child(8) {
+    width: 180px; /* Service */
+    min-width: 180px;
+}
+
+.admin-table th:nth-child(9),
+.admin-table td:nth-child(9) {
+    width: 200px; /* Status */
+    min-width: 200px;
+}
+
+.admin-table th:nth-child(10),
+.admin-table td:nth-child(10) {
+    width: 100px; /* Remains */
+    min-width: 100px;
+}
+
+.admin-table th:nth-child(11),
+.admin-table td:nth-child(11) {
+    width: 120px; /* Created */
+    min-width: 120px;
+}
+
+.admin-table th:nth-child(12),
+.admin-table td:nth-child(12) {
+    width: 80px; /* Mode */
+    min-width: 80px;
+}
+
+.admin-table th:nth-child(13),
+.admin-table td:nth-child(13) {
+    width: 80px; /* Actions */
+    min-width: 80px;
 }
 
 .admin-table thead {
@@ -1628,18 +1718,18 @@ body.sidebar-collapsed .admin-main {
         margin-left: 0;
     }
 
+    /* Force horizontal scroll on tablets */
     .table-container {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
     }
 
     .table-card {
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
+        overflow-x: visible;
     }
 
     .admin-table {
-        min-width: 1400px !important;
+        min-width: 1600px !important;
     }
 
     .admin-search input {
@@ -1670,18 +1760,76 @@ body.sidebar-collapsed .admin-main {
         width: 100%;
     }
 
+    /* Force horizontal scroll on mobile */
     .table-container {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
     }
 
     .table-card {
+        overflow-x: visible;
+        border-radius: 8px;
+    }
+
+    .admin-table {
+        min-width: 1600px !important;
+    }
+}
+
+/* Extra small devices */
+@media (max-width: 480px) {
+    .admin-main {
+        padding: 12px;
+    }
+
+    .admin-header {
+        padding: 0 16px;
+    }
+
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        margin: 0 -12px;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+
+    .orders-table-panel,
+    .users-table-panel,
+    .services-table-panel,
+    .payments-table-panel,
+    .tickets-table-panel {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
     }
 
     .admin-table {
-        min-width: 1400px !important;
+        min-width: 1600px !important;
+    }
+}
+
+/* Universal fallback for ALL screen sizes */
+@media (max-width: 1920px) {
+    .table-container {
+        overflow-x: auto !important;
+    }
+    
+    .orders-table-panel,
+    .users-table-panel,
+    .services-table-panel,
+    .payments-table-panel,
+    .tickets-table-panel {
+        overflow-x: auto !important;
+        max-width: 100%;
+    }
+}
+
+/* Large screens - ensure table still scrolls if needed */
+@media (min-width: 1920px) {
+    .admin-table {
+        min-width: 1600px;
     }
 }
 
