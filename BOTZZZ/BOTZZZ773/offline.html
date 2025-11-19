@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - BOTZZZ773</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #05060a 0%, #0b0d13 100%);
+            color: #fff;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .offline-container {
+            text-align: center;
+            max-width: 500px;
+        }
+
+        .offline-icon {
+            font-size: 120px;
+            margin-bottom: 30px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        h1 {
+            font-size: 32px;
+            margin-bottom: 16px;
+            color: #ff1494;
+        }
+
+        p {
+            font-size: 18px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 30px;
+        }
+
+        .retry-button {
+            background: #ff1494;
+            color: #fff;
+            border: none;
+            padding: 14px 32px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .retry-button:hover {
+            background: #e0127f;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(255, 20, 148, 0.3);
+        }
+
+        .offline-tips {
+            margin-top: 40px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .offline-tips h3 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: #ff1494;
+        }
+
+        .offline-tips ul {
+            list-style: none;
+            text-align: left;
+        }
+
+        .offline-tips li {
+            padding: 8px 0;
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .offline-tips li:before {
+            content: "→ ";
+            color: #ff1494;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="offline-icon">📡</div>
+        <h1>You're Offline</h1>
+        <p>It looks like you've lost your internet connection. Don't worry, you can still browse previously loaded pages.</p>
+        
+        <button class="retry-button" onclick="window.location.reload()">
+            Try Again
+        </button>
+
+        <div class="offline-tips">
+            <h3>Quick Tips:</h3>
+            <ul>
+                <li>Check your WiFi or mobile data connection</li>
+                <li>Make sure airplane mode is off</li>
+                <li>Try opening another website to test your connection</li>
+                <li>Your changes will be saved when you're back online</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // Auto-reload when connection is restored
+        window.addEventListener('online', () => {
+            window.location.reload();
+        });
+
+        // Show connection status
+        window.addEventListener('offline', () => {
+            console.log('Lost connection');
+        });
+    </script>
+</body>
+</html>
