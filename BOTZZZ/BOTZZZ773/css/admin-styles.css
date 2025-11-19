@@ -281,6 +281,7 @@ body.admin-body textarea {
     align-items: flex-start;
     width: 100%;
     max-width: 100%;
+    overflow: visible; /* Allow child overflow */
 }
 
 .orders-layout.no-quick-actions {
@@ -623,6 +624,7 @@ body.admin-body textarea {
     /* Ensure panel can scroll */
     width: 100%;
     max-width: 100%;
+    position: relative; /* Create positioning context */
 }
 
 .selected-payments-summary,
@@ -779,7 +781,7 @@ body.admin-body textarea {
     margin-top: var(--header-height);
     padding: 32px;
     min-height: calc(100vh - var(--header-height));
-    overflow-x: visible; /* Allow child elements to overflow horizontally */
+    overflow-x: hidden; /* Prevent double scrollbars */
     width: 100%;
     max-width: 100%;
 }
@@ -1164,6 +1166,8 @@ body.sidebar-collapsed .admin-main {
     overflow-y: visible;
     margin-bottom: 24px;
     width: 100%;
+    max-width: 100%; /* Prevent container from expanding */
+    display: block; /* Ensure proper block layout */
     /* Enable smooth scrolling on touch devices */
     -webkit-overflow-scrolling: touch;
     /* Ensure scrollbar is visible */

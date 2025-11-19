@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Sign In - BOTZZZ773</title>
+    <link rel="stylesheet" href="../css/admin-styles.css">
+    <link rel="stylesheet" href="../css/auth-styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Google Sign-In -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            background: #05060a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .admin-auth-container {
+            width: 100%;
+            max-width: 450px;
+            padding: 20px;
+        }
+
+        .admin-auth-card {
+            background: #0b0d13;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 48px 40px;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+        }
+
+        .admin-auth-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .admin-logo {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            color: #fff;
+            margin-bottom: 12px;
+        }
+
+        .admin-logo-highlight {
+            color: #ff1494;
+        }
+
+        .admin-auth-header h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .admin-auth-header p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.65);
+        }
+
+        .admin-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff1494, #ff5722);
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+
+        .google-signin-wrapper {
+            margin: 32px 0;
+        }
+
+        .security-notice {
+            background: rgba(255, 20, 148, 0.08);
+            border: 1px solid rgba(255, 20, 148, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 24px;
+        }
+
+        .security-notice-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #ff1494;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .security-notice-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.6;
+        }
+
+        .auth-footer {
+            text-align: center;
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .auth-footer p {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .auth-footer a {
+            color: #ff1494;
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .auth-footer a:hover {
+            text-decoration: underline;
+        }
+
+        #notification {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            background: #0b0d13;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            display: none;
+            min-width: 300px;
+        }
+
+        #notification.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        #notification.error {
+            border-color: rgba(255, 77, 79, 0.3);
+        }
+
+        #notification.success {
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="notification"></div>
+
+    <div class="admin-auth-container">
+        <div class="admin-auth-card">
+            <div class="admin-auth-header">
+                <div class="admin-logo">
+                    BOTZZZ<span class="admin-logo-highlight">773</span>
+                </div>
+                <div class="admin-badge">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 4px;">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
+                    </svg>
+                    ADMIN ACCESS
+                </div>
+                <h1>Admin Portal</h1>
+                <p>Sign in with your authorized Google account</p>
+            </div>
+
+            <div class="google-signin-wrapper">
+                <div id="g_id_onload"
+                     data-client_id="330182310617-douv2oleom0f2f9ak27qhh5t6om5tu06.apps.googleusercontent.com"
+                     data-context="signin"
+                     data-ux_mode="popup"
+                     data-callback="handleAdminGoogleSignIn"
+                     data-auto_prompt="false">
+                </div>
+                
+                <div class="g_id_signin" 
+                     data-type="standard"
+                     data-shape="rectangular"
+                     data-theme="filled_black"
+                     data-text="signin_with"
+                     data-size="large"
+                     data-logo_alignment="left"
+                     data-width="100%">
+                </div>
+            </div>
+
+            <div class="security-notice">
+                <div class="security-notice-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                    Secure Admin Access
+                </div>
+                <div class="security-notice-text">
+                    Only authorized administrators can access this portal. Your sign-in attempt will be verified against our admin whitelist.
+                </div>
+            </div>
+
+            <div class="auth-footer">
+                <p><a href="../index.html">← Back to website</a></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Admin Google Sign-In Handler
+        async function handleAdminGoogleSignIn(response) {
+            try {
+                const credential = response.credential;
+                
+                // Decode JWT to get email (basic decode, not verification)
+                const payload = JSON.parse(atob(credential.split('.')[1]));
+                const email = payload.email;
+                const name = payload.name;
+                const picture = payload.picture;
+
+                showNotification('Verifying admin access...', 'info');
+
+                // Send to backend with adminOnly flag
+                const res = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'google-signin',
+                        credential: credential,
+                        email: email,
+                        name: name,
+                        picture: picture,
+                        adminOnly: true // Flag to verify admin status
+                    })
+                });
+
+                const data = await res.json();
+
+                if (data.success && data.token && data.user) {
+                    // Verify user is admin
+                    if (data.user.role !== 'admin') {
+                        showNotification('Access denied: Admin privileges required', 'error');
+                        return;
+                    }
+
+                    // Store auth data
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+
+                    showNotification('Admin access granted! Redirecting...', 'success');
+
+                    // Redirect to admin dashboard
+                    setTimeout(() => {
+                        window.location.href = '/admin/index.html';
+                    }, 1000);
+                } else {
+                    showNotification(data.error || 'Authentication failed', 'error');
+                }
+            } catch (error) {
+                console.error('Admin Google sign-in error:', error);
+                showNotification('Authentication failed. Please try again.', 'error');
+            }
+        }
+
+        function showNotification(message, type = 'info') {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `show ${type}`;
+
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, type === 'success' ? 2000 : 4000);
+        }
+
+        // Check if already logged in as admin
+        window.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('token');
+            const userStr = localStorage.getItem('user');
+
+            if (token && userStr) {
+                try {
+                    const user = JSON.parse(userStr);
+                    if (user.role === 'admin') {
+                        window.location.href = '/admin/index.html';
+                    }
+                } catch (e) {
+                    // Invalid stored data, ignore
+                }
+            }
+        });
+    </script>
+</body>
+</html>

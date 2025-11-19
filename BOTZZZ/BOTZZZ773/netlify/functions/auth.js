@@ -475,9 +475,9 @@ async function handleResetPassword({ token, newPassword }, headers) {
 // Google Sign-In Handler
 async function handleGoogleSignIn(data, headers) {
   try {
-    const { credential, email, name, picture } = data;
+    const { credential, email, name, picture, adminOnly } = data;
 
-    console.log('[DEBUG] Google sign-in attempt:', { email, name, hasCredential: !!credential });
+    console.log('[DEBUG] Google sign-in attempt:', { email, name, hasCredential: !!credential, adminOnly });
 
     if (!credential || !email) {
       return {
@@ -493,6 +493,25 @@ async function handleGoogleSignIn(data, headers) {
       .select('*')
       .eq('email', email)
       .maybeSingle(); // Use maybeSingle instead of single to avoid error when not found
+
+    // If adminOnly flag is set, verify user is admin
+    if (adminOnly === true) {
+      if (!existingUser) {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Admin access required. Please contact support if you should have admin access.' })
+        };
+      }
+      
+      if (existingUser.role !== 'admin') {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Admin access required. Your account does not have admin privileges.' })
+        };
+      }
+    }
 
     let user;
 
@@ -519,6 +538,15 @@ async function handleGoogleSignIn(data, headers) {
 
       user = updatedUser;
     } else {
+      // If adminOnly is true, don't create new users
+      if (adminOnly === true) {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Admin access required. No account found for this email.' })
+        };
+      }
+
       console.log('[DEBUG] Creating new Google user');
       // Create new user from Google sign-in
       // Generate unique username from email

@@ -250,6 +250,12 @@ exports.handler = async (event) => {
 async function handleGetServices(event, user, headers) {
   try {
     const queryParams = event?.queryStringParameters || {};
+    
+    // Check if requesting categories list
+    if (queryParams.type === 'categories') {
+      return await handleGetCategories(headers);
+    }
+    
     const audienceParam = (queryParams.audience || queryParams.scope || '').toLowerCase();
     const wantsCustomerScope = audienceParam === 'customer';
     const wantsAdminScope = audienceParam === 'admin';
@@ -1003,19 +1009,85 @@ async function handleDeleteService(user, data, headers) {
   }
 }
 
+async function handleGetCategories(headers) {
+  try {
+    const { data: categories, error } = await supabase
+      .from('service_categories')
+      .select('*')
+      .eq('status', 'active')
+      .order('display_order', { ascending: true })
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('Get categories error:', error);
+      throw error;
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ 
+        success: true,
+        categories: categories || []
+      })
+    };
+  } catch (error) {
+    console.error('Get categories error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to fetch categories' })
+    };
+  }
+}
+
 async function handleCreateCategory(data, headers) {
   try {
     const { name, description, icon } = data;
 
-    // For now, categories are just stored as metadata
-    // You can create a categories table later if needed
+    if (!name || name.trim() === '') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Category name is required' })
+      };
+    }
+
+    // Create slug from name (lowercase, replace spaces with hyphens)
+    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+    // Insert category into database
+    const { data: category, error } = await supabase
+      .from('service_categories')
+      .insert({
+        name: name.trim(),
+        slug: slug,
+        description: description?.trim() || null,
+        icon: icon?.trim() || 'fas fa-folder',
+        status: 'active'
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Create category database error:', error);
+      if (error.code === '23505') { // Unique constraint violation
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Category with this name already exists' })
+        };
+      }
+      throw error;
+    }
+
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({ 
         success: true,
         message: `Category "${name}" created successfully`,
-        category: { name, description, icon }
+        category: category
       })
     };
   } catch (error) {

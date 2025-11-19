@@ -35,6 +35,7 @@ function closeModal() {
 // Provider utilities for form dropdowns
 let providersCache = null;
 let servicesCache = [];
+let categoriesCache = null;
 const selectedServiceIds = new Set();
 const ADMIN_SERVICES_BASE_ENDPOINT = '/.netlify/functions/services';
 const CUSTOMER_PORTAL_MAX_SLOTS = 7;
@@ -88,6 +89,11 @@ window.invalidateProvidersCache = function() {
     console.log('[DEBUG] Providers cache invalidated');
 };
 
+window.invalidateCategoriesCache = function() {
+    categoriesCache = null;
+    console.log('[DEBUG] Categories cache invalidated');
+};
+
 async function fetchProvidersList(force = false) {
     if (!force && Array.isArray(providersCache)) {
         return providersCache;
@@ -117,6 +123,37 @@ async function fetchProvidersList(force = false) {
     }
 
     return providersCache;
+}
+
+async function fetchCategoriesList(force = false) {
+    if (!force && Array.isArray(categoriesCache)) {
+        return categoriesCache;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        categoriesCache = [];
+        return categoriesCache;
+    }
+
+    try {
+        const response = await fetch('/.netlify/functions/services?type=categories', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+        categoriesCache = data.success ? (data.categories || []) : [];
+        console.log(`[DEBUG] Fetched ${categoriesCache.length} categories`);
+    } catch (error) {
+        console.error('Fetch categories error:', error);
+        categoriesCache = [];
+    }
+
+    return categoriesCache;
 }
 
 function escapeHtml(text = '') {
@@ -151,6 +188,14 @@ function buildProviderOptions(providers, includePlaceholder = true) {
         return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}</option>`;
     }).join('');
     return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No providers available</option>'));
+}
+
+function buildCategoryOptions(categories, includePlaceholder = true) {
+    const placeholder = includePlaceholder ? '<option value="">Select Category</option>' : '';
+    const options = (categories || []).map(category => {
+        return `<option value="${escapeHtml(category.slug)}">${escapeHtml(category.name)}</option>`;
+    }).join('');
+    return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No categories available</option>'));
 }
 
 function buildProviderOptionsWithSelected(providers, selectedId) {
@@ -572,10 +617,15 @@ function isAdminCreatedService(service = {}) {
 // Add new service
 async function addService() {
     const providers = await fetchProvidersList();
+    const categories = await fetchCategoriesList();
     const hasProviders = providers.length > 0;
+    const hasCategories = categories.length > 0;
     const providerOptions = hasProviders
         ? buildProviderOptions(providers)
         : '<option value="" disabled>No providers available</option>';
+    const categoryOptions = hasCategories
+        ? buildCategoryOptions(categories)
+        : '<option value="">Instagram</option><option value="">TikTok</option><option value="">YouTube</option>';
 
     const content = `
         <form id="addServiceForm" onsubmit="submitAddService(event)" class="admin-form">
@@ -587,13 +637,12 @@ async function addService() {
                 <div class="form-group">
                     <label>Category *</label>
                     <select name="category" required>
-                        <option value="">Select Category</option>
-                        <option value="instagram">Instagram</option>
-                        <option value="tiktok">TikTok</option>
-                        <option value="youtube">YouTube</option>
-                        <option value="twitter">Twitter</option>
-                        <option value="facebook">Facebook</option>
+                        ${categoryOptions}
                     </select>
+                    <small style="color: #94a3b8;">
+                        ${hasCategories ? `${categories.length} categories available` : 'Using default categories'}
+                        • <a href="#" onclick="event.preventDefault(); createCategory();" style="color: var(--admin-primary);">Create new category</a>
+                    </small>
                 </div>
                 <div class="form-group">
                     <label>Type *</label>
@@ -770,15 +819,26 @@ async function editService(serviceId) {
     }
 
     const providers = await fetchProvidersList();
+    const categories = await fetchCategoriesList();
     const providerOptions = buildProviderOptionsWithSelected(providers, service.provider_id);
 
-    const categories = ['instagram', 'tiktok', 'youtube', 'twitter', 'facebook', 'other'];
-    const currentCategory = String(service.category || 'other').toLowerCase();
-    const categoryOptions = categories.map(category => {
-        const label = category.charAt(0).toUpperCase() + category.slice(1);
-        const selected = currentCategory === category ? ' selected' : '';
-        return `<option value="${category}"${selected}>${label}</option>`;
-    }).join('');
+    const currentCategory = String(service.category || '').toLowerCase();
+    let categoryOptions = '';
+    
+    if (categories.length > 0) {
+        categoryOptions = categories.map(category => {
+            const isSelected = currentCategory === category.slug.toLowerCase();
+            return `<option value="${escapeHtml(category.slug)}"${isSelected ? ' selected' : ''}>${escapeHtml(category.name)}</option>`;
+        }).join('');
+    } else {
+        // Fallback to default categories
+        const defaultCategories = ['instagram', 'tiktok', 'youtube', 'twitter', 'facebook', 'other'];
+        categoryOptions = defaultCategories.map(category => {
+            const label = category.charAt(0).toUpperCase() + category.slice(1);
+            const selected = currentCategory === category ? ' selected' : '';
+            return `<option value="${category}"${selected}>${label}</option>`;
+        }).join('');
+    }
 
     const isManualService = isAdminCreatedService(service);
     const publicIdValue = toNumeric(service.public_id);
@@ -1138,8 +1198,11 @@ async function submitCreateCategory(event) {
         const data = await parseApiResponse(response);
         if (response.ok && data && data.success) {
             showNotification(`Category "${categoryData.categoryName}" created successfully!`, 'success');
+            // Invalidate categories cache to fetch fresh data
+            window.invalidateCategoriesCache();
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            // Reload the page to show updated category in dropdowns
+            setTimeout(() => window.location.reload(), 800);
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Create category failed:', response.status, serverMessage, data);
