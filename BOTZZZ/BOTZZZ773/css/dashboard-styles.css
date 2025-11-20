@@ -862,6 +862,212 @@
 }
 
 /* ==========================================
+   PAYMENTS VIEW STYLES
+   ========================================== */
+.payments-view {
+    padding: 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.payments-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.payments-header h2 {
+    margin: 0 0 0.5rem 0;
+    color: var(--text-white);
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.payments-header p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+}
+
+.payments-card {
+    background: var(--bg-darker);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 20, 148, 0.1);
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(255, 20, 148, 0.1);
+}
+
+.payments-table-wrapper {
+    overflow-x: auto;
+}
+
+.payments-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: transparent;
+}
+
+.payments-table thead {
+    background: var(--bg-dark);
+    border-bottom: 1px solid rgba(255, 20, 148, 0.1);
+}
+
+.payments-table th {
+    padding: 1rem 1.5rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 20, 148, 0.1);
+}
+
+.payments-table td {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid rgba(255, 20, 148, 0.05);
+    color: var(--text-white);
+    font-size: 0.95rem;
+    vertical-align: middle;
+}
+
+.payments-table tbody tr {
+    background: var(--bg-darker);
+    transition: background-color 0.2s ease;
+}
+
+.payments-table tbody tr:hover {
+    background: rgba(255, 20, 148, 0.05);
+}
+
+.payments-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.payments-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem;
+    color: var(--text-secondary);
+}
+
+.payments-empty {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--text-secondary);
+}
+
+.payments-empty .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    opacity: 0.7;
+}
+
+.payments-empty h3 {
+    margin: 0 0 1rem 0;
+    color: var(--text-white);
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.payments-empty p {
+    margin: 0 0 2rem 0;
+    font-size: 0.95rem;
+}
+
+.payments-error {
+    padding: 2rem;
+    text-align: center;
+    color: var(--error-color);
+    background: rgba(255, 0, 0, 0.1);
+    border-radius: 8px;
+    margin: 1rem;
+}
+
+/* Payment status badges */
+.payment-status {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.payment-status.completed {
+    background: rgba(0, 255, 128, 0.2);
+    color: #00ff80;
+    border: 1px solid rgba(0, 255, 128, 0.3);
+}
+
+.payment-status.pending {
+    background: rgba(255, 193, 7, 0.2);
+    color: #ffc107;
+    border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.payment-status.failed {
+    background: rgba(255, 0, 0, 0.2);
+    color: #ff4757;
+    border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+/* Payment method badges */
+.payment-method {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.75rem;
+    background: var(--bg-dark);
+    border: 1px solid rgba(255, 20, 148, 0.2);
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-white);
+}
+
+/* Payment amount formatting */
+.payment-amount {
+    font-weight: 600;
+    color: #00ff80;
+}
+
+/* Responsive adjustments for payments table */
+@media (max-width: 768px) {
+    .payments-view {
+        padding: 1rem;
+    }
+    
+    .payments-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .payments-table th,
+    .payments-table td {
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+    }
+    
+    .payments-table th:first-child,
+    .payments-table td:first-child {
+        padding-left: 1rem;
+    }
+    
+    .payments-table th:last-child,
+    .payments-table td:last-child {
+        padding-right: 1rem;
+    }
+}
+
+/* ==========================================
    UTILITY CLASSES
    ========================================== */
 .hidden {

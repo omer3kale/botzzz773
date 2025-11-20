@@ -4,14 +4,15 @@
   "description": "Premium SMM services website built with speed in mind! 🚀",
   "main": "index.js",
   "scripts": {
-    "dev": "netlify dev",
-    "deploy": "netlify deploy --prod",
+    "dev": "npx netlify dev",
+    "deploy": "npx netlify deploy --prod",
     "build": "echo 'No build required for static site'",
     "test": "node tests/run-all-tests.js",
     "test:api": "node tests/api-tests.js",
     "test:api:auto": "node tests/run-with-server.js",
     "test:frontend": "node tests/frontend-tests.js",
     "test:integration": "node tests/integration-tests.js",
+  "test:admin-orders": "node tests/admin-orders-viewport-check.js",
     "test:watch": "nodemon --watch netlify/functions --watch js --exec npm test",
     "coverage": "node tests/coverage-report.js",
     "coverage:check": "npm run coverage && echo 'Coverage check complete'"
@@ -27,11 +28,12 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^7.0.10",
     "stripe": "^19.2.0"
   },
   "devDependencies": {
-    "netlify-cli": "^23.9.5",
+    "c8": "^8.0.1",
     "nodemon": "^3.0.1",
-    "c8": "^8.0.1"
+    "playwright": "^1.56.1"
   }
 }

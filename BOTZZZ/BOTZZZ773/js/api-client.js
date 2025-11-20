@@ -45,14 +45,26 @@ class APIClient {
     }
 
     // Auth endpoints
-    async login(email, password) {
+    async login(email, password, adminOtp = null, requestOtp = false) {
+        const body = {
+            action: 'login',
+            email,
+            password
+        };
+        
+        // Include admin OTP if provided
+        if (adminOtp) {
+            body.adminOtp = adminOtp;
+        }
+        
+        // Include OTP request flag
+        if (requestOtp) {
+            body.requestOtp = true;
+        }
+        
         return this.request('/.netlify/functions/auth', {
             method: 'POST',
-            body: JSON.stringify({
-                action: 'login',
-                email,
-                password
-            })
+            body: JSON.stringify(body)
         });
     }
 

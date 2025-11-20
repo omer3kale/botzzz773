@@ -5,7 +5,6 @@
 const SERVICES_ENDPOINT = '/.netlify/functions/services?audience=customer';
 const SERVICES_FETCH_TIMEOUT = 15000;
 const SERVICES_FETCH_RETRIES = 2;
-const SERVICES_PER_CUSTOMER = 7;
 
 let servicesData = [];
 let servicesFetchController = null;
@@ -322,13 +321,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const quantity = Number(quantityInput?.value) || 0;
         const service = servicesData.find(s => String(s.id) === String(serviceId));
 
-        if (service && quantity > 0) {
-            const rate = Number(service.rate || 0);
-            const price = (quantity / 1000) * rate;
-            estimatedPriceEl.textContent = '$' + price.toFixed(2);
-            estimatedPriceEl.style.animation = 'pulse 0.5s ease';
-        } else {
-            estimatedPriceEl.textContent = '$0.00';
+        if (estimatedPriceEl) {
+            if (service && quantity > 0) {
+                const rate = Number(service.rate || 0);
+                const price = (quantity / 1000) * rate;
+                estimatedPriceEl.textContent = '$' + price.toFixed(2);
+                estimatedPriceEl.style.animation = 'pulse 0.5s ease';
+            } else {
+                estimatedPriceEl.textContent = '$0.00';
+            }
         }
     }
     
@@ -644,7 +645,6 @@ async function loadServices(options = {}) {
                     const nameB = String(b?.name || '');
                     return nameA.localeCompare(nameB);
                 })
-                .slice(0, SERVICES_PER_CUSTOMER)
                 .map(normalizeServiceRecord);
 
             console.log('[ORDER] Received services:', services.length, 'Curated:', curatedServices.length);

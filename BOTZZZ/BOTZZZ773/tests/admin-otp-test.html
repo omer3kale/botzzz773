@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin OTP Test Case - BOTZZZ773</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background: #0a0a0a;
+            color: #fff;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #1a1a1a;
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 20, 148, 0.2);
+        }
+        h1 { 
+            color: #FF1494; 
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        h2 { 
+            color: #fff; 
+            border-bottom: 2px solid #FF1494;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            border-left: 4px solid #FF1494;
+        }
+        .test-form {
+            display: grid;
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: 600;
+            color: #ccc;
+        }
+        input[type="email"], input[type="password"], input[type="text"] {
+            padding: 12px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+        }
+        input[type="email"]:focus, input[type="password"]:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #FF1494;
+            box-shadow: 0 0 0 2px rgba(255, 20, 148, 0.2);
+        }
+        button {
+            padding: 12px 20px;
+            background: #FF1494;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.3s ease;
+        }
+        button:hover:not(:disabled) {
+            background: #e01080;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .result {
+            margin: 15px 0;
+            padding: 15px;
+            border-radius: 6px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+        .success {
+            background: rgba(0, 255, 128, 0.1);
+            border: 1px solid rgba(0, 255, 128, 0.3);
+            color: #00ff80;
+        }
+        .error {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgba(255, 0, 0, 0.3);
+            color: #ff4757;
+        }
+        .info {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            color: #ffc107;
+        }
+        .code {
+            background: #333;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #FF1494;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            background: #252525;
+            border-radius: 6px;
+        }
+        .step-number {
+            display: inline-block;
+            background: #FF1494;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 25px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Admin OTP Authentication Test Case</h1>
+        
+        <div class="test-section">
+            <h2>📋 Test Overview</h2>
+            <p>This test validates the Admin OTP authentication flow to ensure:</p>
+            <ul>
+                <li>✅ OTP codes are only generated for admin users</li>
+                <li>✅ OTP codes are only sent to the configured admin email</li>
+                <li>✅ Regular users cannot trigger admin OTP generation</li>
+                <li>✅ Invalid credentials are rejected before OTP generation</li>
+                <li>✅ OTP codes expire and become invalid after use</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Test Case 1: Admin OTP Request</h2>
+            <p>Test OTP generation for admin credentials</p>
+            
+            <div class="test-form">
+                <div class="form-group">
+                    <label for="adminEmail">Admin Email:</label>
+                    <input type="email" id="adminEmail" placeholder="admin@botzzz773.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="adminPassword">Admin Password:</label>
+                    <input type="password" id="adminPassword" placeholder="Enter admin password" required>
+                </div>
+                <button onclick="testAdminOTPRequest()">Request Admin OTP</button>
+            </div>
+            <div id="adminOtpResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Test Case 2: Regular User OTP Attempt</h2>
+            <p>Verify that regular users cannot trigger admin OTP</p>
+            
+            <div class="test-form">
+                <div class="form-group">
+                    <label for="userEmail">User Email:</label>
+                    <input type="email" id="userEmail" placeholder="user@example.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="userPassword">User Password:</label>
+                    <input type="password" id="userPassword" placeholder="Enter user password" required>
+                </div>
+                <button onclick="testUserOTPAttempt()">Attempt User OTP (Should Fail)</button>
+            </div>
+            <div id="userOtpResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🧪 Test Case 3: OTP Validation</h2>
+            <p>Test OTP validation with admin credentials</p>
+            
+            <div class="test-form">
+                <div class="form-group">
+                    <label for="otpAdminEmail">Admin Email:</label>
+                    <input type="email" id="otpAdminEmail" placeholder="admin@botzzz773.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="otpAdminPassword">Admin Password:</label>
+                    <input type="password" id="otpAdminPassword" placeholder="Enter admin password" required>
+                </div>
+                <div class="form-group">
+                    <label for="otpCode">OTP Code:</label>
+                    <input type="text" id="otpCode" placeholder="123456" maxlength="6" pattern="[0-9]{6}" required>
+                </div>
+                <button onclick="testOTPValidation()">Validate OTP & Login</button>
+            </div>
+            <div id="otpValidationResult" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📝 Test Instructions</h2>
+            <div class="step">
+                <span class="step-number">1</span>
+                <strong>Setup:</strong> Ensure you have admin credentials and SMTP configured
+            </div>
+            <div class="step">
+                <span class="step-number">2</span>
+                <strong>Test Admin OTP:</strong> Enter admin credentials and click "Request Admin OTP"
+            </div>
+            <div class="step">
+                <span class="step-number">3</span>
+                <strong>Check Email:</strong> Verify OTP email is sent to admin address only
+            </div>
+            <div class="step">
+                <span class="step-number">4</span>
+                <strong>Test User Rejection:</strong> Try with regular user credentials (should fail)
+            </div>
+            <div class="step">
+                <span class="step-number">5</span>
+                <strong>Validate OTP:</strong> Enter received OTP code and test validation
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>⚙️ Environment Variables Required</h2>
+            <div class="code">
+# SMTP Configuration
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+
+# Admin Configuration
+ADMIN_EMAIL=admin@botzzz773.com
+ADMIN_OTP_EMAIL=admin@botzzz773.com
+# (Optional legacy) G_ADMIN_EMAIL=admin@botzzz773.com
+
+# JWT Secret
+JWT_SECRET=your-jwt-secret-key
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Test Admin OTP Request
+        async function testAdminOTPRequest() {
+            const email = document.getElementById('adminEmail').value;
+            const password = document.getElementById('adminPassword').value;
+            const resultDiv = document.getElementById('adminOtpResult');
+            
+            if (!email || !password) {
+                showResult(resultDiv, 'Please fill in all fields', 'error');
+                return;
+            }
+            
+            showResult(resultDiv, 'Requesting admin OTP...', 'info');
+            
+            try {
+                const response = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'login',
+                        email: email,
+                        password: password,
+                        requestOtp: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.requiresOtp) {
+                    showResult(resultDiv, 
+                        `✅ SUCCESS: ${data.message}\n\nExpires in: ${data.expiresIn} seconds\nCheck admin email for OTP code.`, 
+                        'success'
+                    );
+                } else {
+                    showResult(resultDiv, 
+                        `❌ FAILED: ${data.error || 'Unknown error'}\n\nResponse: ${JSON.stringify(data, null, 2)}`, 
+                        'error'
+                    );
+                }
+            } catch (error) {
+                showResult(resultDiv, 
+                    `❌ ERROR: ${error.message}\n\nFull error: ${JSON.stringify(error, null, 2)}`, 
+                    'error'
+                );
+            }
+        }
+
+        // Test User OTP Attempt (Should fail)
+        async function testUserOTPAttempt() {
+            const email = document.getElementById('userEmail').value;
+            const password = document.getElementById('userPassword').value;
+            const resultDiv = document.getElementById('userOtpResult');
+            
+            if (!email || !password) {
+                showResult(resultDiv, 'Please fill in all fields', 'error');
+                return;
+            }
+            
+            showResult(resultDiv, 'Attempting user OTP request (this should fail)...', 'info');
+            
+            try {
+                const response = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'login',
+                        email: email,
+                        password: password,
+                        requestOtp: true
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.requiresOtp) {
+                    showResult(resultDiv, 
+                        `❌ SECURITY ISSUE: Regular user was able to request OTP!\n\nResponse: ${JSON.stringify(data, null, 2)}`, 
+                        'error'
+                    );
+                } else {
+                    showResult(resultDiv, 
+                        `✅ CORRECT BEHAVIOR: User OTP request rejected\n\nReason: ${data.error}\nResponse: ${JSON.stringify(data, null, 2)}`, 
+                        'success'
+                    );
+                }
+            } catch (error) {
+                showResult(resultDiv, 
+                    `✅ CORRECT BEHAVIOR: User OTP request failed\n\nError: ${error.message}`, 
+                    'success'
+                );
+            }
+        }
+
+        // Test OTP Validation
+        async function testOTPValidation() {
+            const email = document.getElementById('otpAdminEmail').value;
+            const password = document.getElementById('otpAdminPassword').value;
+            const otpCode = document.getElementById('otpCode').value;
+            const resultDiv = document.getElementById('otpValidationResult');
+            
+            if (!email || !password || !otpCode) {
+                showResult(resultDiv, 'Please fill in all fields', 'error');
+                return;
+            }
+            
+            if (!/^[0-9]{6}$/.test(otpCode)) {
+                showResult(resultDiv, 'OTP code must be 6 digits', 'error');
+                return;
+            }
+            
+            showResult(resultDiv, 'Validating OTP and attempting login...', 'info');
+            
+            try {
+                const response = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'login',
+                        email: email,
+                        password: password,
+                        adminOtp: otpCode
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.token && data.user) {
+                    showResult(resultDiv, 
+                        `✅ LOGIN SUCCESS: Admin authenticated with OTP\n\nUser: ${data.user.email}\nRole: ${data.user.role}\nToken: ${data.token.substring(0, 20)}...`, 
+                        'success'
+                    );
+                } else {
+                    showResult(resultDiv, 
+                        `❌ LOGIN FAILED: ${data.error || 'Unknown error'}\n\nResponse: ${JSON.stringify(data, null, 2)}`, 
+                        'error'
+                    );
+                }
+            } catch (error) {
+                showResult(resultDiv, 
+                    `❌ ERROR: ${error.message}\n\nFull error: ${JSON.stringify(error, null, 2)}`, 
+                    'error'
+                );
+            }
+        }
+
+        // Helper function to show results
+        function showResult(element, message, type) {
+            element.textContent = message;
+            element.className = `result ${type}`;
+            element.style.display = 'block';
+        }
+
+        // Auto-fill admin email from environment (for testing)
+        document.addEventListener('DOMContentLoaded', () => {
+            // You can modify these for your testing environment
+            const adminEmail = 'admin@botzzz773.com'; // Change to your admin email
+            document.getElementById('adminEmail').value = adminEmail;
+            document.getElementById('otpAdminEmail').value = adminEmail;
+        });
+    </script>
+</body>
+</html>

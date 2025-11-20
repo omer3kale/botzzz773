@@ -3,6 +3,7 @@ const { supabase, supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { syncProviderServices } = require('./sync-service-catalog');
+const { getPricingEngine } = require('./utils/pricing-engine');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -409,7 +410,7 @@ async function syncProvider(data, headers) {
 
     const { data: provider, error: providerError } = await supabaseAdmin
       .from('providers')
-      .select('id, name, api_url, api_key, status')
+      .select('id, name, api_url, api_key, status, markup')
       .eq('id', providerId)
       .single();
 
@@ -421,7 +422,8 @@ async function syncProvider(data, headers) {
       };
     }
 
-    const summary = await syncProviderServices(provider);
+    const pricingEngine = await getPricingEngine();
+    const summary = await syncProviderServices(provider, { pricingEngine });
 
     return {
       statusCode: 200,

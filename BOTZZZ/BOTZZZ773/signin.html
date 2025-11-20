@@ -11,6 +11,24 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Google Sign-In -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- PWA Configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#ff1494">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BOTZZZ773 Pro">
+
+    <!-- Icons for iOS -->
+    <link rel="apple-touch-icon" sizes="72x72" href="/img/icons/icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="96x96" href="/img/icons/icon-96x96.png">
+    <link rel="apple-touch-icon" sizes="128x128" href="/img/icons/icon-128x128.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/img/icons/icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/img/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/img/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="384x384" href="/img/icons/icon-384x384.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
+
 </head>
 <body>
     <!-- Navigation -->
@@ -100,12 +118,30 @@
                             </div>
                         </div>
 
+                        <!-- Admin OTP Field (Hidden by default) -->
+                        <div class="form-group admin-otp-group" id="adminOtpGroup" style="display: none;">
+                            <label for="adminOtp">Admin OTP Code</label>
+                            <input 
+                                type="text" 
+                                id="adminOtp" 
+                                name="adminOtp" 
+                                placeholder="Enter 6-digit OTP code"
+                                maxlength="6"
+                                pattern="[0-9]{6}"
+                                autocomplete="one-time-code"
+                            >
+                            <small class="form-help">Required for admin access. Check your email for the verification code.</small>
+                        </div>
+
                         <div class="form-options">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="remember" name="remember">
                                 <span>Remember me</span>
                             </label>
-                            <a href="#" class="forgot-link">Forgot password?</a>
+                            <div class="auth-links">
+                                <a href="#" class="forgot-link">Forgot password?</a>
+                                <button type="button" class="admin-signin-toggle" id="adminSigninToggle" onclick="toggleAdminSignin()">Admin Sign In</button>
+                            </div>
                         </div>
 
                         <button type="submit" class="btn-submit">Sign In</button>
@@ -302,5 +338,8 @@
             passwordInput.type = type;
         }
     </script>
+    <!-- PWA Registration -->
+    <script src="/js/pwa.js"></script>
+
 </body>
 </html>

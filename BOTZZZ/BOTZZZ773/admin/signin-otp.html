@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Sign In - BOTZZZ773</title>
+    <link rel="stylesheet" href="../css/auth-styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #05060a;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+            padding: 20px;
+        }
+
+        .auth-container {
+            width: 100%;
+            max-width: 450px;
+        }
+
+        .auth-card {
+            background: #0b0d13;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+            padding: 48px 40px;
+            box-shadow: 0 24px 48px rgba(0, 0, 0, 0.4);
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 32px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .logo-highlight {
+            color: #ff1494;
+        }
+
+        .admin-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #ff1494, #ff5722);
+            color: #fff;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.65);
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+            margin-bottom: 8px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            color: #fff;
+            font-size: 15px;
+            transition: all 0.2s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #ff1494;
+            background: rgba(255, 255, 255, 0.06);
+        }
+
+        input::placeholder {
+            color: rgba(255, 255, 255, 0.4);
+        }
+
+        .otp-input-container {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            margin: 24px 0;
+        }
+
+        .otp-digit {
+            width: 56px;
+            height: 64px;
+            text-align: center;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: 0;
+            padding: 0;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #ff1494, #ff5722);
+            border: none;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(255, 20, 148, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.08);
+            margin-top: 12px;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: none;
+        }
+
+        .timer {
+            text-align: center;
+            margin-top: 16px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .timer.warning {
+            color: #ff5722;
+        }
+
+        .security-notice {
+            background: rgba(255, 20, 148, 0.08);
+            border: 1px solid rgba(255, 20, 148, 0.2);
+            border-radius: 12px;
+            padding: 16px;
+            margin-top: 24px;
+        }
+
+        .security-notice-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #ff1494;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .security-notice-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.6;
+        }
+
+        .notification {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            background: #0b0d13;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 12px;
+            padding: 16px 20px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+            z-index: 10000;
+            display: none;
+            min-width: 320px;
+            max-width: 400px;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        .notification.error {
+            border-color: rgba(255, 77, 79, 0.4);
+        }
+
+        .notification.success {
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .link {
+            color: #ff1494;
+            text-decoration: none;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .link:hover {
+            text-decoration: underline;
+        }
+
+        .mt-16 {
+            margin-top: 16px;
+        }
+    </style>
+    <!-- PWA Configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#ff1494">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BOTZZZ773 Pro">
+
+    <!-- Icons for iOS -->
+    <link rel="apple-touch-icon" sizes="72x72" href="/img/icons/icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="96x96" href="/img/icons/icon-96x96.png">
+    <link rel="apple-touch-icon" sizes="128x128" href="/img/icons/icon-128x128.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="/img/icons/icon-144x144.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/img/icons/icon-152x152.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="/img/icons/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="384x384" href="/img/icons/icon-384x384.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
+
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="logo">
+                    BOTZZZ<span class="logo-highlight">773</span>
+                </div>
+                <span class="admin-badge">ADMIN ACCESS</span>
+                <h1 id="authTitle">Admin Sign In</h1>
+                <p class="subtitle" id="authSubtitle">Enter your admin email to receive a verification code</p>
+            </div>
+
+            <!-- Step 1: Email Entry -->
+            <div id="emailStep">
+                <form id="emailForm">
+                    <div class="form-group">
+                        <label for="emailInput">Admin Email</label>
+                        <input 
+                            type="email" 
+                            id="emailInput" 
+                            placeholder="admin@example.com"
+                            required
+                            autocomplete="email"
+                        >
+                    </div>
+                    <button type="submit" class="btn" id="sendOtpBtn">
+                        Send Verification Code
+                    </button>
+                </form>
+
+                <div class="security-notice">
+                    <div class="security-notice-title">
+                        🔒 Secure Authentication
+                    </div>
+                    <p class="security-notice-text">
+                        We'll send a 6-digit verification code to your registered admin email.
+                        This code expires in 10 minutes and can only be used once.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Step 2: OTP Entry -->
+            <div id="otpStep" class="hidden">
+                <form id="otpForm">
+                    <p class="text-center" style="color: rgba(255, 255, 255, 0.7); font-size: 14px; margin-bottom: 24px;">
+                        Enter the 6-digit code sent to<br>
+                        <strong id="emailDisplay" style="color: #ff1494;"></strong>
+                    </p>
+
+                    <div class="otp-input-container">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="0" autocomplete="off">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="1" autocomplete="off">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="2" autocomplete="off">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="3" autocomplete="off">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="4" autocomplete="off">
+                        <input type="text" class="otp-digit" maxlength="1" data-index="5" autocomplete="off">
+                    </div>
+
+                    <div class="timer" id="timer">
+                        Code expires in <span id="timerValue">10:00</span>
+                    </div>
+
+                    <button type="submit" class="btn" id="verifyOtpBtn">
+                        Verify & Sign In
+                    </button>
+
+                    <button type="button" class="btn btn-secondary" id="resendBtn" disabled>
+                        Resend Code (<span id="resendTimer">60</span>s)
+                    </button>
+
+                    <p class="text-center mt-16">
+                        <a href="#" class="link" id="backToEmail">Use different email</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <script>
+        let currentEmail = '';
+        let otpExpiryTime = null;
+        let expiryInterval = null;
+        let resendTimeout = null;
+        let resendCountdown = null;
+
+        // Elements
+        const emailStep = document.getElementById('emailStep');
+        const otpStep = document.getElementById('otpStep');
+        const emailForm = document.getElementById('emailForm');
+        const otpForm = document.getElementById('otpForm');
+        const emailInput = document.getElementById('emailInput');
+        const emailDisplay = document.getElementById('emailDisplay');
+        const sendOtpBtn = document.getElementById('sendOtpBtn');
+        const verifyOtpBtn = document.getElementById('verifyOtpBtn');
+        const resendBtn = document.getElementById('resendBtn');
+        const backToEmail = document.getElementById('backToEmail');
+        const otpDigits = document.querySelectorAll('.otp-digit');
+        const authTitle = document.getElementById('authTitle');
+        const authSubtitle = document.getElementById('authSubtitle');
+
+        // OTP digit input handling
+        otpDigits.forEach((digit, index) => {
+            digit.addEventListener('input', (e) => {
+                const value = e.target.value;
+                if (value && index < 5) {
+                    otpDigits[index + 1].focus();
+                }
+            });
+
+            digit.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && !e.target.value && index > 0) {
+                    otpDigits[index - 1].focus();
+                }
+            });
+
+            digit.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const pastedData = e.clipboardData.getData('text').replace(/\D/g, '');
+                if (pastedData.length === 6) {
+                    otpDigits.forEach((d, i) => {
+                        d.value = pastedData[i] || '';
+                    });
+                    otpDigits[5].focus();
+                }
+            });
+        });
+
+        // Send OTP
+        emailForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = emailInput.value.trim();
+            if (!email) return;
+
+            sendOtpBtn.disabled = true;
+            sendOtpBtn.textContent = 'Sending...';
+
+            try {
+                const response = await fetch('/.netlify/functions/admin-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'request-otp', email })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    currentEmail = email;
+                    showOtpStep();
+                    showNotification(data.message || 'Verification code sent!', 'success');
+                    startExpiryTimer(data.expiresIn || 600);
+                    startResendTimer();
+                } else {
+                    showNotification(data.error || 'Failed to send verification code', 'error');
+                    sendOtpBtn.disabled = false;
+                    sendOtpBtn.textContent = 'Send Verification Code';
+                }
+            } catch (error) {
+                console.error('Send OTP error:', error);
+                showNotification('Network error. Please try again.', 'error');
+                sendOtpBtn.disabled = false;
+                sendOtpBtn.textContent = 'Send Verification Code';
+            }
+        });
+
+        // Verify OTP
+        otpForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const otpCode = Array.from(otpDigits).map(d => d.value).join('');
+            if (otpCode.length !== 6) {
+                showNotification('Please enter all 6 digits', 'error');
+                return;
+            }
+
+            verifyOtpBtn.disabled = true;
+            verifyOtpBtn.textContent = 'Verifying...';
+
+            try {
+                const response = await fetch('/.netlify/functions/admin-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'verify-otp', 
+                        email: currentEmail,
+                        otpCode 
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    // Store token and user data
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    
+                    showNotification('Authentication successful! Redirecting...', 'success');
+                    
+                    setTimeout(() => {
+                        window.location.href = '/admin/index.html';
+                    }, 1000);
+                } else {
+                    showNotification(data.error || 'Invalid verification code', 'error');
+                    verifyOtpBtn.disabled = false;
+                    verifyOtpBtn.textContent = 'Verify & Sign In';
+                    
+                    // Clear OTP inputs
+                    otpDigits.forEach(d => d.value = '');
+                    otpDigits[0].focus();
+                }
+            } catch (error) {
+                console.error('Verify OTP error:', error);
+                showNotification('Network error. Please try again.', 'error');
+                verifyOtpBtn.disabled = false;
+                verifyOtpBtn.textContent = 'Verify & Sign In';
+            }
+        });
+
+        // Resend OTP
+        resendBtn.addEventListener('click', () => {
+            emailForm.dispatchEvent(new Event('submit'));
+        });
+
+        // Back to email
+        backToEmail.addEventListener('click', (e) => {
+            e.preventDefault();
+            showEmailStep();
+        });
+
+        function showOtpStep() {
+            emailStep.classList.add('hidden');
+            otpStep.classList.remove('hidden');
+            emailDisplay.textContent = currentEmail;
+            authTitle.textContent = 'Verify Your Identity';
+            authSubtitle.textContent = 'Enter the verification code sent to your email';
+            otpDigits[0].focus();
+        }
+
+        function showEmailStep() {
+            otpStep.classList.add('hidden');
+            emailStep.classList.remove('hidden');
+            authTitle.textContent = 'Admin Sign In';
+            authSubtitle.textContent = 'Enter your admin email to receive a verification code';
+            sendOtpBtn.disabled = false;
+            sendOtpBtn.textContent = 'Send Verification Code';
+            otpDigits.forEach(d => d.value = '');
+            clearInterval(expiryInterval);
+            clearInterval(resendCountdown);
+        }
+
+        function startExpiryTimer(seconds) {
+            otpExpiryTime = Date.now() + (seconds * 1000);
+            const timerEl = document.getElementById('timer');
+            const timerValue = document.getElementById('timerValue');
+
+            clearInterval(expiryInterval);
+            expiryInterval = setInterval(() => {
+                const remaining = Math.max(0, Math.floor((otpExpiryTime - Date.now()) / 1000));
+                const minutes = Math.floor(remaining / 60);
+                const secs = remaining % 60;
+                timerValue.textContent = `${minutes}:${secs.toString().padStart(2, '0')}`;
+
+                if (remaining < 60) {
+                    timerEl.classList.add('warning');
+                }
+
+                if (remaining === 0) {
+                    clearInterval(expiryInterval);
+                    showNotification('Verification code expired. Please request a new one.', 'error');
+                    resendBtn.disabled = false;
+                    resendBtn.innerHTML = 'Resend Code';
+                }
+            }, 1000);
+        }
+
+        function startResendTimer() {
+            let countdown = 60;
+            resendBtn.disabled = true;
+            
+            clearInterval(resendCountdown);
+            resendCountdown = setInterval(() => {
+                countdown--;
+                document.getElementById('resendTimer').textContent = countdown;
+                
+                if (countdown === 0) {
+                    clearInterval(resendCountdown);
+                    resendBtn.disabled = false;
+                    resendBtn.innerHTML = 'Resend Code';
+                }
+            }, 1000);
+        }
+
+        function showNotification(message, type = 'info') {
+            const notif = document.getElementById('notification');
+            notif.textContent = message;
+            notif.className = `notification ${type} show`;
+
+            setTimeout(() => {
+                notif.classList.remove('show');
+            }, 5000);
+        }
+
+        // Check if already authenticated
+        if (localStorage.getItem('token')) {
+            window.location.href = '/admin/index.html';
+        }
+    </script>
+    <!-- PWA Registration -->
+    <script src="/js/pwa.js"></script>
+
+</body>
+</html>

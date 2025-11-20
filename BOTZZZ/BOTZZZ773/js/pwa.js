@@ -228,6 +228,81 @@
     localStorage.setItem('pwa-install-prompt-shown', now.toString());
   }
 
+  // Connectivity + background sync notifications
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const payload = event.data || {};
+      if (payload.type === 'REQUEST_QUEUED') {
+        showPWAToast('You are offline. We queued your request and will sync automatically.', 'warning');
+      }
+      if (payload.type === 'REQUEST_SYNCED') {
+        showPWAToast('Queued request synced successfully.', 'success');
+      }
+    });
+  }
+
+  window.addEventListener('online', () => showPWAToast('Back online — syncing any pending actions.', 'success'));
+  window.addEventListener('offline', () => showPWAToast('Offline mode enabled. Actions will be queued.', 'warning'));
+
+  function showPWAToast(message, variant = 'info') {
+    if (!message) {
+      return;
+    }
+
+    const containerId = 'pwa-toast-container';
+    let container = document.getElementById(containerId);
+    if (!container) {
+      container = document.createElement('div');
+      container.id = containerId;
+      container.style.position = 'fixed';
+      container.style.bottom = '20px';
+      container.style.left = '50%';
+      container.style.transform = 'translateX(-50%)';
+      container.style.display = 'flex';
+      container.style.flexDirection = 'column';
+      container.style.gap = '12px';
+      container.style.zIndex = '10001';
+      document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.style.padding = '14px 20px';
+    toast.style.borderRadius = '10px';
+    toast.style.minWidth = '260px';
+    toast.style.maxWidth = '420px';
+    toast.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.3)';
+    toast.style.color = '#fff';
+    toast.style.fontSize = '14px';
+    toast.style.fontWeight = '500';
+    toast.style.background = variant === 'success'
+      ? 'linear-gradient(135deg, #00c48c, #00a57a)'
+      : variant === 'warning'
+        ? 'linear-gradient(135deg, #ffb347, #ffcc33)'
+        : 'linear-gradient(135deg, #2b2f3a, #1f222a)';
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(20px)';
+    toast.style.transition = 'opacity 0.2s ease, transform 0.2s ease';
+    toast.textContent = message;
+
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+    });
+
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(20px)';
+      setTimeout(() => {
+        toast.remove();
+        if (!container.childElementCount) {
+          container.remove();
+        }
+      }, 200);
+    }, 4000);
+  }
+
   window.dismissInstallPrompt = function() {
     const banner = document.getElementById('pwa-install-banner');
     if (banner) {

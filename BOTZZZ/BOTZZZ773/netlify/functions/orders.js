@@ -13,10 +13,17 @@ if (typeof globalThis === 'object') {
 }
 
 const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { withRateLimit } = require('./utils/rate-limit');
+const { createLogger, serializeError } = require('./utils/logger');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const logger = createLogger('orders');
+
+function logOrderError(message, error, meta) {
+  logger.error(message, { error: serializeError(error), ...meta });
+}
 
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -249,7 +256,7 @@ function coerceJsonObject(value) {
     try {
       return JSON.parse(value);
     } catch (error) {
-      console.warn('[ORDERS] Failed to parse JSON payload for provider resolution:', error?.message);
+      logger.warn('Failed to parse JSON payload for provider resolution', { error: error?.message });
       return null;
     }
   }
@@ -404,7 +411,7 @@ function buildStatusSummary(order) {
   };
 }
 
-exports.handler = async (event) => {
+const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -417,6 +424,12 @@ exports.handler = async (event) => {
   }
 
   const user = getUserFromToken(event.headers.authorization);
+  logger.info('Orders request received', {
+    method: event.httpMethod,
+    path: event.path,
+    userId: user?.userId,
+    userRole: user?.role || 'guest'
+  });
   if (!user) {
     return {
       statusCode: 401,
@@ -461,7 +474,7 @@ exports.handler = async (event) => {
         };
     }
   } catch (error) {
-    console.error('Orders API error:', error);
+    logOrderError('Orders API error', error, { method: event.httpMethod });
     return {
       statusCode: 500,
       headers,
@@ -469,6 +482,20 @@ exports.handler = async (event) => {
     };
   }
 };
+
+const ORDERS_RATE_LIMIT = {
+  route: 'orders',
+  limit: 180,
+  windowSeconds: 60,
+  identifierExtractor: (event) => {
+    const headers = event?.headers || {};
+    const authHeader = headers.authorization || headers.Authorization;
+    const user = getUserFromToken(authHeader);
+    return user?.userId ? `user:${user.userId}` : null;
+  }
+};
+
+exports.handler = withRateLimit(ORDERS_RATE_LIMIT, baseHandler);
 
 async function handleGetOrders(user, headers) {
   try {
@@ -494,7 +521,7 @@ async function handleGetOrders(user, headers) {
     const { data: orders, error } = await query;
 
     if (error) {
-      console.error('Get orders error:', error);
+      logOrderError('Get orders error', error, { userId: user.userId });
       return {
         statusCode: 500,
         headers,
@@ -556,7 +583,7 @@ async function handleGetOrders(user, headers) {
       body: JSON.stringify({ orders: normalizedOrders })
     };
   } catch (error) {
-    console.error('Get orders error:', error);
+    logOrderError('Get orders error', error, { userId: user.userId });
     return {
       statusCode: 500,
       headers,
@@ -577,10 +604,14 @@ async function handleCreateOrder(user, data, headers) {
     const { serviceId, quantity, link } = data;
 
     // ============= STEP 1: VALIDATE INPUT =============
-    console.log(`[ORDER] User ${user.email} attempting to create order for service ${serviceId}`);
+    logger.info('Create order attempt', {
+      userId: user.userId,
+      email: user.email,
+      serviceId
+    });
 
     if (!serviceId || !quantity || !link) {
-      console.error('[ORDER] Missing required fields:', { serviceId, quantity, link });
+      logger.warn('Order missing required fields', { serviceId, quantityProvided: !!quantity, linkProvided: !!link });
       return {
         statusCode: 400,
         headers,
@@ -598,7 +629,7 @@ async function handleCreateOrder(user, data, headers) {
     // Validate quantity is a number
     const qty = parseInt(quantity);
     if (isNaN(qty) || qty <= 0) {
-      console.error('[ORDER] Invalid quantity:', quantity);
+      logger.warn('Order quantity invalid', { quantity });
       return {
         statusCode: 400,
         headers,
@@ -609,7 +640,7 @@ async function handleCreateOrder(user, data, headers) {
     // Validate link format
     const linkStr = String(link).trim();
     if (linkStr.length === 0 || linkStr.length > 500) {
-      console.error('[ORDER] Invalid link length:', linkStr.length);
+      logger.warn('Order link length invalid', { length: linkStr.length });
       return {
         statusCode: 400,
         headers,
@@ -618,7 +649,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // ============= STEP 2: GET AND VALIDATE SERVICE =============
-    console.log(`[ORDER] Fetching service details for ${serviceId}`);
+    logger.debug('Fetching service details', { serviceId });
     const { data: service, error: serviceError } = await supabase
       .from('services')
       .select('*, provider:providers(*)')
@@ -626,7 +657,7 @@ async function handleCreateOrder(user, data, headers) {
       .single();
 
     if (serviceError) {
-      console.error('[ORDER] Service lookup error:', serviceError);
+      logOrderError('Service lookup error', serviceError, { serviceId });
       return {
         statusCode: 404,
         headers,
@@ -635,7 +666,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (!service) {
-      console.error('[ORDER] Service not found:', serviceId);
+      logger.warn('Service not found', { serviceId });
       return {
         statusCode: 404,
         headers,
@@ -644,7 +675,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (service.status !== 'active') {
-      console.error('[ORDER] Service inactive:', serviceId, service.status);
+      logger.warn('Service inactive', { serviceId, status: service.status });
       return {
         statusCode: 400,
         headers,
@@ -654,7 +685,7 @@ async function handleCreateOrder(user, data, headers) {
 
     // Validate quantity within service limits
     if (qty < service.min_quantity) {
-      console.error('[ORDER] Quantity below minimum:', qty, service.min_quantity);
+      logger.warn('Order quantity below minimum', { qty, min: service.min_quantity });
       return {
         statusCode: 400,
         headers,
@@ -666,7 +697,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (qty > service.max_quantity) {
-      console.error('[ORDER] Quantity above maximum:', qty, service.max_quantity);
+      logger.warn('Order quantity above maximum', { qty, max: service.max_quantity });
       return {
         statusCode: 400,
         headers,
@@ -679,7 +710,7 @@ async function handleCreateOrder(user, data, headers) {
 
     // Validate provider exists and is active
     if (!service.provider) {
-      console.error('[ORDER] Service has no provider:', serviceId);
+      logger.warn('Service missing provider', { serviceId });
       return {
         statusCode: 400,
         headers,
@@ -688,7 +719,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (service.provider.status !== 'active') {
-      console.error('[ORDER] Provider inactive:', service.provider.id, service.provider.status);
+      logger.warn('Provider inactive', { providerId: service.provider.id, status: service.provider.status });
       return {
         statusCode: 400,
         headers,
@@ -697,7 +728,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (!service.provider.api_url || !service.provider.api_key) {
-      console.error('[ORDER] Provider missing API credentials:', service.provider.id);
+      logger.warn('Provider missing API credentials', { providerId: service.provider.id });
       return {
         statusCode: 400,
         headers,
@@ -706,7 +737,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (!service.provider_service_id) {
-      console.error('[ORDER] Service missing provider service ID:', serviceId);
+      logger.warn('Service missing provider service ID', { serviceId });
       return {
         statusCode: 400,
         headers,
@@ -717,7 +748,11 @@ async function handleCreateOrder(user, data, headers) {
     // ============= STEP 3: CALCULATE COST & CHECK BALANCE =============
     const retailRatePerThousand = toNumberOrNull(service.retail_rate ?? service.rate);
     if (retailRatePerThousand === null) {
-      console.error('[ORDER] Retail rate missing or invalid for service:', serviceId, service.retail_rate, service.rate);
+      logOrderError('Retail rate missing or invalid', new Error('Retail rate invalid'), {
+        serviceId,
+        retailRate: service.retail_rate,
+        fallbackRate: service.rate
+      });
       return {
         statusCode: 500,
         headers,
@@ -727,19 +762,16 @@ async function handleCreateOrder(user, data, headers) {
 
     // Calculate total cost (rate is per 1000 units)
     const totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(2));
-    console.log(`[ORDER] Calculated cost: ${totalCost} for ${qty} units at retail rate ${retailRatePerThousand}`);
+    logger.debug('Calculated retail cost', { totalCost, qty, retailRate: retailRatePerThousand });
 
     const providerRatePerThousand = calculateProviderRate(service);
     const providerCharge = providerRatePerThousand !== null
       ? calculateProviderCharge(providerRatePerThousand, qty)
       : null;
-    console.log('[ORDER] Provider cost estimate:', {
-      providerRatePerThousand,
-      providerCharge
-    });
+    logger.debug('Provider cost estimate', { providerRatePerThousand, providerCharge });
 
     if (totalCost < 0 || !isFinite(totalCost)) {
-      console.error('[ORDER] Invalid cost calculation:', totalCost);
+      logOrderError('Invalid order cost calculation', new Error('Cost invalid'), { totalCost });
       return {
         statusCode: 500,
         headers,
@@ -755,7 +787,7 @@ async function handleCreateOrder(user, data, headers) {
       .single();
 
     if (userError || !userData) {
-      console.error('[ORDER] User lookup error:', userError);
+      logOrderError('User lookup error', userError, { userId: user.userId });
       return {
         statusCode: 403,
         headers,
@@ -764,7 +796,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     if (userData.status !== 'active') {
-      console.error('[ORDER] User account inactive:', user.userId, userData.status);
+      logger.warn('User account inactive', { userId: user.userId, status: userData.status });
       return {
         statusCode: 403,
         headers,
@@ -773,10 +805,10 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     originalBalance = parseFloat(userData.balance);
-    console.log(`[ORDER] User balance: ${originalBalance}, required: ${totalCost}`);
+    logger.debug('User balance check', { balance: originalBalance, required: totalCost });
 
     if (originalBalance < totalCost) {
-      console.error('[ORDER] Insufficient balance:', originalBalance, totalCost);
+      logger.warn('Insufficient balance for order', { balance: originalBalance, required: totalCost });
       return {
         statusCode: 400,
         headers,
@@ -795,13 +827,13 @@ async function handleCreateOrder(user, data, headers) {
     const { data: generatedOrderNumber, error: generateOrderNumberError } = await supabaseAdmin.rpc('generate_order_number');
 
     if (generateOrderNumberError) {
-      console.error('[ORDER] Failed to generate sequential order number using database function:', generateOrderNumberError);
+      logOrderError('Failed to generate sequential order number', generateOrderNumberError);
       orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
     } else {
       orderNumber = String(generatedOrderNumber);
     }
 
-    console.log(`[ORDER] Creating order with number: ${orderNumber}`);
+    logger.info('Creating order record', { orderNumber, userId: user.userId, serviceId });
 
     const orderInsertBase = {
       user_id: user.userId,
@@ -829,7 +861,7 @@ async function handleCreateOrder(user, data, headers) {
         || /order_number/i.test(orderError.hint || '');
 
       if (missingOrderNumberColumn) {
-        console.warn('[ORDER] orders table missing order_number column. Attempting fallback identifiers.');
+        logger.warn('Orders table missing order_number column. Attempting fallback identifiers.');
         orderNumberPersisted = false;
 
         const fallbackColumns = ['order_id', 'orderId', 'orderid', 'order-id', 'order_reference', 'orderReference', 'reference', 'display_id', 'displayId'];
@@ -852,7 +884,7 @@ async function handleCreateOrder(user, data, headers) {
             fallbackApplied = true;
             orderNumberPersisted = true;
             orderIdentifierColumnUsed = column;
-            console.warn(`[ORDER] Stored order reference using fallback column '${column}'.`);
+            logger.warn('Stored order reference using fallback column', { column });
             break;
           }
 
@@ -1363,8 +1395,9 @@ async function handleCancelOrder(user, data, headers) {
   }
 }
 
-async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
+async function performOrderStatusSync({ orderIds = null, providerId = null, limit = 100 } = {}) {
   const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
+  const providerFilter = providerId ? String(providerId) : null;
 
   let ordersQuery = supabaseAdmin
     .from('orders')
@@ -1490,7 +1523,28 @@ async function performOrderStatusSync({ orderIds = null, limit = 100 } = {}) {
   const results = [...skippedResults];
   const nowIso = new Date().toISOString();
 
-  for (const order of resolvableOrders) {
+  let ordersToSync = resolvableOrders;
+  if (providerFilter) {
+    ordersToSync = resolvableOrders.filter((order) => {
+      if (!order.service_id) return false;
+      const service = servicesMap.get(order.service_id);
+      if (!service || service.provider_id === undefined || service.provider_id === null) {
+        return false;
+      }
+      return String(service.provider_id) === providerFilter;
+    });
+  }
+
+  if (ordersToSync.length === 0) {
+    return {
+      success: true,
+      updated: 0,
+      results,
+      message: providerFilter ? 'No orders matched provider filter' : undefined
+    };
+  }
+
+  for (const order of ordersToSync) {
     const service = order.service_id ? servicesMap.get(order.service_id) : null;
     const provider = service && service.provider_id ? providerMap.get(service.provider_id) : null;
 
@@ -1619,7 +1673,8 @@ async function handleSyncOrderStatuses(user, data, headers) {
   try {
     const orderIds = Array.isArray(data.orderIds) ? data.orderIds : null;
     const limit = Number.isFinite(data.limit) ? data.limit : 100;
-    const result = await performOrderStatusSync({ orderIds, limit });
+    const providerId = data.providerId ?? data.provider_id ?? null;
+    const result = await performOrderStatusSync({ orderIds, providerId, limit });
 
     if (!result.success) {
       return {

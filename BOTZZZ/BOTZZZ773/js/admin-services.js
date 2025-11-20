@@ -38,7 +38,15 @@ let servicesCache = [];
 let categoriesCache = null;
 const selectedServiceIds = new Set();
 const ADMIN_SERVICES_BASE_ENDPOINT = '/.netlify/functions/services';
-const CUSTOMER_PORTAL_MAX_SLOTS = 7;
+// Unlimited curated services for customers
+const CUSTOMER_PORTAL_MAX_SLOTS = null;
+const HAS_PORTAL_SLOT_LIMIT = false; // Always unlimited
+const PORTAL_SLOT_RANGE_LABEL = '1+';
+const PORTAL_SLOT_LIMIT_MESSAGE = 'Feature unlimited curated services for customers.';
+const PORTAL_SLOT_MAX_ATTR = HAS_PORTAL_SLOT_LIMIT ? `max="${CUSTOMER_PORTAL_MAX_SLOTS}"` : '';
+const PORTAL_SLOT_SHORT_NOTE = HAS_PORTAL_SLOT_LIMIT
+    ? `(max ${CUSTOMER_PORTAL_MAX_SLOTS} total)`
+    : '(unlimited curated slots)';
 function buildAdminServicesUrl(query = {}) {
     const params = new URLSearchParams({ audience: 'admin', ...query });
     const queryString = params.toString();
@@ -192,10 +200,25 @@ function buildProviderOptions(providers, includePlaceholder = true) {
 
 function buildCategoryOptions(categories, includePlaceholder = true) {
     const placeholder = includePlaceholder ? '<option value="">Select Category</option>' : '';
-    const options = (categories || []).map(category => {
-        return `<option value="${escapeHtml(category.slug)}">${escapeHtml(category.name)}</option>`;
+    
+    if (!Array.isArray(categories) || categories.length === 0) {
+        // Fallback to default categories if none exist
+        const defaultOptions = [
+            '<option value="instagram">Instagram</option>',
+            '<option value="tiktok">TikTok</option>',
+            '<option value="youtube">YouTube</option>',
+            '<option value="twitter">Twitter</option>',
+            '<option value="facebook">Facebook</option>',
+            '<option value="other">Other</option>'
+        ].join('');
+        return placeholder + defaultOptions;
+    }
+    
+    const options = categories.map(category => {
+        const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+        return `<option value="${escapeHtml(slug)}">${escapeHtml(category.name)}</option>`;
     }).join('');
-    return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No categories available</option>'));
+    return placeholder + options;
 }
 
 function buildProviderOptionsWithSelected(providers, selectedId) {
@@ -295,8 +318,8 @@ function normalizePortalSlotInput(value) {
     if (!Number.isFinite(numeric)) {
         return null;
     }
-    const clamped = Math.min(Math.max(numeric, 1), CUSTOMER_PORTAL_MAX_SLOTS);
-    return clamped;
+    // Always unlimited slots now
+    return Math.max(numeric, 1);
 }
 
 function getCuratedServicesCount(excludeServiceId = null) {
@@ -331,16 +354,15 @@ function getNextAvailablePortalSlot(excludeServiceId = null) {
                 return Number.isFinite(toNumeric(service.customer_portal_slot));
             })
             .map(service => Number(toNumeric(service.customer_portal_slot)))
-            .filter(slot => Number.isFinite(slot) && slot >= 1 && slot <= CUSTOMER_PORTAL_MAX_SLOTS)
+            .filter(slot => Number.isFinite(slot) && slot >= 1) // No upper limit
     );
 
-    for (let slot = 1; slot <= CUSTOMER_PORTAL_MAX_SLOTS; slot += 1) {
-        if (!takenSlots.has(slot)) {
-            return slot;
-        }
+    // Always unlimited slots now
+    let slot = 1;
+    while (takenSlots.has(slot)) {
+        slot += 1;
     }
-
-    return CUSTOMER_PORTAL_MAX_SLOTS;
+    return slot;
 }
 
 function calculateMarkupPercent(providerRate, retailRate) {
@@ -641,7 +663,7 @@ async function addService() {
                     </select>
                     <small style="color: #94a3b8;">
                         ${hasCategories ? `${categories.length} categories available` : 'Using default categories'}
-                        • <a href="#" onclick="event.preventDefault(); createCategory();" style="color: var(--admin-primary);">Create new category</a>
+                        • <a href="#" onclick="event.preventDefault(); createCategory();" style="color: var(--admin-primary);">+ Create new category</a>
                     </small>
                 </div>
                 <div class="form-group">
@@ -712,11 +734,11 @@ async function addService() {
                         <option value="false" selected>Hidden (default)</option>
                         <option value="true">Visible to customers</option>
                     </select>
-                    <small style="color: #94a3b8;">Only ${CUSTOMER_PORTAL_MAX_SLOTS} services can be visible at once.</small>
+                    <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
                 </div>
                 <div class="form-group">
-                    <label>Portal Slot (1-${CUSTOMER_PORTAL_MAX_SLOTS})</label>
-                    <input type="number" name="customerPortalSlot" placeholder="1" min="1" max="${CUSTOMER_PORTAL_MAX_SLOTS}">
+                    <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
+                    <input type="number" name="customerPortalSlot" placeholder="1" min="1" ${PORTAL_SLOT_MAX_ATTR}>
                     <small style="color: #94a3b8;">Controls dropdown order when visible.</small>
                 </div>
             </div>
@@ -945,11 +967,11 @@ async function editService(serviceId) {
                         <option value="false"${customerPortalEnabled ? '' : ' selected'}>Hidden from storefront</option>
                         <option value="true"${customerPortalEnabled ? ' selected' : ''}>Visible to customers</option>
                     </select>
-                    <small style="color: #94a3b8;">Only ${CUSTOMER_PORTAL_MAX_SLOTS} curated services are shown publicly.</small>
+                    <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
                 </div>
                 <div class="form-group">
-                    <label>Portal Slot (1-${CUSTOMER_PORTAL_MAX_SLOTS})</label>
-                    <input type="number" name="customerPortalSlot" min="1" max="${CUSTOMER_PORTAL_MAX_SLOTS}" value="${customerPortalSlot !== null ? customerPortalSlot : ''}" placeholder="1">
+                    <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
+                    <input type="number" name="customerPortalSlot" min="1" ${PORTAL_SLOT_MAX_ATTR} value="${customerPortalSlot !== null ? customerPortalSlot : ''}" placeholder="1">
                     <small style="color: #94a3b8;">Controls ordering in the public dropdown.</small>
                 </div>
             </div>
@@ -1542,19 +1564,13 @@ function toggleService(serviceId) {
     }
 
     const currentlyCurated = Boolean(service.customer_portal_enabled);
-    if (!currentlyCurated) {
-        const curatedCount = getCuratedServicesCount();
-        if (curatedCount >= CUSTOMER_PORTAL_MAX_SLOTS) {
-            showNotification(`All ${CUSTOMER_PORTAL_MAX_SLOTS} customer portal slots are already filled. Remove a curated service first.`, 'error');
-            return;
-        }
-    }
+    // No portal slot limits - unlimited curation supported
 
     const actionVerb = currentlyCurated ? 'Remove from Customer Portal' : 'Feature in Customer Portal';
     const iconClass = currentlyCurated ? 'fas fa-eye-slash' : 'fas fa-eye';
     const description = currentlyCurated
         ? 'This service will stay in your catalog but disappear from the public order form.'
-        : 'Customers will see this service in the curated dropdown (max 7 total).';
+    : `Customers will see this service in the curated dropdown ${PORTAL_SLOT_SHORT_NOTE}.`;
 
     const content = `
         <div class="confirmation-message">
@@ -1592,17 +1608,7 @@ async function confirmToggleService(serviceId) {
         confirmButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
     }
 
-    if (targetState) {
-        const curatedCount = getCuratedServicesCount(service.id);
-        if (curatedCount >= CUSTOMER_PORTAL_MAX_SLOTS) {
-            showNotification(`All ${CUSTOMER_PORTAL_MAX_SLOTS} curated slots are filled. Remove another service first.`, 'error');
-            if (confirmButton) {
-                confirmButton.disabled = false;
-                confirmButton.innerHTML = confirmButtonLabel;
-            }
-            return;
-        }
-    }
+    // Unlimited customer service curation - no slot limit checks needed
 
     let desiredSlot = normalizePortalSlotInput(service.customer_portal_slot);
     if (targetState && !Number.isFinite(desiredSlot)) {

@@ -17,6 +17,14 @@
   targetPort = 3000
   port = 8888
 
+[[redirects]]
+  from = "/*"
+  to = "https://www.botzzz773.pro/:splat"
+  status = 301
+  force = true
+  [redirects.conditions]
+    Host = ["botzzz773.pro"]
+
 [[scheduled_functions]]
   path = "sync-order-status"
   schedule = "*/10 * * * *"

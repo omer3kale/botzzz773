@@ -1,12 +1,19 @@
 
 // Services API - Get, Create, Update, Delete Services
 const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { withRateLimit } = require('./utils/rate-limit');
+const { createLogger, serializeError } = require('./utils/logger');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
 const JWT_SECRET = process.env.JWT_SECRET;
+const logger = createLogger('services');
 const PUBLIC_ID_BASE = 7000;
 const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+function logServiceError(message, error, meta) {
+  logger.error(message, { error: serializeError(error), ...meta });
+}
 
 function normalizeProviderIdentifiers(service) {
   const rawServiceId = service?.provider_service_id
@@ -138,7 +145,7 @@ async function fetchMaxExistingPublicId() {
 
     return PUBLIC_ID_BASE - 1;
   } catch (error) {
-    console.error('Failed to fetch max public ID:', error);
+    logServiceError('Failed to fetch max public ID', error);
     return PUBLIC_ID_BASE - 1;
   }
 }
@@ -197,14 +204,14 @@ async function ensurePublicIdsForAdmin(services = []) {
       .eq('id', update.id);
 
     if (error) {
-      console.error('Failed to assign public ID for service', update.id, error);
+      logServiceError('Failed to assign public ID for service', error, { serviceId: update.id });
     }
   }
 
   return services;
 }
 
-exports.handler = async (event) => {
+const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -220,6 +227,11 @@ exports.handler = async (event) => {
   
   try {
     const body = JSON.parse(event.body || '{}');
+    logger.info('Services request received', {
+      method: event.httpMethod,
+      path: event.path,
+      userRole: user?.role || 'guest'
+    });
 
     switch (event.httpMethod) {
       case 'GET':
@@ -238,7 +250,7 @@ exports.handler = async (event) => {
         };
     }
   } catch (error) {
-    console.error('Services API error:', error);
+    logServiceError('Services API error', error, { method: event.httpMethod });
     return {
       statusCode: 500,
       headers,
@@ -277,7 +289,7 @@ async function handleGetServices(event, user, headers) {
       : supabase;
 
     if (useAdminScope && !hasServiceRoleKey) {
-      console.warn('[SERVICES] Service role key missing. Admin queries will use anon client.');
+      logger.warn('Service role key missing. Admin queries will use anon client.');
     }
 
     let query = queryClient
@@ -288,7 +300,7 @@ async function handleGetServices(event, user, headers) {
       `);
 
     if (!useAdminScope) {
-      // For customer scope limit to curated storefront services only
+      // Customer scope: show ALL admin-curated services (unlimited)
       query = query
         .eq('status', 'active')
         .eq('admin_approved', true)
@@ -296,8 +308,7 @@ async function handleGetServices(event, user, headers) {
         .eq('provider.status', 'active')
         .order('customer_portal_slot', { ascending: true, nullsLast: true })
         .order('category', { ascending: true })
-        .order('name', { ascending: true })
-        .limit(7);
+        .order('name', { ascending: true });
     } else {
       query = query
         .order('category', { ascending: true })
@@ -307,7 +318,7 @@ async function handleGetServices(event, user, headers) {
     const { data: services, error } = await query;
 
     if (error) {
-      console.error('Get services error:', error);
+      logServiceError('Get services error', error);
       const errorPayload = { error: 'Failed to fetch services' };
       if (!error.message) {
         errorPayload.reason = String(error);
@@ -395,7 +406,7 @@ async function handleGetServices(event, user, headers) {
       body: JSON.stringify({ scope: responseScope, services: servicesWithProviderIds })
     };
   } catch (error) {
-    console.error('Get services error:', error);
+    logServiceError('Get services error', error);
     return {
       statusCode: 500,
       headers,
@@ -412,7 +423,7 @@ async function fetchServicesFromProviders() {
       .eq('status', 'active');
 
     if (error) {
-      console.error('[SERVICES] Failed to load providers for fallback:', error);
+      logServiceError('Failed to load providers for fallback', error);
       return [];
     }
 
@@ -440,7 +451,7 @@ async function fetchServicesFromProviders() {
         });
 
         if (!Array.isArray(response.data)) {
-          console.warn('[SERVICES] Provider returned unexpected format', provider.name);
+          logger.warn('Provider returned unexpected format', { provider: provider.name });
           continue;
         }
 
@@ -450,13 +461,13 @@ async function fetchServicesFromProviders() {
 
         allServices.push(...providerServices);
       } catch (providerError) {
-        console.error('[SERVICES] Failed to fetch services from provider', provider.name, providerError.message);
+        logServiceError('Failed to fetch services from provider', providerError, { provider: provider.name });
       }
     }
 
     return allServices.filter((service) => service.status === 'active');
   } catch (fallbackError) {
-    console.error('[SERVICES] Fallback provider load failed:', fallbackError);
+    logServiceError('Fallback provider load failed', fallbackError);
     return [];
   }
 }
@@ -664,7 +675,7 @@ async function handleCreateService(user, data, headers) {
       .single();
 
     if (error) {
-      console.error('Create service error:', error);
+      logServiceError('Create service validation error', error);
       return {
         statusCode: 500,
         headers,
@@ -681,7 +692,7 @@ async function handleCreateService(user, data, headers) {
       })
     };
   } catch (error) {
-    console.error('Create service error:', error);
+    logServiceError('Create service error', error);
     return {
       statusCode: 500,
       headers,
@@ -919,7 +930,7 @@ async function handleUpdateService(user, data, headers) {
       .single();
 
     if (error) {
-      console.error('Update service error:', error);
+      logServiceError('Update service validation error', error, { serviceId: body.id });
       const payload = { error: 'Failed to update service' };
       try {
         if (error && typeof error === 'object') {
@@ -950,7 +961,7 @@ async function handleUpdateService(user, data, headers) {
       })
     };
   } catch (error) {
-    console.error('Update service error:', error);
+    logServiceError('Update service error', error, { serviceId: body?.id });
     return {
       statusCode: 500,
       headers,
@@ -986,7 +997,7 @@ async function handleDeleteService(user, data, headers) {
       .eq('id', serviceId);
 
     if (error) {
-      console.error('Delete service error:', error);
+      logServiceError('Delete service validation error', error, { serviceId: body.id });
       return {
         statusCode: 500,
         headers,
@@ -1000,7 +1011,7 @@ async function handleDeleteService(user, data, headers) {
       body: JSON.stringify({ success: true })
     };
   } catch (error) {
-    console.error('Delete service error:', error);
+    logServiceError('Delete service error', error, { serviceId: body?.id });
     return {
       statusCode: 500,
       headers,
@@ -1019,7 +1030,7 @@ async function handleGetCategories(headers) {
       .order('name', { ascending: true });
 
     if (error) {
-      console.error('Get categories error:', error);
+      logServiceError('Get categories error', error);
       throw error;
     }
 
@@ -1032,7 +1043,7 @@ async function handleGetCategories(headers) {
       })
     };
   } catch (error) {
-    console.error('Get categories error:', error);
+    logServiceError('Get categories error', error);
     return {
       statusCode: 500,
       headers,
@@ -1044,8 +1055,9 @@ async function handleGetCategories(headers) {
 async function handleCreateCategory(data, headers) {
   try {
     const { name, description, icon } = data;
+    const trimmedName = name?.trim();
 
-    if (!name || name.trim() === '') {
+    if (!trimmedName) {
       return {
         statusCode: 400,
         headers,
@@ -1054,23 +1066,31 @@ async function handleCreateCategory(data, headers) {
     }
 
     // Create slug from name (lowercase, replace spaces with hyphens)
-    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    const rawSlug = trimmedName
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '');
+    const slug = rawSlug || `category-${Date.now()}`;
+
+    const sanitizedDescription = description?.trim() || null;
+    const sanitizedIcon = icon?.trim() || 'fas fa-folder';
+    const categoryPayload = {
+      name: trimmedName,
+      slug,
+      description: sanitizedDescription,
+      icon: sanitizedIcon,
+      status: 'active'
+    };
 
     // Insert category into database
-    const { data: category, error } = await supabase
+    const { data: category, error } = await supabaseAdmin
       .from('service_categories')
-      .insert({
-        name: name.trim(),
-        slug: slug,
-        description: description?.trim() || null,
-        icon: icon?.trim() || 'fas fa-folder',
-        status: 'active'
-      })
+      .insert(categoryPayload)
       .select()
       .single();
 
     if (error) {
-      console.error('Create category database error:', error);
+      logServiceError('Create category database error', error, { categoryName: trimmedName });
       if (error.code === '23505') { // Unique constraint violation
         return {
           statusCode: 400,
@@ -1086,12 +1106,12 @@ async function handleCreateCategory(data, headers) {
       headers,
       body: JSON.stringify({ 
         success: true,
-        message: `Category "${name}" created successfully`,
+        message: `Category "${trimmedName}" created successfully`,
         category: category
       })
     };
   } catch (error) {
-    console.error('Create category error:', error);
+    logServiceError('Create category error', error, { categoryName: data?.name });
     return {
       statusCode: 500,
       headers,
@@ -1168,7 +1188,7 @@ async function handleDuplicateService(data, headers) {
       })
     };
   } catch (error) {
-    console.error('Duplicate service error:', error);
+    logServiceError('Duplicate service error', error, { serviceId: body?.serviceId });
     return {
       statusCode: 500,
       headers,
@@ -1176,4 +1196,19 @@ async function handleDuplicateService(data, headers) {
     };
   }
 }
+
+
+const SERVICES_RATE_LIMIT = {
+  route: 'services',
+  limit: 300,
+  windowSeconds: 60,
+  identifierExtractor: (event) => {
+    const headers = event?.headers || {};
+    const authHeader = headers.Authorization || headers.authorization;
+    const user = getUserFromToken(authHeader);
+    return user?.userId ? `user:${user.userId}` : null;
+  }
+};
+
+exports.handler = withRateLimit(SERVICES_RATE_LIMIT, baseHandler);
 

@@ -1,10 +1,18 @@
 // Payments API - Process Payments, Add Balance
 const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { withRateLimit } = require('./utils/rate-limit');
 const jwt = require('jsonwebtoken');
 const { getStripeClient, isStripeConfigured } = require('./utils/stripe-client');
+const { createLogger, serializeError } = require('./utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const logger = createLogger('payments');
+
+function logPaymentError(message, error, meta) {
+  logger.error(message, { error: serializeError(error), ...meta });
+}
+const logger = createLogger('payments');
 
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
@@ -26,7 +34,7 @@ function getUserFromToken(authHeader) {
   }
 }
 
-exports.handler = async (event) => {
+const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -67,13 +75,12 @@ exports.handler = async (event) => {
     const { action } = body;
 
     // Log request (with PII redaction)
-    console.log('Payment request:', {
+    logger.info('Payment request received', {
       action,
       method: body.method,
       amount: body.amount,
-      userId: body.userId ? body.userId.substring(0, 8) + '***' : undefined,
-      httpMethod: event.httpMethod,
-      timestamp: new Date().toISOString()
+      userId: user.userId,
+      httpMethod: event.httpMethod
     });
 
     // Handle PUT requests
@@ -133,6 +140,20 @@ exports.handler = async (event) => {
     };
   }
 };
+
+const PAYMENTS_RATE_LIMIT = {
+  route: 'payments',
+  limit: 90,
+  windowSeconds: 60,
+  identifierExtractor: (event) => {
+    const headers = event?.headers || {};
+    const authHeader = headers.authorization || headers.Authorization;
+    const user = getUserFromToken(authHeader);
+    return user?.userId ? `user:${user.userId}` : null;
+  }
+};
+
+exports.handler = withRateLimit(PAYMENTS_RATE_LIMIT, baseHandler);
 
 async function handleCreateCheckout(user, data, headers) {
   try {

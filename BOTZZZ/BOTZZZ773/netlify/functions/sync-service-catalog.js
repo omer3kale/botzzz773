@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { supabaseAdmin } = require('./utils/supabase');
+const { getPricingEngine } = require('./utils/pricing-engine');
 const fs = require('fs');
 const path = require('path');
 
@@ -199,11 +200,12 @@ async function fetchProviderServices(provider) {
   }
 }
 
-async function syncProviderServices(provider) {
+async function syncProviderServices(provider, options = {}) {
   if (!provider.api_url || !provider.api_key) {
     throw new Error('Provider is missing API credentials');
   }
 
+  const pricingEngine = options.pricingEngine || await getPricingEngine();
   const { services, latencyMs } = await fetchProviderServices(provider);
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
@@ -281,10 +283,40 @@ async function syncProviderServices(provider) {
       basePayload.max_quantity = null;
     }
 
-    if (rate !== null) {
-      basePayload.rate = rate;
-      basePayload.provider_rate = rate;
-      basePayload.retail_rate = rate;
+    const providerCost = rate !== null ? rate : null;
+    if (providerCost !== null) {
+      basePayload.provider_rate = providerCost;
+    }
+
+    let pricingResult = null;
+    if (providerCost !== null && pricingEngine) {
+      try {
+        pricingResult = pricingEngine.calculate({
+          providerId: provider.id,
+          category,
+          providerRate: providerCost,
+          providerMarkup: provider.markup
+        });
+      } catch (pricingError) {
+        console.error('[SERVICE SYNC] Pricing engine calculation failed:', pricingError);
+      }
+    }
+
+    if (pricingResult) {
+      basePayload.rate = pricingResult.retailRate;
+      basePayload.retail_rate = pricingResult.retailRate;
+      basePayload.markup_percentage = pricingResult.markupPercentage;
+      basePayload.pricing_rule_id = pricingResult.ruleId;
+      basePayload.pricing_last_applied_at = new Date().toISOString();
+    } else if (providerCost !== null) {
+      basePayload.rate = providerCost;
+      basePayload.retail_rate = providerCost;
+      if (provider.markup !== undefined && provider.markup !== null) {
+        const numericMarkup = Number(provider.markup);
+        if (Number.isFinite(numericMarkup)) {
+          basePayload.markup_percentage = numericMarkup;
+        }
+      }
     }
 
     const existing = existingMap.get(serviceKey);
@@ -390,9 +422,10 @@ exports.handler = async (event = {}) => {
   const targetProviderId = event.queryStringParameters?.providerId;
 
   try {
+    const pricingEngine = await getPricingEngine();
     let query = supabaseAdmin
       .from('providers')
-      .select('id, name, api_url, api_key, status')
+      .select('id, name, api_url, api_key, status, markup')
       .eq('status', 'active');
 
     if (targetProviderId) {
@@ -417,7 +450,7 @@ exports.handler = async (event = {}) => {
 
     for (const provider of providers) {
       try {
-        const summary = await syncProviderServices(provider);
+        const summary = await syncProviderServices(provider, { pricingEngine });
         results.push({
           providerId: provider.id,
           providerName: provider.name,

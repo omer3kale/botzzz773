@@ -203,16 +203,28 @@
         PHP: '₱'
     };
 
-    function formatCurrencyDisplay(amount, currency = 'USD', digits = 2) {
+    function formatCurrencyDisplay(amount, currency = 'USD', digits = null) {
         const numeric = Number(amount);
         const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
         if (!Number.isFinite(numeric)) {
             return `-- ${normalizedCurrency}`;
         }
 
+        // Dynamic decimal precision for sub-cent amounts
+        let finalDigits = digits;
+        if (finalDigits === null) {
+            if (numeric < 0.01) {
+                finalDigits = 6; // Show more decimals for tiny amounts like 0.0007
+            } else if (numeric < 1) {
+                finalDigits = 4; // Show 4 decimals for sub-dollar amounts
+            } else {
+                finalDigits = 2; // Standard 2 decimals for dollar amounts
+            }
+        }
+
         const symbol = CURRENCY_SYMBOLS[normalizedCurrency] || `${normalizedCurrency} `;
         const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
-        const formatted = `${symbol}${numeric.toFixed(digits)}`;
+        const formatted = `${symbol}${numeric.toFixed(finalDigits)}`;
         return (!CURRENCY_SYMBOLS[normalizedCurrency] || ambiguousSymbols.has(symbol))
             ? `${formatted} ${normalizedCurrency}`
             : formatted;
@@ -759,6 +771,7 @@
 
     function showDashboardView() {
         if (ordersView) ordersView.classList.add('hidden');
+        if (paymentsView) paymentsView.classList.add('hidden');
         if (dashboardContent) dashboardContent.classList.remove('hidden');
 
         setActiveSidebarLink(dashboardLink);
@@ -908,6 +921,124 @@
             console.log('Filter by:', filter);
         });
     });
+
+    // ==========================================
+    // PAYMENTS VIEW
+    // ==========================================
+    const paymentsLink = document.getElementById('paymentsLink');
+    const paymentsView = document.getElementById('paymentsView');
+    const paymentsTableBody = document.getElementById('paymentsTableBody');
+    const paymentsLoadingState = document.getElementById('paymentsLoadingState');
+    const paymentsEmptyState = document.getElementById('paymentsEmptyState');
+    const paymentsErrorState = document.getElementById('paymentsErrorState');
+    const refreshPaymentsBtn = document.getElementById('refreshPaymentsBtn');
+
+    function showPaymentsView() {
+        // Hide other views
+        if (dashboardContent) dashboardContent.classList.add('hidden');
+        if (ordersView) ordersView.classList.add('hidden');
+        
+        // Show payments view
+        if (paymentsView) paymentsView.classList.remove('hidden');
+
+        setActiveSidebarLink(paymentsLink);
+    }
+
+    async function loadPayments() {
+        if (!paymentsTableBody || !paymentsLoadingState || !paymentsEmptyState || !paymentsErrorState) {
+            console.error('Payments view elements not found');
+            return;
+        }
+
+        // Show loading state
+        paymentsLoadingState.classList.remove('hidden');
+        paymentsEmptyState.classList.add('hidden');
+        paymentsErrorState.classList.add('hidden');
+
+        try {
+            const response = await fetch('/.netlify/functions/payments', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: 'history'
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            // Hide loading state
+            paymentsLoadingState.classList.add('hidden');
+
+            if (result.payments && result.payments.length > 0) {
+                displayPayments(result.payments);
+            } else {
+                paymentsEmptyState.classList.remove('hidden');
+            }
+        } catch (error) {
+            console.error('Failed to load payments:', error);
+            
+            // Hide loading state and show error
+            paymentsLoadingState.classList.add('hidden');
+            paymentsErrorState.classList.remove('hidden');
+            paymentsErrorState.innerHTML = `
+                <h3>Failed to load payments</h3>
+                <p>Please try again later or contact support if the problem persists.</p>
+                <button class="btn-secondary" onclick="location.reload()">Retry</button>
+            `;
+        }
+    }
+
+    function displayPayments(payments) {
+        if (!paymentsTableBody) return;
+
+        paymentsTableBody.innerHTML = payments.map(payment => {
+            const date = new Date(payment.created_at).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            const amount = formatCurrencyDisplay(payment.amount);
+            const method = escapeHtml(payment.payment_method || 'Unknown');
+            const status = payment.status || 'pending';
+            const statusClass = status.toLowerCase();
+
+            return `
+                <tr>
+                    <td>#${escapeHtml(payment.id)}</td>
+                    <td>${date}</td>
+                    <td><span class="payment-method">${method}</span></td>
+                    <td class="payment-amount">+${amount}</td>
+                    <td><span class="payment-status ${statusClass}">${escapeHtml(status)}</span></td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    // Payments navigation
+    if (paymentsLink) {
+        paymentsLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showPaymentsView();
+            loadPayments();
+        });
+    }
+
+    // Refresh payments button
+    if (refreshPaymentsBtn) {
+        refreshPaymentsBtn.addEventListener('click', () => {
+            loadPayments();
+        });
+    }
 
     // Initialize
     updateUserDisplay();

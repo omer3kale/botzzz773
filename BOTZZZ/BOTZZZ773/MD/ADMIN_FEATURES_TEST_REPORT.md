@@ -28,19 +28,49 @@
 - Status: Completed
 - Memo: test
 
-**Expected Result:**
-- Payment record created in database
-- User balance updated if status = "completed"
-- Success message displayed
+## ✅ Admin Feature Integrity Tests
 
-**API Endpoint:** `POST /.netlify/functions/payments`
-**Request Body:**
-```json
-{
-  "action": "admin-add-payment",
-  "userId": "[user-uuid]",
-  "amount": 100,
-  "method": "payeer",
+### Status
+- [ ] Canonical Domain Redirect
+  - Preconditions: Netlify primary domain set to `www.botzzz773.pro`; apex DNS live.
+  - Steps: Hit `https://botzzz773.pro/admin/orders.html` and run `curl -I https://botzzz773.pro/api/health`.
+  - Expected: 301 redirects to `https://www.botzzz773.pro/...` preserving path/query in `Location` header.
+- [ ] Admin Orders Full Viewport
+  - Preconditions: Admin account with real data; desktop viewport ≥1360px.
+  - Steps: Sign in → open `orders.html` → capture `.orders-layout` classes and table widths.
+  - Expected: `.orders-layout` includes `no-quick-actions`; table width ≥ viewport minus sidebar; screenshot saved.
+- [ ] Order Creation & Provider Sync
+  - Preconditions: Provider credentials configured; admin logged in.
+  - Steps: Trigger “Sync Now” → create a small order via UI/API → poll `/admin/orders` list.
+  - Expected: Sync status transitions to “Up to date”; order row shows provider ID.
+- [ ] Rate Precision / Currency Display
+  - Preconditions: Catalog contains sub-cent rates and high-dollar items.
+  - Steps: Load `/services.html` and `/order.html` → inspect min/max price services.
+  - Expected: Tiny rates render with 4 decimals (e.g., `$0.0005`); large rates show 2 decimals.
+- [ ] Payment Success & Failure Handling
+  - Preconditions: Stripe (or mock) keys loaded; test cards ready.
+  - Steps: Checkout with success card; repeat with failure card.
+  - Expected: Success reaches `payment-success.html` with balance credit; failure shows `payment-failed.html` without orphan order.
+- [ ] Auth Guard & Token Expiry
+  - Preconditions: Valid admin token plus expired token fixture.
+  - Steps: Load `orders.html` with valid `localStorage`; repeat with expired token payload.
+  - Expected: Valid token grants access; expired token redirects to `/signin.html`, clearing storage.
+- [ ] Heartbeat / Functions Health
+  - Preconditions: Production deploy live.
+  - Steps: `curl https://www.botzzz773.pro/.netlify/functions/heartbeat`.
+  - Expected: `200` with `{ success: true }`, DB latency < 1s; failures logged.
+- [ ] PWA Installation & Offline Cache
+  - Preconditions: Chrome Lighthouse or Playwright with service worker + offline mode.
+  - Steps: Install from `/` → switch to offline → reload dashboard.
+  - Expected: Install prompt works; offline reload serves cached shell without crashing.
+- [ ] Category Filter & Unlimited Services
+  - Preconditions: >7 admin-approved services across categories.
+  - Steps: Visit `/services.html` → toggle each category + “All”.
+  - Expected: Each category shows full count; “All” lists every approved service (no 7-item cap).
+- [ ] Provider Failure Recovery
+  - Preconditions: Simulate provider returning 500; fetch guard active.
+  - Steps: Trigger provider API via dashboard; inspect fetch guard events.
+  - Expected: Guard retries up to limit, emits circuit-open, UI shows “Provider temporarily unavailable”.
   "transactionId": "123132",
   "status": "completed",
   "memo": "test"

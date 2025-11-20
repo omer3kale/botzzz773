@@ -1,27 +1,23 @@
 // Authentication API - Signup, Login, Logout, Token Verification
 const { supabase, supabaseAdmin } = require('./utils/supabase');
+const { withRateLimit } = require('./utils/rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { createLogger, serializeError } = require('./utils/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const SALT_ROUNDS = 10;
+const logger = createLogger('auth');
 
 // Helper function to create JWT token
 function createToken(user) {
-  console.log('[DEBUG AUTH] Creating token:', {
-    userId: user.id,
-    email: user.email,
-    role: user.role,
-    hasJwtSecret: !!JWT_SECRET,
-    jwtSecretLength: JWT_SECRET?.length,
-    jwtSecretPrefix: JWT_SECRET?.substring(0, 8) + '...'
-  });
-  
+  logger.debug('Creating token', { userId: user.id, role: user.role });
+
   return jwt.sign(
-    { 
-      userId: user.id, 
+    {
+      userId: user.id,
       email: user.email,
-      role: user.role 
+      role: user.role
     },
     JWT_SECRET,
     { expiresIn: '7d' }
@@ -37,7 +33,7 @@ function verifyToken(token) {
   }
 }
 
-exports.handler = async (event) => {
+const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -60,6 +56,7 @@ exports.handler = async (event) => {
 
   try {
     const { action, ...data } = JSON.parse(event.body || '{}');
+    logger.info('Auth request received', { action, path: event.path });
 
     switch (action) {
       case 'signup':
@@ -86,7 +83,7 @@ exports.handler = async (event) => {
         };
     }
   } catch (error) {
-    console.error('Auth error:', error);
+    logger.error('Auth error', { error: serializeError(error) });
     return {
       statusCode: 500,
       headers,
@@ -94,6 +91,14 @@ exports.handler = async (event) => {
     };
   }
 };
+
+const AUTH_RATE_LIMIT = {
+  route: 'auth',
+  limit: 30,
+  windowSeconds: 60
+};
+
+exports.handler = withRateLimit(AUTH_RATE_LIMIT, baseHandler);
 
 async function handleSignup({ email, password, username, firstName, lastName }, headers) {
   try {
@@ -187,7 +192,27 @@ async function handleSignup({ email, password, username, firstName, lastName }, 
   }
 }
 
-async function handleLogin({ email, password }, headers) {
+// Helper function to trigger OTP for admin users
+async function triggerAdminOTP(email) {
+  try {
+    const response = await fetch(process.env.URL + '/.netlify/functions/admin-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'request-otp',
+        email: email
+      })
+    });
+    
+    const result = await response.json();
+    return { success: response.ok, data: result };
+  } catch (error) {
+    console.error('Failed to trigger admin OTP:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
   try {
     // Validate input
     if (!email || !password) {
@@ -195,6 +220,15 @@ async function handleLogin({ email, password }, headers) {
         statusCode: 400,
         headers,
         body: JSON.stringify({ error: 'Email and password are required' })
+      };
+    }
+    
+    // Validate admin OTP if provided
+    if (adminOtp && (!/^[0-9]{6}$/.test(adminOtp))) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid OTP format. Must be 6 digits.' })
       };
     }
 
@@ -222,6 +256,39 @@ async function handleLogin({ email, password }, headers) {
       };
     }
 
+    // Handle OTP request for admin users
+    if (requestOtp && user.role === 'admin') {
+      // Verify password first before sending OTP
+      const validPassword = await bcrypt.compare(password, user.password_hash);
+      if (!validPassword) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ error: 'Invalid credentials' })
+        };
+      }
+
+      const otpResult = await triggerAdminOTP(user.email);
+      if (otpResult.success) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            requiresOtp: true,
+            message: 'OTP sent to admin email. Please check your inbox.',
+            expiresIn: otpResult.data.expiresIn || 600
+          })
+        };
+      } else {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to send OTP. Please try again.' })
+        };
+      }
+    }
+
     // Verify password
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
@@ -230,6 +297,44 @@ async function handleLogin({ email, password }, headers) {
         headers,
         body: JSON.stringify({ error: 'Invalid credentials' })
       };
+    }
+
+    // Admin OTP validation if provided
+    if (adminOtp) {
+      // Only allow admin OTP for admin users
+      if (user.role !== 'admin') {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Admin access required for OTP signin' })
+        };
+      }
+
+      // Verify OTP code
+      const { data: otpRecord, error: otpError } = await supabaseAdmin
+        .from('admin_otp_codes')
+        .select('*')
+        .eq('email', user.email)
+        .eq('otp_code', adminOtp)
+        .eq('used', false)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (otpError || !otpRecord) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ error: 'Invalid or expired OTP code' })
+        };
+      }
+
+      // Mark OTP as used
+      await supabaseAdmin
+        .from('admin_otp_codes')
+        .update({ used: true })
+        .eq('id', otpRecord.id);
     }
 
     // Update last login
@@ -605,8 +710,7 @@ async function handleGoogleSignIn(data, headers) {
       })
     };
   } catch (error) {
-    console.error('Google sign-in error:', error);
-    console.error('Error stack:', error.stack);
+    logger.error('Google sign-in error', { error: serializeError(error) });
     return {
       statusCode: 500,
       headers,

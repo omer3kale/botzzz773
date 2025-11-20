@@ -1,224 +1,113 @@
-/**
- * Scheduled Provider Sync - Runs Daily
- * Automatically syncs services from all active providers
- * Handles errors gracefully without breaking the site
- */
+const { supabaseAdmin } = require('./utils/supabase');
+const { createLogger, serializeError } = require('./utils/logger');
+const { syncProviderServices } = require('./sync-service-catalog');
+const { performOrderStatusSync } = require('./orders');
+const { getPricingEngine } = require('./utils/pricing-engine');
 
-const { createClient } = require('@supabase/supabase-js');
+const logger = createLogger('provider-automation');
+const DEFAULT_ORDER_SYNC_LIMIT = Number(process.env.PROVIDER_AUTOMATION_ORDER_LIMIT || 75);
 
-const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-// Retry logic with exponential backoff
-async function retryWithBackoff(fn, maxRetries = 3, baseDelay = 1000) {
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt === maxRetries) throw error;
-      
-      const delay = baseDelay * Math.pow(2, attempt - 1);
-      console.log(`[RETRY] Attempt ${attempt} failed, retrying in ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
+function parseLimit(rawValue, fallback) {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return fallback;
   }
+  return Math.min(Math.trunc(numeric), 500);
 }
 
-// Fetch services from provider API with timeout
-async function fetchProviderServices(provider, timeoutMs = 30000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  
-  try {
-    const response = await fetch(provider.api_url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        key: provider.api_key,
-        action: 'services'
-      }),
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeout);
-    
-    if (!response.ok) {
-      throw new Error(`Provider API returned ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (error) {
-    clearTimeout(timeout);
-    if (error.name === 'AbortError') {
-      throw new Error('Provider API timeout after 30 seconds');
-    }
-    throw error;
-  }
-}
+exports.handler = async (event = {}) => {
+  const headers = { 'Content-Type': 'application/json' };
+  const runAt = event.headers?.['x-netlify-schedule-run-at'] || new Date().toISOString();
+  const query = event.queryStringParameters || {};
+  const targetProviderId = query.providerId || query.provider_id || null;
+  const orderSyncLimit = parseLimit(query.orderLimit || query.order_limit, DEFAULT_ORDER_SYNC_LIMIT);
 
-// Sync services for a single provider
-async function syncProviderServices(provider) {
-  console.log(`[SYNC] Starting sync for ${provider.name}...`);
-  
-  try {
-    // Fetch services with retry
-    const servicesData = await retryWithBackoff(() => 
-      fetchProviderServices(provider)
-    );
-    
-    if (!Array.isArray(servicesData)) {
-      throw new Error('Invalid services data format');
-    }
-    
-    let added = 0;
-    let updated = 0;
-    let errors = 0;
-    
-    // Sync each service
-    for (const service of servicesData) {
-      try {
-        const { data, error } = await supabaseAdmin
-          .from('services')
-          .upsert({
-            provider_id: provider.id,
-            provider_service_id: service.service,
-            name: service.name,
-            category: service.category || 'other',
-            rate: parseFloat(service.rate) || 0,
-            min_quantity: parseInt(service.min) || 10,
-            max_quantity: parseInt(service.max) || 1000000,
-            description: service.description || '',
-            status: 'active',
-            currency: provider.currency || 'USD',
-            average_time: service.average_time || null,
-            refill_supported: Boolean(service.refill),
-            cancel_supported: Boolean(service.cancel),
-            dripfeed_supported: Boolean(service.dripfeed),
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'provider_id,provider_service_id'
-          });
-        
-        if (error) {
-          console.error(`[ERROR] Failed to upsert service ${service.service}:`, error);
-          errors++;
-        } else {
-          if (data?.length > 0) {
-            updated++;
-          } else {
-            added++;
-          }
-        }
-      } catch (serviceError) {
-        console.error(`[ERROR] Service sync failed:`, serviceError);
-        errors++;
-      }
-    }
-    
-    // Update provider last sync time
-    await supabaseAdmin
-      .from('providers')
-      .update({ 
-        last_sync: new Date().toISOString(),
-        health_status: 'healthy'
-      })
-      .eq('id', provider.id);
-    
-    console.log(`[SUCCESS] ${provider.name}: ${added} added, ${updated} updated, ${errors} errors`);
-    
-    return { success: true, added, updated, errors, total: servicesData.length };
-    
-  } catch (error) {
-    // Mark provider as unhealthy but don't fail
-    await supabaseAdmin
-      .from('providers')
-      .update({ health_status: 'error' })
-      .eq('id', provider.id);
-    
-    console.error(`[ERROR] ${provider.name} sync failed:`, error.message);
-    return { success: false, error: error.message };
-  }
-}
+  logger.info('Provider automation invoked', { runAt, targetProviderId, orderSyncLimit });
 
-// Main handler
-exports.handler = async (event, context) => {
-  console.log('[SCHEDULED SYNC] Starting daily provider sync...');
-  
   try {
-    // Get all active providers
-    const { data: providers, error } = await supabaseAdmin
+    let providerQuery = supabaseAdmin
       .from('providers')
-      .select('*')
+      .select('id, name, status, api_url, api_key, health_status, services_count, markup')
       .eq('status', 'active');
-    
+
+    if (targetProviderId) {
+      providerQuery = providerQuery.eq('id', targetProviderId);
+    }
+
+    const { data: providers, error } = await providerQuery;
+
     if (error) {
-      console.error('[ERROR] Failed to fetch providers:', error);
+      logger.error('Failed to load providers', { error: serializeError(error) });
       return {
         statusCode: 500,
-        body: JSON.stringify({ error: 'Failed to fetch providers' })
+        headers,
+        body: JSON.stringify({ success: false, error: 'Failed to load providers' })
       };
     }
-    
+
     if (!providers || providers.length === 0) {
-      console.log('[INFO] No active providers to sync');
+      logger.info('No providers eligible for automation');
       return {
         statusCode: 200,
-        body: JSON.stringify({ message: 'No providers to sync' })
+        headers,
+        body: JSON.stringify({ success: true, runAt, summary: [] })
       };
     }
-    
-    // Sync all providers (in parallel for speed)
-    const results = await Promise.allSettled(
-      providers.map(provider => syncProviderServices(provider))
-    );
-    
-    // Compile summary
-    const summary = {
-      total_providers: providers.length,
-      successful: 0,
-      failed: 0,
-      results: []
-    };
-    
-    results.forEach((result, index) => {
-      if (result.status === 'fulfilled' && result.value.success) {
-        summary.successful++;
-        summary.results.push({
-          provider: providers[index].name,
-          status: 'success',
-          ...result.value
-        });
-      } else {
-        summary.failed++;
-        summary.results.push({
-          provider: providers[index].name,
-          status: 'failed',
-          error: result.reason?.message || result.value?.error || 'Unknown error'
+
+    const summary = [];
+    const pricingEngine = await getPricingEngine();
+
+    for (const provider of providers) {
+      const entry = {
+        providerId: provider.id,
+        providerName: provider.name,
+        catalog: null,
+        orderSync: null
+      };
+
+      try {
+        logger.info('Syncing provider catalog', { providerId: provider.id, providerName: provider.name });
+        const catalogResult = await syncProviderServices(provider, { pricingEngine });
+        entry.catalog = { ...catalogResult, success: true };
+
+        logger.info('Queueing provider order sync', { providerId: provider.id, limit: orderSyncLimit });
+        const orderResult = await performOrderStatusSync({ providerId: provider.id, limit: orderSyncLimit });
+        entry.orderSync = orderResult;
+
+        if (!orderResult.success) {
+          logger.warn('Order sync returned errors', { providerId: provider.id, error: orderResult.error });
+        }
+      } catch (providerError) {
+        entry.catalog = entry.catalog || { success: false };
+        entry.orderSync = entry.orderSync || { success: false, error: providerError.message };
+        logger.error('Provider automation failed', {
+          providerId: provider.id,
+          error: serializeError(providerError)
         });
       }
-    });
-    
-    console.log('[COMPLETE] Sync finished:', summary);
-    
+
+      summary.push(entry);
+    }
+
     return {
       statusCode: 200,
+      headers,
       body: JSON.stringify({
         success: true,
-        message: 'Provider sync completed',
+        runAt,
+        providersProcessed: summary.length,
         summary
       })
     };
-    
   } catch (error) {
-    console.error('[FATAL] Scheduled sync failed:', error);
+    logger.error('Provider automation fatal error', { error: serializeError(error) });
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
+      headers,
+      body: JSON.stringify({
         success: false,
-        error: 'Scheduled sync failed',
-        details: error.message 
+        error: 'Provider automation failed',
+        details: error.message
       })
     };
   }

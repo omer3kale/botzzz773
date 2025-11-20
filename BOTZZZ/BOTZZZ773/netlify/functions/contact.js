@@ -1,8 +1,12 @@
 // Contact Form API - Handle Contact Form Submissions
 const { supabaseAdmin } = require('./utils/supabase');
 const { insertTicketRecord } = require('./utils/ticket-utils');
+const { withRateLimit } = require('./utils/rate-limit');
+const { createLogger, serializeError } = require('./utils/logger');
 
-exports.handler = async (event) => {
+const logger = createLogger('contact');
+
+const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type',
@@ -53,7 +57,7 @@ exports.handler = async (event) => {
         user_id: null
       });
     } catch (error) {
-      console.error('Create ticket error:', error);
+      logger.error('Create ticket error', { error: serializeError(error) });
       return {
         statusCode: 500,
         headers,
@@ -84,7 +88,7 @@ exports.handler = async (event) => {
       })
     };
   } catch (error) {
-    console.error('Contact form error:', error);
+    logger.error('Contact form error', { error: serializeError(error) });
     return {
       statusCode: 500,
       headers,
@@ -92,3 +96,11 @@ exports.handler = async (event) => {
     };
   }
 };
+
+const CONTACT_RATE_LIMIT = {
+  route: 'contact',
+  limit: 10,
+  windowSeconds: 60
+};
+
+exports.handler = withRateLimit(CONTACT_RATE_LIMIT, baseHandler);

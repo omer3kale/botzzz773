@@ -33,6 +33,33 @@ async function checkAuthStatus() {
     }
 }
 
+// Admin Signin Toggle Function
+function toggleAdminSignin() {
+    const adminOtpGroup = document.getElementById('adminOtpGroup');
+    const adminToggle = document.getElementById('adminSigninToggle');
+    
+    if (adminOtpGroup.style.display === 'none') {
+        adminOtpGroup.style.display = 'block';
+        adminToggle.textContent = 'Regular Sign In';
+        adminToggle.classList.add('active');
+    } else {
+        adminOtpGroup.style.display = 'none';
+        adminToggle.textContent = 'Admin Sign In';
+        adminToggle.classList.remove('active');
+        document.getElementById('adminOtp').value = '';
+    }
+}
+
+// Request Admin OTP
+async function requestAdminOTP(email, password) {
+    try {
+        const data = await api.login(email, password, null, true); // requestOtp = true
+        return data;
+    } catch (error) {
+        throw error;
+    }
+}
+
 // Sign In Handler
 async function handleSignIn(e) {
     e.preventDefault();
@@ -40,9 +67,17 @@ async function handleSignIn(e) {
     const email = document.getElementById('email')?.value.trim();
     const password = document.getElementById('password')?.value;
     const rememberMe = document.getElementById('remember')?.checked;
+    const adminOtp = document.getElementById('adminOtp')?.value?.trim();
+    const isAdminSignin = document.getElementById('adminOtpGroup')?.style.display !== 'none';
+    const hasOtpCode = adminOtp && adminOtp.length === 6;
 
     if (!email || !password) {
         showError('Please fill in all fields');
+        return;
+    }
+    
+    if (isAdminSignin && hasOtpCode && !/^[0-9]{6}$/.test(adminOtp)) {
+        showError('Please enter a valid 6-digit OTP code');
         return;
     }
 
@@ -52,7 +87,35 @@ async function handleSignIn(e) {
     submitBtn.textContent = 'Signing in...';
 
     try {
-        const data = await api.login(email, password);
+        // Admin signin flow: request OTP first if no OTP provided
+        if (isAdminSignin && !hasOtpCode) {
+            submitBtn.textContent = 'Requesting OTP...';
+            
+            const otpData = await requestAdminOTP(email, password);
+            
+            if (otpData.success && otpData.requiresOtp) {
+                showSuccess(otpData.message || 'OTP sent to admin email');
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+                
+                // Focus on OTP input
+                const otpInput = document.getElementById('adminOtp');
+                if (otpInput) {
+                    otpInput.focus();
+                }
+                return;
+            } else {
+                showError(otpData.error || 'Failed to request OTP');
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+                return;
+            }
+        }
+        
+        // Normal signin or admin signin with OTP
+        submitBtn.textContent = isAdminSignin ? 'Verifying OTP...' : 'Signing in...';
+        
+        const data = await api.login(email, password, hasOtpCode ? adminOtp : null);
         
         if (data.success && data.token && data.user) {
             // Store token and user data
@@ -63,6 +126,14 @@ async function handleSignIn(e) {
                 localStorage.setItem('rememberMe', 'true');
             }
 
+            // Validate admin access when admin signin is used
+            if (isAdminSignin && data.user.role !== 'admin') {
+                showError('Invalid admin credentials or OTP code');
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+                return;
+            }
+            
             showSuccess('Login successful! Redirecting...');
             
             // Redirect based on role

@@ -5,11 +5,12 @@ exports.handler = async (event = {}) => {
   const runAt = event.headers?.['x-netlify-schedule-run-at'] || new Date().toISOString();
   const qsLimit = event.queryStringParameters && event.queryStringParameters.limit;
   const limit = Number.isFinite(Number(qsLimit)) ? Number(qsLimit) : 150;
+  const providerFilter = event.queryStringParameters && (event.queryStringParameters.providerId || event.queryStringParameters.provider_id);
 
   console.log(`[SCHEDULED] Order status sync invoked at ${runAt} with limit ${limit}`);
 
   try {
-    const result = await performOrderStatusSync({ limit });
+    const result = await performOrderStatusSync({ limit, providerId: providerFilter || null });
     return {
       statusCode: 200,
       headers,

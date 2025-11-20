@@ -1,7 +1,14 @@
 // Service Worker for BOTZZZ773 PWA
 const CACHE_VERSION = 'v1.0.0';
 const CACHE_NAME = `botzzz773-${CACHE_VERSION}`;
+const API_CACHE_NAME = `botzzz773-api-${CACHE_VERSION}`;
+const PENDING_REQUESTS_CACHE = 'botzzz773-pending-requests';
 const OFFLINE_URL = '/offline.html';
+const SYNC_TAG = 'sync-pending-requests';
+const OFFLINE_QUEUE_ENDPOINTS = [
+  '/.netlify/functions/orders',
+  '/.netlify/functions/payments'
+];
 
 // Assets to cache immediately on install
 const STATIC_ASSETS = [
@@ -16,6 +23,8 @@ const STATIC_ASSETS = [
   '/js/dashboard.js',
   '/js/services.js',
   '/js/order.js',
+  '/js/pwa.js',
+  '/manifest.json',
   OFFLINE_URL
 ];
 
@@ -48,7 +57,8 @@ self.addEventListener('activate', (event) => {
       .then((cacheNames) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME) {
+            const allowedCaches = [CACHE_NAME, API_CACHE_NAME, PENDING_REQUESTS_CACHE];
+            if (!allowedCaches.includes(cacheName)) {
               console.log('[ServiceWorker] Deleting old cache:', cacheName);
               return caches.delete(cacheName);
             }
@@ -67,6 +77,11 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  if (shouldQueueRequest(url, request.method)) {
+    event.respondWith(queueRequest(request));
+    return;
+  }
+
   // Skip non-GET requests
   if (request.method !== 'GET') {
     return;
@@ -79,17 +94,7 @@ self.addEventListener('fetch', (event) => {
 
   // Skip Netlify functions (API calls)
   if (url.pathname.startsWith('/.netlify/')) {
-    return event.respondWith(
-      fetch(request).catch(() => {
-        return new Response(
-          JSON.stringify({ error: 'Network error. Please check your connection.' }),
-          {
-            status: 503,
-            headers: { 'Content-Type': 'application/json' }
-          }
-        );
-      })
-    );
+    return event.respondWith(handleApiRequest(request));
   }
 
   // Network first strategy for HTML pages
@@ -181,25 +186,102 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+function shouldQueueRequest(url, method) {
+  if (method !== 'POST') {
+    return false;
+  }
+  return OFFLINE_QUEUE_ENDPOINTS.some((endpoint) => url.pathname.startsWith(endpoint));
+}
+
+async function queueRequest(request) {
+  const networkAttempt = request.clone();
+  try {
+    return await fetch(networkAttempt);
+  } catch (error) {
+    const offlineClone = request.clone();
+    const cache = await caches.open(PENDING_REQUESTS_CACHE);
+    await cache.put(
+      offlineClone,
+      new Response(
+        JSON.stringify({ queuedAt: Date.now(), url: request.url }),
+        { headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    if (self.registration && self.registration.sync) {
+      try {
+        await self.registration.sync.register(SYNC_TAG);
+      } catch (syncError) {
+        console.warn('[ServiceWorker] Unable to register background sync:', syncError);
+      }
+    }
+
+    await notifyClients({ type: 'REQUEST_QUEUED', url: request.url });
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        queued: true,
+        message: 'No connection detected. Your request was queued and will sync automatically.'
+      }),
+      {
+        status: 202,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
+}
+
+async function handleApiRequest(request) {
+  const cache = await caches.open(API_CACHE_NAME);
+  try {
+    const response = await fetch(request);
+    cache.put(request, response.clone());
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) {
+      return cached;
+    }
+    return new Response(
+      JSON.stringify({ error: 'Network error. Please check your connection.', offline: true }),
+      {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
+}
+
+async function notifyClients(message) {
+  try {
+    const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+    clients.forEach((client) => client.postMessage(message));
+  } catch (error) {
+    console.warn('[ServiceWorker] Unable to notify clients:', error);
+  }
+}
+
 // Background sync for offline form submissions
 self.addEventListener('sync', (event) => {
   console.log('[ServiceWorker] Background sync:', event.tag);
   
-  if (event.tag === 'sync-orders') {
-    event.waitUntil(syncOrders());
+  if (event.tag === SYNC_TAG) {
+    event.waitUntil(syncQueuedRequests());
   }
 });
 
-async function syncOrders() {
+async function syncQueuedRequests() {
   // Sync any pending orders when back online
   try {
-    const cache = await caches.open('pending-orders');
+    const cache = await caches.open(PENDING_REQUESTS_CACHE);
     const requests = await cache.keys();
     
     for (const request of requests) {
       try {
         await fetch(request.clone());
         await cache.delete(request);
+        await notifyClients({ type: 'REQUEST_SYNCED', url: request.url });
       } catch (error) {
         console.error('[ServiceWorker] Sync failed for:', request.url);
       }

@@ -378,7 +378,25 @@ async function loadServicesFromAPI(options = {}) {
         
         Object.keys(grouped).sort().forEach(category => {
             const icon = categoryIcons[category] || '⭐';
-            const categoryServices = grouped[category];
+            const categoryServices = grouped[category]
+                .slice()
+                .sort((a, b) => {
+                    const slotA = Number(a?.customer_portal_slot ?? a?.customerPortalSlot);
+                    const slotB = Number(b?.customer_portal_slot ?? b?.customerPortalSlot);
+
+                    const hasSlotA = Number.isFinite(slotA);
+                    const hasSlotB = Number.isFinite(slotB);
+
+                    if (hasSlotA && hasSlotB && slotA !== slotB) {
+                        return slotA - slotB;
+                    }
+                    if (hasSlotA && !hasSlotB) return -1;
+                    if (!hasSlotA && hasSlotB) return 1;
+
+                    const nameA = String(a?.name || '').toLowerCase();
+                    const nameB = String(b?.name || '').toLowerCase();
+                    return nameA.localeCompare(nameB);
+                });
             const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
             
             html += `
@@ -550,18 +568,38 @@ function assignServiceKey(service) {
     return key;
 }
 
-function formatCurrencyValue(amount, currency = 'USD', fractionDigits = 2) {
+function determineFractionDigits(numeric, fallback = 2) {
+    if (!Number.isFinite(numeric)) {
+        return fallback;
+    }
+    const absValue = Math.abs(numeric);
+    if (absValue === 0) {
+        return fallback;
+    }
+    if (absValue < 0.0001) return 6;
+    if (absValue < 0.001) return 5;
+    if (absValue < 0.01) return 4;
+    if (absValue < 0.1) return 3;
+    if (absValue < 1) return 3;
+    return fallback;
+}
+
+function formatCurrencyValue(amount, currency = 'USD', fractionDigits) {
     const numeric = Number(amount);
     const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
     if (!Number.isFinite(numeric)) {
         return `-- ${normalizedCurrency}`;
     }
 
+    const digits = typeof fractionDigits === 'number'
+        ? fractionDigits
+        : determineFractionDigits(numeric, 2);
+
     const customSymbol = CURRENCY_SYMBOL_MAP[normalizedCurrency];
     const symbol = customSymbol || `${normalizedCurrency} `;
     const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
     const needsCode = !customSymbol || ambiguousSymbols.has(symbol);
-    const formatted = `${symbol}${numeric.toFixed(fractionDigits)}`;
+    const formatted = `${symbol}${numeric.toFixed(digits)}`;
     return needsCode ? `${formatted} ${normalizedCurrency}` : formatted;
 }
 

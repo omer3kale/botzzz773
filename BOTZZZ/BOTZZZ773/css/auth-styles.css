@@ -175,6 +175,13 @@
     text-decoration: underline;
 }
 
+.auth-links {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
 .forgot-link {
     color: #FF1494;
     text-decoration: none;
@@ -184,6 +191,65 @@
 
 .forgot-link:hover {
     opacity: 0.8;
+}
+
+.admin-signin-toggle {
+    background: none;
+    border: 1px solid rgba(255, 20, 148, 0.3);
+    color: #FF1494;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.admin-signin-toggle:hover {
+    background: rgba(255, 20, 148, 0.1);
+    border-color: #FF1494;
+}
+
+.admin-signin-toggle.active {
+    background: #FF1494;
+    color: white;
+    border-color: #FF1494;
+}
+
+/* Admin OTP Field */
+.admin-otp-group {
+    animation: slideDown 0.3s ease;
+}
+
+.admin-otp-group.hidden {
+    display: none !important;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        max-height: 120px;
+        transform: translateY(0);
+    }
+}
+
+.admin-otp-group input {
+    text-align: center;
+    letter-spacing: 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.admin-otp-group .form-help {
+    color: rgba(255, 20, 148, 0.8);
+    font-size: 0.8rem;
+    margin-top: 6px;
+    display: block;
 }
 
 /* Submit Button */
