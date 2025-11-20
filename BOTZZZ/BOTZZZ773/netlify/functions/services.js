@@ -388,8 +388,7 @@ async function handleGetServices(event, user, headers) {
           const nameA = String(a?.name || '');
           const nameB = String(b?.name || '');
           return nameA.localeCompare(nameB);
-        })
-        .slice(0, 7);
+        });
     }
 
     const servicesWithProviderIds = normalizedServices.map(service => {

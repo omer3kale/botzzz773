@@ -118,21 +118,6 @@
                             </div>
                         </div>
 
-                        <!-- Admin OTP Field (Hidden by default) -->
-                        <div class="form-group admin-otp-group" id="adminOtpGroup" style="display: none;">
-                            <label for="adminOtp">Admin OTP Code</label>
-                            <input 
-                                type="text" 
-                                id="adminOtp" 
-                                name="adminOtp" 
-                                placeholder="Enter 6-digit OTP code"
-                                maxlength="6"
-                                pattern="[0-9]{6}"
-                                autocomplete="one-time-code"
-                            >
-                            <small class="form-help">Required for admin access. Check your email for the verification code.</small>
-                        </div>
-
                         <div class="form-options">
                             <label class="checkbox-label">
                                 <input type="checkbox" id="remember" name="remember">
@@ -140,7 +125,6 @@
                             </label>
                             <div class="auth-links">
                                 <a href="#" class="forgot-link">Forgot password?</a>
-                                <button type="button" class="admin-signin-toggle" id="adminSigninToggle" onclick="toggleAdminSignin()">Admin Sign In</button>
                             </div>
                         </div>
 
@@ -234,6 +218,41 @@
             </div>
         </div>
     </section>
+
+    <!-- Admin OTP Modal -->
+    <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true">
+        <div class="otp-modal" role="dialog" aria-labelledby="otpModalTitle" aria-modal="true">
+            <button type="button" class="otp-modal-close" id="closeAdminOtpModal" aria-label="Close admin verification">
+                &times;
+            </button>
+            <div class="otp-modal-header">
+                <h2 id="otpModalTitle">Admin Verification</h2>
+                <p>Enter the 6-digit code we sent to your admin email to unlock the panel.</p>
+            </div>
+            <form id="adminOtpForm" class="otp-form">
+                <div class="otp-input-group">
+                    <label for="adminOtpInput" class="sr-only">Admin OTP Code</label>
+                    <input
+                        type="text"
+                        id="adminOtpInput"
+                        name="adminOtpInput"
+                        inputmode="numeric"
+                        autocomplete="one-time-code"
+                        maxlength="6"
+                        pattern="[0-9]*"
+                        placeholder="000000"
+                        required
+                    >
+                </div>
+                <div class="otp-meta">
+                    <span id="otpCountdown">Code expires in 10:00</span>
+                    <button type="button" id="resendAdminOtp" class="otp-link" disabled>Resend code</button>
+                </div>
+                <div class="otp-feedback" id="adminOtpFeedback" role="alert"></div>
+                <button type="submit" class="btn-submit otp-submit">Verify &amp; Continue</button>
+            </form>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer class="footer">

@@ -299,6 +299,36 @@ async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
       };
     }
 
+    // Require OTP for admin logins even if not explicitly requested
+    if (user.role === 'admin' && !adminOtp) {
+      const otpResult = await triggerAdminOTP(user.email);
+      if (otpResult.success) {
+        const otpMessage = otpResult.data && otpResult.data.message
+          ? otpResult.data.message
+          : 'OTP sent to admin email. Please check your inbox.';
+        const otpExpiry = otpResult.data && otpResult.data.expiresIn
+          ? otpResult.data.expiresIn
+          : 600;
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            requiresOtp: true,
+            message: otpMessage,
+            expiresIn: otpExpiry
+          })
+        };
+      }
+
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to send OTP. Please try again.' })
+      };
+    }
+
     // Admin OTP validation if provided
     if (adminOtp) {
       // Only allow admin OTP for admin users

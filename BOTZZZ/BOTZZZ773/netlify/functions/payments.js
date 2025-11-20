@@ -12,7 +12,6 @@ const logger = createLogger('payments');
 function logPaymentError(message, error, meta) {
   logger.error(message, { error: serializeError(error), ...meta });
 }
-const logger = createLogger('payments');
 
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];

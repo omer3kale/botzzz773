@@ -33,32 +33,19 @@ async function checkAuthStatus() {
     }
 }
 
-// Admin Signin Toggle Function
-function toggleAdminSignin() {
-    const adminOtpGroup = document.getElementById('adminOtpGroup');
-    const adminToggle = document.getElementById('adminSigninToggle');
-    
-    if (adminOtpGroup.style.display === 'none') {
-        adminOtpGroup.style.display = 'block';
-        adminToggle.textContent = 'Regular Sign In';
-        adminToggle.classList.add('active');
-    } else {
-        adminOtpGroup.style.display = 'none';
-        adminToggle.textContent = 'Admin Sign In';
-        adminToggle.classList.remove('active');
-        document.getElementById('adminOtp').value = '';
-    }
-}
+// Admin OTP modal state
+const ADMIN_OTP_DEFAULT_EXPIRY = 600; // fallback to 10 minutes if backend omits value
+const ADMIN_OTP_RESEND_DELAY = 45; // seconds before another code can be requested
 
-// Request Admin OTP
-async function requestAdminOTP(email, password) {
-    try {
-        const data = await api.login(email, password, null, true); // requestOtp = true
-        return data;
-    } catch (error) {
-        throw error;
-    }
-}
+const adminOtpState = {
+    email: null,
+    password: null,
+    rememberMe: false,
+    expiresAt: null,
+    resendAvailableAt: null
+};
+
+let adminOtpCountdownInterval = null;
 
 // Sign In Handler
 async function handleSignIn(e) {
@@ -67,17 +54,9 @@ async function handleSignIn(e) {
     const email = document.getElementById('email')?.value.trim();
     const password = document.getElementById('password')?.value;
     const rememberMe = document.getElementById('remember')?.checked;
-    const adminOtp = document.getElementById('adminOtp')?.value?.trim();
-    const isAdminSignin = document.getElementById('adminOtpGroup')?.style.display !== 'none';
-    const hasOtpCode = adminOtp && adminOtp.length === 6;
 
     if (!email || !password) {
         showError('Please fill in all fields');
-        return;
-    }
-    
-    if (isAdminSignin && hasOtpCode && !/^[0-9]{6}$/.test(adminOtp)) {
-        showError('Please enter a valid 6-digit OTP code');
         return;
     }
 
@@ -87,74 +66,256 @@ async function handleSignIn(e) {
     submitBtn.textContent = 'Signing in...';
 
     try {
-        // Admin signin flow: request OTP first if no OTP provided
-        if (isAdminSignin && !hasOtpCode) {
-            submitBtn.textContent = 'Requesting OTP...';
-            
-            const otpData = await requestAdminOTP(email, password);
-            
-            if (otpData.success && otpData.requiresOtp) {
-                showSuccess(otpData.message || 'OTP sent to admin email');
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-                
-                // Focus on OTP input
-                const otpInput = document.getElementById('adminOtp');
-                if (otpInput) {
-                    otpInput.focus();
-                }
-                return;
-            } else {
-                showError(otpData.error || 'Failed to request OTP');
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-                return;
-            }
-        }
-        
-        // Normal signin or admin signin with OTP
-        submitBtn.textContent = isAdminSignin ? 'Verifying OTP...' : 'Signing in...';
-        
-        const data = await api.login(email, password, hasOtpCode ? adminOtp : null);
-        
-        if (data.success && data.token && data.user) {
-            // Store token and user data
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-            
-            if (rememberMe) {
-                localStorage.setItem('rememberMe', 'true');
-            }
+        const data = await api.login(email, password, null, true);
 
-            // Validate admin access when admin signin is used
-            if (isAdminSignin && data.user.role !== 'admin') {
-                showError('Invalid admin credentials or OTP code');
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-                return;
-            }
-            
-            showSuccess('Login successful! Redirecting...');
-            
-            // Redirect based on role
-            setTimeout(() => {
-                if (data.user.role === 'admin') {
-                    window.location.href = 'admin/index.html';
-                } else {
-                    window.location.href = 'dashboard.html';
-                }
-            }, 1000);
-        } else {
-            showError(data.error || 'Login failed');
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalText;
+        if (data.requiresOtp) {
+            adminOtpState.email = email;
+            adminOtpState.password = password;
+            adminOtpState.rememberMe = !!rememberMe;
+
+            const expiresIn = data.expiresIn || ADMIN_OTP_DEFAULT_EXPIRY;
+            openAdminOtpModal(data.message, expiresIn);
+            return;
         }
+
+        if (data.success && data.token && data.user) {
+            finalizeLogin(data, rememberMe);
+            return;
+        }
+
+        showError(data.error || 'Login failed');
     } catch (error) {
         console.error('Login error:', error);
         showError(error.message || 'Login failed. Please try again.');
+    } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
     }
+}
+
+function openAdminOtpModal(message, expiresIn = ADMIN_OTP_DEFAULT_EXPIRY) {
+    const modal = document.getElementById('adminOtpModal');
+    if (!modal) {
+        console.warn('Admin OTP modal not found in DOM.');
+        return;
+    }
+
+    const otpInput = document.getElementById('adminOtpInput');
+    if (otpInput) {
+        otpInput.value = '';
+        setTimeout(() => otpInput.focus(), 100);
+    }
+
+    adminOtpState.expiresAt = Date.now() + (expiresIn * 1000);
+    adminOtpState.resendAvailableAt = Date.now() + (ADMIN_OTP_RESEND_DELAY * 1000);
+
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+
+    setOtpFeedback(message || 'OTP sent to your admin email. Enter the code to continue.', 'success');
+    updateAdminOtpCountdown();
+
+    if (adminOtpCountdownInterval) {
+        clearInterval(adminOtpCountdownInterval);
+    }
+    adminOtpCountdownInterval = setInterval(updateAdminOtpCountdown, 1000);
+}
+
+function closeAdminOtpModal({ clearCredentials = false } = {}) {
+    const modal = document.getElementById('adminOtpModal');
+    if (!modal) {
+        return;
+    }
+
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('modal-open');
+
+    const otpInput = document.getElementById('adminOtpInput');
+    if (otpInput) {
+        otpInput.value = '';
+    }
+
+    const countdownEl = document.getElementById('otpCountdown');
+    if (countdownEl) {
+        countdownEl.textContent = '';
+    }
+
+    const resendBtn = document.getElementById('resendAdminOtp');
+    if (resendBtn) {
+        resendBtn.disabled = true;
+        resendBtn.textContent = 'Resend code';
+    }
+
+    setOtpFeedback('', 'success');
+
+    if (adminOtpCountdownInterval) {
+        clearInterval(adminOtpCountdownInterval);
+        adminOtpCountdownInterval = null;
+    }
+
+    adminOtpState.expiresAt = null;
+    adminOtpState.resendAvailableAt = null;
+
+    if (clearCredentials) {
+        clearAdminOtpCredentials();
+    }
+}
+
+function updateAdminOtpCountdown() {
+    const countdownEl = document.getElementById('otpCountdown');
+    if (countdownEl) {
+        if (adminOtpState.expiresAt) {
+            const remaining = adminOtpState.expiresAt - Date.now();
+            if (remaining > 0) {
+                const minutes = Math.floor(remaining / 60000);
+                const seconds = Math.floor((remaining % 60000) / 1000);
+                countdownEl.textContent = `Code expires in ${minutes}:${seconds.toString().padStart(2, '0')}`;
+            } else {
+                countdownEl.textContent = 'Code expired. Request a new one.';
+            }
+        } else {
+            countdownEl.textContent = '';
+        }
+    }
+
+    const resendBtn = document.getElementById('resendAdminOtp');
+    if (resendBtn) {
+        if (adminOtpState.resendAvailableAt && Date.now() >= adminOtpState.resendAvailableAt) {
+            resendBtn.disabled = false;
+            resendBtn.textContent = 'Resend code';
+        } else if (adminOtpState.resendAvailableAt) {
+            const waitSeconds = Math.max(0, Math.ceil((adminOtpState.resendAvailableAt - Date.now()) / 1000));
+            resendBtn.disabled = true;
+            resendBtn.textContent = `Resend in ${waitSeconds}s`;
+        } else {
+            resendBtn.disabled = true;
+            resendBtn.textContent = 'Resend code';
+        }
+    }
+}
+
+function setOtpFeedback(message = '', type = 'success') {
+    const feedbackEl = document.getElementById('adminOtpFeedback');
+    if (!feedbackEl) {
+        return;
+    }
+
+    feedbackEl.textContent = message || '';
+    feedbackEl.classList.remove('error', 'success');
+
+    if (message) {
+        feedbackEl.classList.add(type === 'error' ? 'error' : 'success');
+    }
+}
+
+function clearAdminOtpCredentials() {
+    adminOtpState.email = null;
+    adminOtpState.password = null;
+    adminOtpState.rememberMe = false;
+}
+
+async function handleAdminOtpSubmit(e) {
+    e.preventDefault();
+
+    const otpInput = document.getElementById('adminOtpInput');
+    const adminOtp = otpInput?.value?.trim();
+
+    if (!adminOtp || !/^[0-9]{6}$/.test(adminOtp)) {
+        setOtpFeedback('Please enter a valid 6-digit code.', 'error');
+        otpInput?.focus();
+        return;
+    }
+
+    if (!adminOtpState.email || !adminOtpState.password) {
+        setOtpFeedback('Session expired. Please sign in again.', 'error');
+        closeAdminOtpModal({ clearCredentials: true });
+        return;
+    }
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Verifying...';
+
+    try {
+        const data = await api.login(adminOtpState.email, adminOtpState.password, adminOtp);
+        if (data.success && data.token && data.user) {
+            const rememberSession = adminOtpState.rememberMe;
+            setOtpFeedback('OTP verified. Redirecting...', 'success');
+            closeAdminOtpModal({ clearCredentials: true });
+            finalizeLogin(data, rememberSession);
+        } else {
+            setOtpFeedback(data.error || 'Invalid OTP code. Please try again.', 'error');
+        }
+    } catch (error) {
+        console.error('Admin OTP verification failed:', error);
+        setOtpFeedback(error.message || 'OTP verification failed. Please try again.', 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+}
+
+async function handleAdminOtpResend() {
+    if (!adminOtpState.email || !adminOtpState.password) {
+        setOtpFeedback('Session expired. Please sign in again.', 'error');
+        closeAdminOtpModal({ clearCredentials: true });
+        return;
+    }
+
+    const resendBtn = document.getElementById('resendAdminOtp');
+    if (resendBtn?.disabled && adminOtpState.resendAvailableAt && Date.now() < adminOtpState.resendAvailableAt) {
+        return;
+    }
+
+    if (resendBtn) {
+        resendBtn.disabled = true;
+        resendBtn.textContent = 'Sending...';
+    }
+
+    try {
+        const data = await api.login(adminOtpState.email, adminOtpState.password, null, true);
+        if (data.success && data.requiresOtp) {
+            adminOtpState.expiresAt = Date.now() + ((data.expiresIn || ADMIN_OTP_DEFAULT_EXPIRY) * 1000);
+            adminOtpState.resendAvailableAt = Date.now() + (ADMIN_OTP_RESEND_DELAY * 1000);
+            setOtpFeedback(data.message || 'New OTP sent. Check your email.', 'success');
+        } else {
+            setOtpFeedback(data.error || 'Unable to resend OTP. Please try again.', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to resend admin OTP:', error);
+        setOtpFeedback(error.message || 'Unable to resend OTP. Please try again.', 'error');
+    } finally {
+        updateAdminOtpCountdown();
+    }
+}
+
+function finalizeLogin(data, rememberMe) {
+    if (!data || !data.token || !data.user) {
+        showError('Login failed. Please try again.');
+        return;
+    }
+
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true');
+    } else {
+        localStorage.removeItem('rememberMe');
+    }
+
+    showSuccess('Login successful! Redirecting...');
+
+    setTimeout(() => {
+        if (data.user.role === 'admin') {
+            window.location.href = 'admin/index.html';
+        } else {
+            window.location.href = 'dashboard.html';
+        }
+    }, 1000);
 }
 
 // Sign Up Handler
@@ -369,6 +530,36 @@ document.addEventListener('DOMContentLoaded', () => {
         signupForm.addEventListener('submit', handleSignUp);
         console.log('Sign-up form listener attached');
     }
+
+    const adminOtpForm = document.getElementById('adminOtpForm');
+    if (adminOtpForm) {
+        adminOtpForm.addEventListener('submit', handleAdminOtpSubmit);
+    }
+
+    const closeAdminOtpModalBtn = document.getElementById('closeAdminOtpModal');
+    if (closeAdminOtpModalBtn) {
+        closeAdminOtpModalBtn.addEventListener('click', () => closeAdminOtpModal({ clearCredentials: true }));
+    }
+
+    const otpModalBackdrop = document.getElementById('adminOtpModal');
+    if (otpModalBackdrop) {
+        otpModalBackdrop.addEventListener('click', (event) => {
+            if (event.target === otpModalBackdrop) {
+                closeAdminOtpModal({ clearCredentials: true });
+            }
+        });
+    }
+
+    const resendOtpBtn = document.getElementById('resendAdminOtp');
+    if (resendOtpBtn) {
+        resendOtpBtn.addEventListener('click', handleAdminOtpResend);
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && document.body.classList.contains('modal-open')) {
+            closeAdminOtpModal({ clearCredentials: true });
+        }
+    });
     
     // Logout buttons
     document.querySelectorAll('.logout-btn, [onclick*="logout"]').forEach(btn => {
