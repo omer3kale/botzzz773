@@ -1,0 +1,51 @@
+{
+  "generatedAt": "2025-11-21T16:27:37.763Z",
+  "totalRequests": 5,
+  "identifiedProviders": {
+    "justanotherpanel": {
+      "requests": 1,
+      "avgConfidence": 0.35,
+      "avgResponseTime": 75.5,
+      "features": [
+        "endpoint_pattern",
+        "response_timing"
+      ]
+    },
+    "peakerr": {
+      "requests": 1,
+      "avgConfidence": 0.35,
+      "avgResponseTime": 61,
+      "features": [
+        "endpoint_pattern",
+        "response_timing"
+      ]
+    },
+    "smmpanel": {
+      "requests": 1,
+      "avgConfidence": 0.35,
+      "avgResponseTime": 101,
+      "features": [
+        "endpoint_pattern",
+        "response_timing"
+      ]
+    },
+    "smmkings": {
+      "requests": 1,
+      "avgConfidence": 0.35,
+      "avgResponseTime": 91,
+      "features": [
+        "endpoint_pattern",
+        "response_timing"
+      ]
+    }
+  },
+  "suspiciousPatterns": [],
+  "recommendations": [
+    {
+      "priority": "high",
+      "category": "provider_transparency",
+      "message": "Multiple Tier 1 providers detected. Consider disclosing provider relationships to customers.",
+      "action": "Review provider agreements and customer communications"
+    }
+  ]
+}

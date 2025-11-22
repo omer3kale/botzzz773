@@ -220,6 +220,147 @@ exports.handler = async (event, context) => {
       }
     }
 
+    // POST /api/link-management/resend - Resend all orders for a link
+    else if (method === 'POST' && pathParts.length === 3 && pathParts[2] === 'resend') {
+      if (!body || !body.linkId) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'linkId is required' })
+        };
+      }
+
+      try {
+        // Get all orders for this link
+        const { data: orders, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, service_id, provider_order_id, status, link, quantity, meta')
+          .eq('link_id', body.linkId)
+          .in('status', ['pending', 'processing', 'failed', 'error']);
+
+        if (ordersError) {
+          console.error('Error fetching orders:', ordersError);
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to fetch orders' })
+          };
+        }
+
+        if (!orders || orders.length === 0) {
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ 
+              success: true, 
+              sent: 0, 
+              failed: 0,
+              message: 'No pending orders to resend' 
+            })
+          };
+        }
+
+        let sentCount = 0;
+        let failedCount = 0;
+
+        // Resend each order
+        for (const order of orders) {
+          try {
+            // Get service details
+            const { data: service, error: serviceError } = await supabase
+              .from('services')
+              .select('provider_id, provider_service_id')
+              .eq('id', order.service_id)
+              .single();
+
+            if (serviceError || !service) {
+              console.error('Service not found for order:', order.id);
+              failedCount++;
+              continue;
+            }
+
+            // Get provider details
+            const { data: provider, error: providerError } = await supabase
+              .from('providers')
+              .select('api_url, api_key')
+              .eq('id', service.provider_id)
+              .single();
+
+            if (providerError || !provider) {
+              console.error('Provider not found for order:', order.id);
+              failedCount++;
+              continue;
+            }
+
+            // Make API call to provider
+            const providerPayload = {
+              key: provider.api_key,
+              action: 'add',
+              service: service.provider_service_id,
+              link: order.link,
+              quantity: order.quantity
+            };
+
+            const providerResponse = await fetch(provider.api_url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(providerPayload)
+            });
+
+            const providerData = await providerResponse.json();
+
+            if (providerData && providerData.order) {
+              // Update order with new provider order ID
+              await supabase
+                .from('orders')
+                .update({
+                  provider_order_id: String(providerData.order),
+                  status: 'processing',
+                  provider_response: providerData,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', order.id);
+
+              sentCount++;
+            } else {
+              // Update order status to failed with error
+              await supabase
+                .from('orders')
+                .update({
+                  status: 'failed',
+                  provider_response: providerData,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', order.id);
+
+              failedCount++;
+            }
+          } catch (orderError) {
+            console.error('Error resending order:', order.id, orderError);
+            failedCount++;
+          }
+        }
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ 
+            success: true, 
+            sent: sentCount, 
+            failed: failedCount,
+            total: orders.length
+          })
+        };
+      } catch (error) {
+        console.error('Error in POST /api/link-management/resend:', error);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Internal server error' })
+        };
+      }
+    }
+
     // POST /api/link-management/auto-resolve - Auto-resolve all conflicts
     else if (method === 'POST' && pathParts.length === 3 && pathParts[2] === 'auto-resolve') {
       try {
