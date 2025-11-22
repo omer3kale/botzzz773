@@ -123,6 +123,126 @@ function normalizeCurrency(value, fallback = 'USD') {
   return str.toUpperCase().slice(0, 10);
 }
 
+function sanitizeSlugValue(value, fallback = '') {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  const str = String(value).trim().toLowerCase();
+  if (!str) {
+    return fallback;
+  }
+
+  const sanitized = str
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return sanitized || fallback;
+}
+
+function isValidUuid(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmed);
+}
+
+async function fetchDistinctCategoryNamesFromServices(queryClient) {
+  try {
+    const { data, error } = await queryClient
+      .from('services')
+      .select('category')
+      .not('category', 'is', null)
+      .neq('category', '')
+      .order('category', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    const seen = new Map();
+    data.forEach(row => {
+      const rawName = row?.category;
+      if (!rawName) {
+        return;
+      }
+
+      const trimmedName = String(rawName).trim();
+      if (!trimmedName) {
+        return;
+      }
+
+      const slug = sanitizeSlugValue(trimmedName, `category-${seen.size + 1}`);
+      if (!slug || seen.has(slug)) {
+        return;
+      }
+
+      seen.set(slug, {
+        name: trimmedName,
+        slug
+      });
+    });
+
+    return Array.from(seen.values());
+  } catch (error) {
+    logServiceError('Fetch legacy service categories failed', error);
+    return [];
+  }
+}
+
+async function hydrateCategoriesFromExistingServices({ canInsert }) {
+  const serviceQueryClient = canInsert ? supabaseAdmin : supabase;
+  const distinctCategories = await fetchDistinctCategoryNamesFromServices(serviceQueryClient);
+
+  if (!Array.isArray(distinctCategories) || distinctCategories.length === 0) {
+    return { categories: [] };
+  }
+
+  const normalizedPayload = distinctCategories.map((category, index) => ({
+    name: category.name,
+    slug: category.slug,
+    description: 'Imported from existing services',
+    icon: 'fas fa-folder',
+    display_order: index + 1,
+    status: 'active'
+  }));
+
+  if (canInsert) {
+    try {
+      const { error } = await supabaseAdmin
+        .from('service_categories')
+        .upsert(normalizedPayload, { onConflict: 'slug' });
+
+      if (error) {
+        throw error;
+      }
+
+      return { inserted: true };
+    } catch (error) {
+      logServiceError('Hydrate categories insert error', error);
+      return {
+        categories: normalizedPayload.map(item => ({
+          ...item,
+          id: null,
+          is_derived: true
+        }))
+      };
+    }
+  }
+
+  return {
+    categories: normalizedPayload.map(item => ({
+      ...item,
+      id: null,
+      is_derived: true
+    }))
+  };
+}
+
 async function fetchMaxExistingPublicId() {
   try {
     const { data, error } = await supabaseAdmin
@@ -265,7 +385,7 @@ async function handleGetServices(event, user, headers) {
     
     // Check if requesting categories list
     if (queryParams.type === 'categories') {
-      return await handleGetCategories(headers);
+      return await handleGetCategories(headers, user, queryParams);
     }
     
     const audienceParam = (queryParams.audience || queryParams.scope || '').toLowerCase();
@@ -543,6 +663,14 @@ async function handleCreateService(user, data, headers) {
     // Handle different create actions
     if (action === 'create-category') {
       return await handleCreateCategory(data, headers);
+    }
+
+    if (action === 'update-category') {
+      return await handleUpdateCategory(data, headers);
+    }
+
+    if (action === 'delete-category') {
+      return await handleDeleteCategory(data, headers);
     }
 
     if (action === 'duplicate') {
@@ -1019,26 +1147,72 @@ async function handleDeleteService(user, data, headers) {
   }
 }
 
-async function handleGetCategories(headers) {
+async function handleGetCategories(headers, user, queryParams = {}) {
   try {
-    const { data: categories, error } = await supabase
-      .from('service_categories')
-      .select('*')
-      .eq('status', 'active')
-      .order('display_order', { ascending: true })
-      .order('name', { ascending: true });
+    const isAdminUser = user?.role === 'admin';
+    const requestedStatusRaw = (queryParams.status || '').toString().trim().toLowerCase();
+    const wantsInactiveOnly = requestedStatusRaw === 'inactive';
+    const wantsAllStatuses = requestedStatusRaw === 'all' || (!requestedStatusRaw && isAdminUser);
+    const allowDerivedForRequest = !wantsInactiveOnly;
+    const canBypassRls = isAdminUser && hasServiceRoleKey;
 
-    if (error) {
-      logServiceError('Get categories error', error);
+    const queryClient = canBypassRls ? supabaseAdmin : supabase;
+
+    if (isAdminUser && !hasServiceRoleKey) {
+      logger.warn('Service role key missing. Category admin queries limited to active items.');
+    }
+
+    const runCategoriesQuery = () => {
+      let query = queryClient
+        .from('service_categories')
+        .select('*')
+        .order('display_order', { ascending: true })
+        .order('name', { ascending: true });
+
+      if (!canBypassRls || (!wantsAllStatuses && !wantsInactiveOnly)) {
+        query = query.eq('status', 'active');
+      } else if (wantsInactiveOnly) {
+        query = query.eq('status', 'inactive');
+      }
+
+      return query;
+    };
+
+    const { data, error } = await runCategoriesQuery();
+    let categories = Array.isArray(data) ? data : [];
+    const tableMissing = error && String(error.code) === '42P01';
+
+    if (tableMissing) {
+      logServiceError('service_categories table missing, attempting hydration', error);
+    } else if (error && !tableMissing) {
       throw error;
+    }
+
+    const needsHydration = (!Array.isArray(categories) || categories.length === 0) && allowDerivedForRequest;
+
+    if (needsHydration) {
+      const hydration = await hydrateCategoriesFromExistingServices({ canInsert: canBypassRls });
+
+      if (hydration.inserted) {
+        const retry = await runCategoriesQuery();
+        categories = Array.isArray(retry.data) ? retry.data : [];
+      } else if (Array.isArray(hydration.categories) && hydration.categories.length > 0) {
+        categories = hydration.categories;
+      }
+    } else if (!allowDerivedForRequest && (!Array.isArray(categories) || categories.length === 0)) {
+      categories = [];
+    }
+
+    if (!Array.isArray(categories)) {
+      categories = [];
     }
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         success: true,
-        categories: categories || []
+        categories
       })
     };
   } catch (error) {
@@ -1053,7 +1227,18 @@ async function handleGetCategories(headers) {
 
 async function handleCreateCategory(data, headers) {
   try {
-    const { name, description, icon } = data;
+    const {
+      name,
+      description,
+      icon,
+      slug: slugInput,
+      status,
+      display_order,
+      displayOrder,
+      parent_id,
+      parentId
+    } = data;
+
     const trimmedName = name?.trim();
 
     if (!trimmedName) {
@@ -1064,24 +1249,32 @@ async function handleCreateCategory(data, headers) {
       };
     }
 
-    // Create slug from name (lowercase, replace spaces with hyphens)
-    const rawSlug = trimmedName
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9-]/g, '');
-    const slug = rawSlug || `category-${Date.now()}`;
-
+    const slugSource = slugInput?.trim() || trimmedName;
+    const slug = sanitizeSlugValue(slugSource, `category-${Date.now()}`);
     const sanitizedDescription = description?.trim() || null;
     const sanitizedIcon = icon?.trim() || 'fas fa-folder';
+    const displayOrderValue = toNumberOrNull(display_order ?? displayOrder);
+    const normalizedStatus = (status || 'active').toString().trim().toLowerCase();
+    const statusValue = normalizedStatus === 'inactive' ? 'inactive' : 'active';
+    const parentIdentifier = parent_id ?? parentId;
+    const parentIdValue = isValidUuid(parentIdentifier) ? parentIdentifier.trim() : null;
+
     const categoryPayload = {
       name: trimmedName,
       slug,
       description: sanitizedDescription,
       icon: sanitizedIcon,
-      status: 'active'
+      status: statusValue
     };
 
-    // Insert category into database
+    if (displayOrderValue !== null) {
+      categoryPayload.display_order = Math.max(1, Math.trunc(displayOrderValue));
+    }
+
+    if (parentIdValue) {
+      categoryPayload.parent_id = parentIdValue;
+    }
+
     const { data: category, error } = await supabaseAdmin
       .from('service_categories')
       .insert(categoryPayload)
@@ -1090,7 +1283,7 @@ async function handleCreateCategory(data, headers) {
 
     if (error) {
       logServiceError('Create category database error', error, { categoryName: trimmedName });
-      if (error.code === '23505') { // Unique constraint violation
+      if (error.code === '23505') {
         return {
           statusCode: 400,
           headers,
@@ -1103,10 +1296,10 @@ async function handleCreateCategory(data, headers) {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         success: true,
         message: `Category "${trimmedName}" created successfully`,
-        category: category
+        category
       })
     };
   } catch (error) {
@@ -1115,6 +1308,200 @@ async function handleCreateCategory(data, headers) {
       statusCode: 500,
       headers,
       body: JSON.stringify({ error: 'Failed to create category' })
+    };
+  }
+}
+
+async function handleUpdateCategory(data, headers) {
+  try {
+    const categoryId = data?.categoryId || data?.id || null;
+    const slugIdentifierSource = data?.categorySlug || (!categoryId ? data?.slug : null) || null;
+    const slugIdentifier = slugIdentifierSource
+      ? sanitizeSlugValue(slugIdentifierSource, slugIdentifierSource)
+      : null;
+
+    if (!categoryId && !slugIdentifier) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Category identifier (id or slug) is required' })
+      };
+    }
+
+    const updates = {};
+
+    if (Object.prototype.hasOwnProperty.call(data, 'name')) {
+      const trimmedName = data.name?.toString().trim();
+      if (!trimmedName) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Category name cannot be empty' })
+        };
+      }
+      updates.name = trimmedName;
+      if (!Object.prototype.hasOwnProperty.call(data, 'slug') && !Object.prototype.hasOwnProperty.call(data, 'newSlug')) {
+        const derivedSlug = sanitizeSlugValue(trimmedName, '');
+        if (derivedSlug) {
+          updates.slug = derivedSlug;
+        }
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'slug') || Object.prototype.hasOwnProperty.call(data, 'newSlug')) {
+      const rawSlug = Object.prototype.hasOwnProperty.call(data, 'slug') ? data.slug : data.newSlug;
+      const sanitized = sanitizeSlugValue(rawSlug, `category-${Date.now()}`);
+      if (sanitized) {
+        updates.slug = sanitized;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'description')) {
+      const descriptionValue = data.description?.toString().trim() || null;
+      updates.description = descriptionValue;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'icon')) {
+      updates.icon = data.icon?.toString().trim() || 'fas fa-folder';
+    }
+
+    const displayOrderInput = data.display_order ?? data.displayOrder;
+    if (displayOrderInput !== undefined) {
+      const displayOrderValue = toNumberOrNull(displayOrderInput);
+      if (displayOrderValue !== null) {
+        updates.display_order = Math.max(1, Math.trunc(displayOrderValue));
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'status')) {
+      const normalizedStatus = (data.status || '').toString().trim().toLowerCase();
+      if (['active', 'inactive'].includes(normalizedStatus)) {
+        updates.status = normalizedStatus;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, 'parent_id') || Object.prototype.hasOwnProperty.call(data, 'parentId')) {
+      const parentValue = data.parent_id ?? data.parentId;
+      if (!parentValue) {
+        updates.parent_id = null;
+      } else if (isValidUuid(parentValue)) {
+        updates.parent_id = parentValue.trim();
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'No category changes provided' })
+      };
+    }
+
+    let updateQuery = supabaseAdmin
+      .from('service_categories')
+      .update(updates)
+      .select()
+      .maybeSingle();
+
+    if (categoryId) {
+      updateQuery = updateQuery.eq('id', categoryId);
+    } else if (slugIdentifier) {
+      updateQuery = updateQuery.eq('slug', slugIdentifier);
+    }
+
+    const { data: category, error } = await updateQuery;
+
+    if (error || !category) {
+      logServiceError('Update category database error', error, { categoryId, slug: slugIdentifier });
+      const statusCode = error?.code === 'PGRST116' ? 404 : 500;
+      return {
+        statusCode,
+        headers,
+        body: JSON.stringify({ error: statusCode === 404 ? 'Category not found' : 'Failed to update category' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, category })
+    };
+  } catch (error) {
+    logServiceError('Update category error', error, { categoryId: data?.categoryId, slug: data?.slug });
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to update category' })
+    };
+  }
+}
+
+async function handleDeleteCategory(data, headers) {
+  try {
+    const categoryId = data?.categoryId || data?.id || null;
+    const slugIdentifierSource = data?.categorySlug || (!categoryId ? data?.slug : null) || null;
+    const slugIdentifier = slugIdentifierSource
+      ? sanitizeSlugValue(slugIdentifierSource, slugIdentifierSource)
+      : null;
+
+    if (!categoryId && !slugIdentifier) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Category identifier (id or slug) is required' })
+      };
+    }
+
+    const hardDeleteFlag = toBooleanFlag(
+      data?.hard_delete ??
+      data?.hardDelete ??
+      data?.permanent ??
+      data?.force ??
+      (data?.mode && String(data.mode).toLowerCase() === 'hard')
+    );
+
+    let mutationQuery = supabaseAdmin
+      .from('service_categories');
+
+    if (hardDeleteFlag) {
+      mutationQuery = mutationQuery.delete();
+    } else {
+      mutationQuery = mutationQuery.update({ status: 'inactive' });
+    }
+
+    mutationQuery = mutationQuery.select().maybeSingle();
+
+    if (categoryId) {
+      mutationQuery = mutationQuery.eq('id', categoryId);
+    } else if (slugIdentifier) {
+      mutationQuery = mutationQuery.eq('slug', slugIdentifier);
+    }
+
+    const { data: category, error } = await mutationQuery;
+
+    if (error || !category) {
+      logServiceError('Delete category database error', error, { categoryId, slug: slugIdentifier });
+      const statusCode = error?.code === 'PGRST116' ? 404 : 500;
+      return {
+        statusCode,
+        headers,
+        body: JSON.stringify({ error: statusCode === 404 ? 'Category not found' : 'Failed to delete category' })
+      };
+    }
+
+    const message = hardDeleteFlag ? 'Category permanently deleted' : 'Category archived successfully';
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, message, category })
+    };
+  } catch (error) {
+    logServiceError('Delete category error', error, { categoryId: data?.categoryId, slug: data?.slug });
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to delete category' })
     };
   }
 }

@@ -461,6 +461,18 @@ const baseHandler = async (event) => {
         if (body && body.action === 'sync-status') {
           return await handleSyncOrderStatuses(user, body, headers);
         }
+        if (body && body.action === 'get_link_management_data') {
+          return await handleGetLinkManagementData(user, headers);
+        }
+        if (body && body.action === 'resolve_link_conflicts') {
+          return await handleResolveLinkConflicts(user, body, headers);
+        }
+        if (body && body.action === 'merge_link_orders') {
+          return await handleMergeLinkOrders(user, body, headers);
+        }
+        if (body && body.action === 'resolve_all_conflicts') {
+          return await handleResolveAllConflicts(user, headers);
+        }
         return await handleCreateOrder(user, body, headers);
       case 'PUT':
         return await handleUpdateOrder(user, body, headers);
@@ -835,6 +847,13 @@ async function handleCreateOrder(user, data, headers) {
 
     logger.info('Creating order record', { orderNumber, userId: user.userId, serviceId });
 
+    // ============= STEP 5.5: LINK TRACKING =============
+    // Create or find link tracking record to prevent conflicts
+    const linkId = await findOrCreateLink(linkStr, serviceId);
+    if (linkId) {
+      logger.info('Link tracking created/updated', { linkId, url: linkStr });
+    }
+
     const orderInsertBase = {
       user_id: user.userId,
       service_id: serviceId,
@@ -847,6 +866,11 @@ async function handleCreateOrder(user, data, headers) {
       remains: qty,
       status: 'pending'
     };
+    
+    // Add link_id now that migration is applied
+    if (linkId) {
+      orderInsertBase.link_id = linkId;
+    }
 
     let { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
@@ -1780,6 +1804,11 @@ async function submitOrderToProvider(provider, orderData) {
       throw new Error('Provider API key not configured');
     }
 
+    // Additional API key validation
+    if (provider.api_key.length < 10 || provider.api_key === 'your-api-key') {
+      throw new Error('Provider API key appears to be invalid or placeholder');
+    }
+
     if (!orderData.service) {
       throw new Error('Provider service ID not specified');
     }
@@ -1853,5 +1882,527 @@ async function submitOrderToProvider(provider, orderData) {
 }
 
 exports.performOrderStatusSync = performOrderStatusSync;
+
+// ==========================================
+// Link Management Functions - ENABLED AFTER MIGRATION
+// ==========================================
+
+async function handleGetLinkManagementData(user, headers) {
+  try {
+    // Only allow admin users
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    // Get link management data with orders
+    const { data: links, error: linksError } = await supabaseAdmin
+      .from('link_management_dashboard')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(100);
+
+    if (linksError) {
+      console.error('Error fetching link management data:', linksError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch link management data' })
+      };
+    }
+
+    // Get statistics
+    const { data: stats, error: statsError } = await supabaseAdmin
+      .rpc('get_link_management_stats');
+
+    if (statsError) {
+      console.error('Error fetching link management stats:', statsError);
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        links: links || [],
+        stats: stats || {}
+      })
+    };
+
+  } catch (error) {
+    console.error('Link management data error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleResolveLinkConflicts(user, body, headers) {
+  try {
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { linkId, action } = body;
+    if (!linkId || !action) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Link ID and action are required' })
+      };
+    }
+
+    if (action === 'merge') {
+      // Merge conflicted orders to this link
+      const { data: result, error } = await supabaseAdmin
+        .rpc('merge_link_orders', { target_link_id: linkId });
+
+      if (error) {
+        console.error('Error merging link orders:', error);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to merge orders' })
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, result })
+      };
+    }
+
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: 'Invalid action' })
+    };
+
+  } catch (error) {
+    console.error('Resolve link conflicts error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleMergeLinkOrders(user, body, headers) {
+  try {
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { targetLinkId } = body;
+    if (!targetLinkId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Target link ID is required' })
+      };
+    }
+
+    const { data: result, error } = await supabaseAdmin
+      .rpc('merge_link_orders', { target_link_id: targetLinkId });
+
+    if (error) {
+      console.error('Error merging link orders:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to merge orders' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, result })
+    };
+
+  } catch (error) {
+    console.error('Merge link orders error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleResolveAllConflicts(user, headers) {
+  try {
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    // Get all conflicted links
+    const { data: conflictedLinks, error: fetchError } = await supabaseAdmin
+      .from('link_management')
+      .select('id')
+      .eq('status', 'conflicted');
+
+    if (fetchError) {
+      console.error('Error fetching conflicted links:', fetchError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch conflicted links' })
+      };
+    }
+
+    let resolvedCount = 0;
+    const errors = [];
+
+    // Resolve each conflict by merging
+    for (const link of conflictedLinks || []) {
+      try {
+        await supabaseAdmin.rpc('merge_link_orders', { target_link_id: link.id });
+        resolvedCount++;
+      } catch (error) {
+        errors.push({ linkId: link.id, error: error.message });
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        resolvedCount,
+        totalConflicts: (conflictedLinks || []).length,
+        errors
+      })
+    };
+
+  } catch (error) {
+    console.error('Resolve all conflicts error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function findOrCreateLink(url, serviceId) {
+  try {
+    const { data: linkId, error } = await supabaseAdmin
+      .rpc('find_or_create_link', {
+        input_url: url,
+        input_service_id: serviceId
+      });
+
+    if (error) {
+      console.error('Error in findOrCreateLink:', error);
+      return null;
+    }
+
+    return linkId;
+  } catch (error) {
+    console.error('findOrCreateLink exception:', error);
+    return null;
+  }
+}
+
+/*
+async function handleGetLinkManagementData(user, headers) {
+  try {
+    // Only allow admin users
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    // Get link management data with orders
+    const { data: links, error: linksError } = await supabaseAdmin
+      .from('link_management_dashboard')
+      .select('*')
+      .order('updated_at', { ascending: false });
+
+    if (linksError) {
+      throw new Error(`Failed to fetch links: ${linksError.message}`);
+    }
+
+    // Get statistics
+    const { data: stats, error: statsError } = await supabaseAdmin
+      .rpc('get_link_management_stats');
+
+    if (statsError) {
+      console.warn('Failed to get link stats:', statsError);
+    }
+
+    // Process the data
+    const processedLinks = (links || []).map(link => ({
+      id: link.id,
+      url: link.url,
+      status: link.status,
+      total_orders: link.total_orders || 0,
+      total_quantity: link.total_quantity || 0,
+      created_at: link.created_at,
+      updated_at: link.updated_at,
+      orders: link.orders || []
+    }));
+
+    const defaultStats = {
+      totalLinks: processedLinks.length,
+      conflictedLinks: processedLinks.filter(l => l.status === 'conflicted').length,
+      totalOrders: processedLinks.reduce((sum, l) => sum + (l.total_orders || 0), 0),
+      failedOrders: processedLinks.reduce((sum, l) => sum + (l.orders || []).filter(o => o.status === 'failed').length, 0)
+    };
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        links: processedLinks,
+        stats: stats || defaultStats
+      })
+    };
+
+  } catch (error) {
+    logOrderError('Failed to get link management data', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to load link management data' })
+    };
+  }
+}
+
+async function handleResolveLinkConflicts(user, body, headers) {
+  try {
+    // Only allow admin users
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { linkId, resolutionType } = body;
+    if (!linkId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Link ID is required' })
+      };
+    }
+
+    let result;
+    switch (resolutionType) {
+      case 'merge':
+        const { data, error } = await supabaseAdmin
+          .rpc('merge_link_orders', { target_link_id: linkId });
+        
+        if (error) throw error;
+        result = data;
+        break;
+        
+      case 'cancel_duplicates':
+        // Keep only the first order, cancel others
+        const { data: orders } = await supabaseAdmin
+          .from('orders')
+          .select('id, created_at')
+          .eq('link_id', linkId)
+          .order('created_at', { ascending: true });
+        
+        if (orders && orders.length > 1) {
+          const keepOrderId = orders[0].id;
+          const cancelIds = orders.slice(1).map(o => o.id);
+          
+          const { error: cancelError } = await supabaseAdmin
+            .from('orders')
+            .update({ 
+              status: 'cancelled',
+              notes: 'Cancelled due to duplicate link conflict'
+            })
+            .in('id', cancelIds);
+            
+          if (cancelError) throw cancelError;
+          result = `Cancelled ${cancelIds.length} duplicate orders`;
+        } else {
+          result = 'No duplicates found to cancel';
+        }
+        break;
+        
+      default:
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Invalid resolution type' })
+        };
+    }
+
+    // Update link status
+    await supabaseAdmin
+      .from('link_management')
+      .update({ status: 'active' })
+      .eq('id', linkId);
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: result
+      })
+    };
+
+  } catch (error) {
+    logOrderError('Failed to resolve link conflicts', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to resolve conflicts' })
+    };
+  }
+}
+
+async function handleMergeLinkOrders(user, body, headers) {
+  try {
+    // Only allow admin users
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { linkId } = body;
+    if (!linkId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Link ID is required' })
+      };
+    }
+
+    // Call the database function to merge orders
+    const { data, error } = await supabaseAdmin
+      .rpc('merge_link_orders', { target_link_id: linkId });
+
+    if (error) {
+      throw new Error(`Failed to merge orders: ${error.message}`);
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: data || 'Orders merged successfully'
+      })
+    };
+
+  } catch (error) {
+    logOrderError('Failed to merge link orders', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to merge orders' })
+    };
+  }
+}
+
+async function handleResolveAllConflicts(user, headers) {
+  try {
+    // Only allow admin users
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    // Get all conflicted links
+    const { data: conflictedLinks, error: fetchError } = await supabaseAdmin
+      .from('link_management')
+      .select('id')
+      .eq('status', 'conflicted');
+
+    if (fetchError) {
+      throw new Error(`Failed to fetch conflicted links: ${fetchError.message}`);
+    }
+
+    let resolvedCount = 0;
+    for (const link of conflictedLinks || []) {
+      try {
+        await supabaseAdmin.rpc('merge_link_orders', { target_link_id: link.id });
+        resolvedCount++;
+      } catch (error) {
+        console.warn(`Failed to resolve conflict for link ${link.id}:`, error);
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        resolved: resolvedCount,
+        message: `Resolved ${resolvedCount} conflicted links`
+      })
+    };
+
+  } catch (error) {
+    logOrderError('Failed to resolve all conflicts', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to resolve all conflicts' })
+    };
+  }
+}
+
+// Function to create or update link tracking when creating orders
+async function findOrCreateLink(url, serviceId) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .rpc('find_or_create_link', { 
+        input_url: url, 
+        service_id: serviceId 
+      });
+
+    if (error) {
+      console.warn('Failed to create link tracking:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.warn('Error in findOrCreateLink:', error);
+    return null;
+  }
+}
+*/
+
+// End of disabled Link Management functions
 
 

@@ -47,6 +47,50 @@ const adminOtpState = {
 
 let adminOtpCountdownInterval = null;
 
+function ensureAdminOtpModalStructure() {
+    if (typeof document === 'undefined') {
+        return null;
+    }
+
+    let modal = document.getElementById('adminOtpModal');
+    if (modal) {
+        return modal;
+    }
+
+    if (!document.body) {
+        return null;
+    }
+
+    const template = document.createElement('template');
+    template.innerHTML = `
+        <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true">
+            <div class="otp-modal" role="dialog" aria-labelledby="otpModalTitle" aria-modal="true">
+                <button type="button" class="otp-modal-close" id="closeAdminOtpModal" aria-label="Close admin verification">&times;</button>
+                <div class="otp-modal-header">
+                    <h2 id="otpModalTitle">Admin Verification</h2>
+                    <p>Enter the 6-digit code we sent to your admin email to unlock the panel.</p>
+                </div>
+                <form id="adminOtpForm" class="otp-form">
+                    <div class="otp-input-group">
+                        <label for="adminOtpInput" class="sr-only">Admin OTP Code</label>
+                        <input type="text" id="adminOtpInput" name="adminOtpInput" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="000000" required>
+                    </div>
+                    <div class="otp-meta">
+                        <span id="otpCountdown">Code expires in 10:00</span>
+                        <button type="button" id="resendAdminOtp" class="otp-link" disabled>Resend code</button>
+                    </div>
+                    <div class="otp-feedback" id="adminOtpFeedback" role="alert"></div>
+                    <button type="submit" class="btn-submit otp-submit">Verify &amp; Continue</button>
+                </form>
+            </div>
+        </div>
+    `.trim();
+
+    modal = template.content.firstElementChild;
+    document.body.appendChild(modal);
+    return modal;
+}
+
 // Sign In Handler
 async function handleSignIn(e) {
     e.preventDefault();
@@ -66,7 +110,7 @@ async function handleSignIn(e) {
     submitBtn.textContent = 'Signing in...';
 
     try {
-        const data = await api.login(email, password, null, true);
+        const data = await api.login(email, password);
 
         if (data.requiresOtp) {
             adminOtpState.email = email;
@@ -94,7 +138,7 @@ async function handleSignIn(e) {
 }
 
 function openAdminOtpModal(message, expiresIn = ADMIN_OTP_DEFAULT_EXPIRY) {
-    const modal = document.getElementById('adminOtpModal');
+    const modal = ensureAdminOtpModalStructure();
     if (!modal) {
         console.warn('Admin OTP modal not found in DOM.');
         return;
@@ -518,6 +562,7 @@ function toggleConfirmPassword() {
 
 // Attach event listeners
 document.addEventListener('DOMContentLoaded', () => {
+    ensureAdminOtpModalStructure();
     const signinForm = document.getElementById('signinForm');
     const signupForm = document.getElementById('signupForm');
     

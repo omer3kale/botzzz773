@@ -64,31 +64,11 @@
     <!-- Service Filter -->
     <section class="service-filter">
         <div class="container">
-            <div class="filter-buttons">
-                <button class="filter-btn filter-btn--all active" data-filter="all">
-                    <i class="fas fa-th"></i> All Services
-                </button>
-                <button class="filter-btn filter-btn--instagram" data-filter="instagram">
-                    <i class="fab fa-instagram"></i> Instagram
-                </button>
-                <button class="filter-btn filter-btn--tiktok" data-filter="tiktok">
-                    <i class="fab fa-tiktok"></i> TikTok
-                </button>
-                <button class="filter-btn filter-btn--youtube" data-filter="youtube">
-                    <i class="fab fa-youtube"></i> YouTube
-                </button>
-                <button class="filter-btn filter-btn--twitter" data-filter="twitter">
-                    <i class="fab fa-twitter"></i> Twitter
-                </button>
-                <button class="filter-btn filter-btn--facebook" data-filter="facebook">
-                    <i class="fab fa-facebook"></i> Facebook
-                </button>
-                <button class="filter-btn filter-btn--telegram" data-filter="telegram">
-                    <i class="fab fa-telegram"></i> Telegram
-                </button>
-                <button class="filter-btn filter-btn--reddit" data-filter="reddit">
-                    <i class="fab fa-reddit"></i> Reddit
-                </button>
+            <div class="filter-buttons" id="categoryFilterButtons">
+                <!-- Category filter buttons will be loaded dynamically -->
+                <div class="loading-categories">
+                    <i class="fas fa-spinner fa-spin"></i> Loading categories...
+                </div>
             </div>
             <div class="search-box">
                 <input type="text" id="serviceSearch" placeholder="🔍 Search services..." class="search-input">

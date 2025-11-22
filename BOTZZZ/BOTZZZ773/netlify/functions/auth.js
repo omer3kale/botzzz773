@@ -9,6 +9,27 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const SALT_ROUNDS = 10;
 const logger = createLogger('auth');
 
+const adminOtpIdentifiers = (process.env.ADMIN_OTP_IDENTIFIERS || process.env.ADMIN_OTP_EMAILS || '')
+  .split(',')
+  .map(identifier => identifier.trim().toLowerCase())
+  .filter(Boolean);
+
+function shouldRequireAdminOtp(user) {
+  if (!user || user.role !== 'admin') {
+    return false;
+  }
+
+  if (adminOtpIdentifiers.length === 0) {
+    return true;
+  }
+
+  const candidates = [user.email, user.username, user.full_name, user.fullname]
+    .filter(Boolean)
+    .map(value => String(value).trim().toLowerCase());
+
+  return candidates.some(value => adminOtpIdentifiers.includes(value));
+}
+
 // Helper function to create JWT token
 function createToken(user) {
   logger.debug('Creating token', { userId: user.id, role: user.role });
@@ -257,7 +278,7 @@ async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
     }
 
     // Handle OTP request for admin users
-    if (requestOtp && user.role === 'admin') {
+    if (requestOtp && shouldRequireAdminOtp(user)) {
       // Verify password first before sending OTP
       const validPassword = await bcrypt.compare(password, user.password_hash);
       if (!validPassword) {
@@ -300,7 +321,7 @@ async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
     }
 
     // Require OTP for admin logins even if not explicitly requested
-    if (user.role === 'admin' && !adminOtp) {
+    if (shouldRequireAdminOtp(user) && !adminOtp) {
       const otpResult = await triggerAdminOTP(user.email);
       if (otpResult.success) {
         const otpMessage = otpResult.data && otpResult.data.message
@@ -331,12 +352,12 @@ async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
 
     // Admin OTP validation if provided
     if (adminOtp) {
-      // Only allow admin OTP for admin users
-      if (user.role !== 'admin') {
+      // Only allow admin OTP for admin users that require OTP
+      if (!shouldRequireAdminOtp(user)) {
         return {
           statusCode: 403,
           headers,
-          body: JSON.stringify({ error: 'Admin access required for OTP signin' })
+          body: JSON.stringify({ error: 'OTP verification not required for this account' })
         };
       }
 

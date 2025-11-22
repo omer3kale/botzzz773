@@ -122,62 +122,10 @@
             <h2 class="section-title">Popular Services</h2>
             <p class="section-subtitle">Most ordered services by our clients</p>
 
-            <div class="services-grid services-grid--icons">
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-instagram"></i>
-                    </div>
-                    <h3 class="service-title">Instagram</h3>
-                    <p class="service-desc">Followers, Likes, Views, Comments & More</p>
-                    <a href="services.html#instagram" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-tiktok"></i>
-                    </div>
-                    <h3 class="service-title">TikTok</h3>
-                    <p class="service-desc">Followers, Likes, Views, Shares & More</p>
-                    <a href="services.html#tiktok" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-youtube"></i>
-                    </div>
-                    <h3 class="service-title">YouTube</h3>
-                    <p class="service-desc">Views, Subscribers, Likes, Comments & More</p>
-                    <a href="services.html#youtube" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-twitter"></i>
-                    </div>
-                    <h3 class="service-title">Twitter</h3>
-                    <p class="service-desc">Followers, Likes, Retweets, Views & More</p>
-                    <a href="services.html#twitter" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-facebook"></i>
-                    </div>
-                    <h3 class="service-title">Facebook</h3>
-                    <p class="service-desc">Likes, Followers, Views, Shares & More</p>
-                    <a href="services.html#facebook" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card">
-                    <div class="service-icon">
-                        <i class="fab fa-telegram"></i>
-                    </div>
-                    <h3 class="service-title">Telegram</h3>
-                    <p class="service-desc">Members, Views, Reactions & More</p>
-                    <a href="services.html#telegram" class="btn btn-primary">View Services</a>
-                </div>
-                <div class="service-card service-card--reddit">
-                    <div class="service-icon">
-                        <i class="fab fa-reddit"></i>
-                    </div>
-                    <h3 class="service-title">Reddit</h3>
-                    <p class="service-desc">Subscribers, Upvotes, Comments & More</p>
-                    <a href="services.html#reddit" class="btn btn-primary">View Services</a>
+            <div class="services-grid services-grid--icons" id="categoryCardsContainer">
+                <!-- Category cards will be loaded dynamically from database -->
+                <div class="loading-categories-home">
+                    <i class="fas fa-spinner fa-spin"></i> Loading service categories...
                 </div>
             </div>
         </div>

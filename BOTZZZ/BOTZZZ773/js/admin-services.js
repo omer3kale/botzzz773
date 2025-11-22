@@ -35,7 +35,10 @@ function closeModal() {
 // Provider utilities for form dropdowns
 let providersCache = null;
 let servicesCache = [];
-let categoriesCache = null;
+let categoriesCache = {
+    active: null,
+    all: null
+};
 const selectedServiceIds = new Set();
 const ADMIN_SERVICES_BASE_ENDPOINT = '/.netlify/functions/services';
 // Unlimited curated services for customers
@@ -97,9 +100,21 @@ window.invalidateProvidersCache = function() {
     console.log('[DEBUG] Providers cache invalidated');
 };
 
-window.invalidateCategoriesCache = function() {
-    categoriesCache = null;
-    console.log('[DEBUG] Categories cache invalidated');
+function ensureCategoriesCacheShape() {
+    if (!categoriesCache || typeof categoriesCache !== 'object') {
+        categoriesCache = { active: null, all: null };
+    }
+}
+
+window.invalidateCategoriesCache = function(scope = 'all') {
+    ensureCategoriesCacheShape();
+    if (scope === 'active') {
+        categoriesCache.active = null;
+    } else {
+        categoriesCache.active = null;
+        categoriesCache.all = null;
+    }
+    console.log(`[DEBUG] Categories cache invalidated (${scope})`);
 };
 
 async function fetchProvidersList(force = false) {
@@ -133,19 +148,30 @@ async function fetchProvidersList(force = false) {
     return providersCache;
 }
 
-async function fetchCategoriesList(force = false) {
-    if (!force && Array.isArray(categoriesCache)) {
-        return categoriesCache;
+async function fetchCategoriesList(force = false, options = {}) {
+    ensureCategoriesCacheShape();
+    const includeInactive = Boolean(options.includeInactive);
+    const cacheKey = includeInactive ? 'all' : 'active';
+
+    if (!force && Array.isArray(categoriesCache[cacheKey])) {
+        return categoriesCache[cacheKey];
     }
 
     const token = localStorage.getItem('token');
     if (!token) {
-        categoriesCache = [];
-        return categoriesCache;
+        categoriesCache[cacheKey] = [];
+        return categoriesCache[cacheKey];
     }
 
+    const queryParams = { type: 'categories' };
+    if (includeInactive) {
+        queryParams.status = 'all';
+    }
+
+    const url = buildAdminServicesUrl(queryParams);
+
     try {
-        const response = await fetch('/.netlify/functions/services?type=categories', {
+        const response = await fetch(url, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -154,14 +180,69 @@ async function fetchCategoriesList(force = false) {
         });
 
         const data = await response.json();
-        categoriesCache = data.success ? (data.categories || []) : [];
-        console.log(`[DEBUG] Fetched ${categoriesCache.length} categories`);
+        categoriesCache[cacheKey] = data.success ? (data.categories || []) : [];
+        console.log(`[DEBUG] Fetched ${categoriesCache[cacheKey].length} ${includeInactive ? 'total' : 'active'} categories`);
     } catch (error) {
         console.error('Fetch categories error:', error);
-        categoriesCache = [];
+        categoriesCache[cacheKey] = [];
     }
 
-    return categoriesCache;
+    return categoriesCache[cacheKey];
+}
+
+function getCachedCategories(includeInactive = false) {
+    ensureCategoriesCacheShape();
+    const cacheKey = includeInactive ? 'all' : 'active';
+    const cached = categoriesCache[cacheKey];
+    return Array.isArray(cached) ? cached : [];
+}
+
+function normalizeSlugInput(value) {
+    return value ? String(value).trim().toLowerCase() : '';
+}
+
+function findCachedCategory(identifier) {
+    if (!identifier) {
+        return null;
+    }
+
+    const lookup = getCachedCategories(true);
+    const normalizedId = String(identifier).trim();
+    const normalizedSlug = normalizeSlugInput(identifier);
+
+    return lookup.find(cat => {
+        if (!cat) {
+            return false;
+        }
+
+        if (cat.id && String(cat.id) === normalizedId) {
+            return true;
+        }
+
+        if (cat.slug) {
+            const catSlug = normalizeSlugInput(cat.slug);
+            if (catSlug && (catSlug === normalizedSlug || catSlug === normalizedId.toLowerCase())) {
+                return true;
+            }
+        }
+
+        return false;
+    }) || null;
+}
+
+function buildParentCategoryOptions(categories = [], selectedId = '', excludeId = '') {
+    const safeSelected = selectedId ? String(selectedId) : '';
+    const safeExclude = excludeId ? String(excludeId) : '';
+
+    const dynamicOptions = categories
+        .filter(category => !!category && String(category.id) !== safeExclude)
+        .map(category => {
+            const isSelected = String(category.id) === safeSelected;
+            return `<option value="${category.id}"${isSelected ? ' selected' : ''}>${escapeHtml(category.name)}</option>`;
+        })
+        .join('');
+
+    return `<option value="">None (Top Level)</option>${dynamicOptions}`;
 }
 
 function escapeHtml(text = '') {
@@ -1139,38 +1220,46 @@ async function submitImportServices(event) {
 }
 
 // Create category
-function createCategory() {
+async function createCategory() {
+    const categories = await fetchCategoriesList(false, { includeInactive: true });
+    const parentOptions = buildParentCategoryOptions(categories);
+    const suggestedOrder = Math.max(1, (categories?.length || 0) + 1);
+
     const content = `
         <form id="createCategoryForm" onsubmit="submitCreateCategory(event)" class="admin-form">
             <div class="form-group">
                 <label>Category Name *</label>
                 <input type="text" name="categoryName" placeholder="e.g., Instagram" required>
             </div>
-            <div class="form-group">
-                <label>Category Icon</label>
-                <input type="text" name="icon" placeholder="fab fa-instagram" value="fab fa-">
-                <small style="color: #888;">Font Awesome icon class</small>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Slug</label>
+                    <input type="text" name="slug" placeholder="instagram-pro">
+                    <small style="color: #888;">Leave blank to auto-generate.</small>
+                </div>
+                <div class="form-group">
+                    <label>Category Icon</label>
+                    <input type="text" name="icon" placeholder="fab fa-instagram" value="fas fa-folder">
+                    <small style="color: #888;">Font Awesome icon class</small>
+                </div>
             </div>
             <div class="form-row">
                 <div class="form-group">
                     <label>Display Order</label>
-                    <input type="number" name="order" value="1" min="1">
+                    <input type="number" name="order" value="${suggestedOrder}" min="1">
                 </div>
                 <div class="form-group">
                     <label>Status</label>
                     <select name="status">
-                        <option value="Active" selected>Active</option>
-                        <option value="Inactive">Inactive</option>
+                        <option value="active" selected>Active</option>
+                        <option value="inactive">Inactive</option>
                     </select>
                 </div>
             </div>
             <div class="form-group">
                 <label>Parent Category</label>
                 <select name="parent">
-                    <option value="">None (Top Level)</option>
-                    <option value="social-media">Social Media</option>
-                    <option value="video">Video Platforms</option>
-                    <option value="music">Music Platforms</option>
+                    ${parentOptions}
                 </select>
             </div>
             <div class="form-group">
@@ -1203,25 +1292,32 @@ async function submitCreateCategory(event) {
     
     try {
         const token = localStorage.getItem('token');
-    const response = await fetch(buildAdminServicesUrl(), {
+        const displayOrderValue = parseIntegerInput(categoryData.order);
+        const payload = {
+            action: 'create-category',
+            name: categoryData.categoryName,
+            slug: categoryData.slug || undefined,
+            description: categoryData.description || '',
+            icon: categoryData.icon || 'fas fa-folder',
+            status: (categoryData.status || 'active').toLowerCase(),
+            display_order: displayOrderValue,
+            parent_id: categoryData.parent || null
+        };
+
+        const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                action: 'create-category',
-                name: categoryData.categoryName,
-                description: categoryData.description || '',
-                icon: categoryData.icon || 'folder'
-            })
+            body: JSON.stringify(payload)
         });
         
         const data = await parseApiResponse(response);
         if (response.ok && data && data.success) {
             showNotification(`Category "${categoryData.categoryName}" created successfully!`, 'success');
             // Invalidate categories cache to fetch fresh data
-            window.invalidateCategoriesCache();
+            window.invalidateCategoriesCache('all');
             closeModal();
             // Reload the page to show updated category in dropdowns
             setTimeout(() => window.location.reload(), 800);
@@ -1240,6 +1336,263 @@ async function submitCreateCategory(event) {
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = '<i class="fas fa-folder-plus"></i> Create Category';
+        }
+    }
+}
+
+async function manageCategories(force = false) {
+    const categories = await fetchCategoriesList(force, { includeInactive: true });
+    const content = buildCategoryManagementContent(categories);
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Close</button>
+        <button type="button" class="btn-primary" onclick="closeModal(); setTimeout(() => createCategory(), 200);">
+            <i class="fas fa-folder-plus"></i> New Category
+        </button>
+    `;
+
+    createModal('Manage Categories', content, actions);
+}
+
+function buildCategoryManagementContent(categories = []) {
+    if (!Array.isArray(categories) || categories.length === 0) {
+        return `
+            <div class="empty-state">
+                <p>No categories found yet.</p>
+                <button class="btn-primary" onclick="closeModal(); setTimeout(() => createCategory(), 200);">
+                    <i class="fas fa-folder-plus"></i> Create your first category
+                </button>
+            </div>
+        `;
+    }
+
+    const rows = categories.map(category => {
+        const isInactive = (category.status || '').toLowerCase() === 'inactive';
+        const statusLabel = isInactive ? 'Inactive' : 'Active';
+        const statusColor = isInactive ? '#f97316' : '#10b981';
+        return `
+            <div class="category-row" data-category-id="${category.id}">
+                <div class="category-row__info">
+                    <div class="category-row__title">
+                        <span class="category-row__icon"><i class="${escapeHtml(category.icon || 'fas fa-folder')}"></i></span>
+                        <div>
+                            <strong>${escapeHtml(category.name)}</strong>
+                            <div class="category-row__meta">
+                                <span>Slug: <code>${escapeHtml(category.slug || '—')}</code></span>
+                                <span>Order: ${category.display_order ?? '—'}</span>
+                                <span>Status: <strong style="color:${statusColor};">${statusLabel}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                    ${category.description ? `<p class="category-row__description">${escapeHtml(category.description)}</p>` : ''}
+                </div>
+                <div class="category-row__actions">
+                    <button type="button" class="btn-secondary" onclick="openEditCategoryModal('${category.id}')">
+                        <i class="fas fa-edit"></i> Edit
+                    </button>
+                    <button type="button" class="btn-secondary danger" onclick="confirmDeleteCategory('${category.id}')">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    return `<div class="category-management-list">${rows}</div>`;
+}
+
+async function openEditCategoryModal(categoryId) {
+    const categories = await fetchCategoriesList(false, { includeInactive: true });
+    const category = categories.find(cat => String(cat.id) === String(categoryId));
+
+    if (!category) {
+        showNotification('Category not found', 'error');
+        return;
+    }
+
+    const parentOptions = buildParentCategoryOptions(categories, category.parent_id || '', category.id);
+    const content = `
+        <form id="editCategoryForm" data-category-id="${category.id}" onsubmit="submitEditCategory(event)" class="admin-form">
+            <div class="form-group">
+                <label>Category Name *</label>
+                <input type="text" name="categoryName" value="${escapeHtml(category.name)}" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Slug</label>
+                    <input type="text" name="slug" value="${escapeHtml(category.slug || '')}" placeholder="instagram-pro">
+                    <small style="color: #888;">Leave blank to auto-generate.</small>
+                </div>
+                <div class="form-group">
+                    <label>Category Icon</label>
+                    <input type="text" name="icon" value="${escapeHtml(category.icon || 'fas fa-folder')}" placeholder="fab fa-instagram">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Display Order</label>
+                    <input type="number" name="order" value="${category.display_order ?? 1}" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status">
+                        <option value="active" ${category.status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="inactive" ${category.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Parent Category</label>
+                <select name="parent">
+                    ${parentOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" rows="2" placeholder="Category description...">${escapeHtml(category.description || '')}</textarea>
+            </div>
+        </form>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal(); setTimeout(() => manageCategories(), 200);">Back</button>
+        <button type="submit" form="editCategoryForm" class="btn-primary">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
+    `;
+
+    createModal('Edit Category', content, actions);
+}
+
+async function submitEditCategory(event) {
+    event.preventDefault();
+    const form = event.target;
+    const categoryId = form.dataset.categoryId;
+    const formData = new FormData(form);
+
+    const payload = {
+        action: 'update-category',
+        categoryId,
+        name: formData.get('categoryName'),
+        slug: formData.get('slug') || undefined,
+        description: formData.get('description') || '',
+        icon: formData.get('icon') || 'fas fa-folder',
+        status: (formData.get('status') || 'active').toLowerCase(),
+        display_order: parseIntegerInput(formData.get('order')),
+        parent_id: formData.get('parent') || null
+    };
+
+    const submitBtn = document.querySelector('button[form="editCategoryForm"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(buildAdminServicesUrl(), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
+            showNotification('Category updated successfully!', 'success');
+            window.invalidateCategoriesCache('all');
+            closeModal();
+            setTimeout(() => manageCategories(true), 250);
+        } else {
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            showNotification(serverMessage || 'Failed to update category', 'error');
+        }
+    } catch (error) {
+        console.error('Update category error:', error);
+        showNotification('Failed to update category. Please try again.', 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }
+    }
+}
+
+function confirmDeleteCategory(categoryId) {
+    const category = findCachedCategory(categoryId);
+    if (!category) {
+        showNotification('Category not found', 'error');
+        return;
+    }
+
+    const content = `
+        <form id="deleteCategoryForm" data-category-id="${category.id}" onsubmit="submitDeleteCategory(event)">
+            <p>Are you sure you want to remove <strong>${escapeHtml(category.name)}</strong>?</p>
+            <div class="form-group" style="margin-top: 12px;">
+                <label style="display:flex; gap:8px; align-items:center;">
+                    <input type="checkbox" name="hardDelete">
+                    <span>Delete permanently (cannot be undone)</span>
+                </label>
+            </div>
+        </form>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal(); setTimeout(() => manageCategories(), 200);">Cancel</button>
+        <button type="submit" form="deleteCategoryForm" class="btn-primary" style="background:#ef4444; border-color:#ef4444;">
+            <i class="fas fa-trash"></i> Delete
+        </button>
+    `;
+
+    createModal('Delete Category', content, actions);
+}
+
+async function submitDeleteCategory(event) {
+    event.preventDefault();
+    const form = event.target;
+    const categoryId = form.dataset.categoryId;
+    const hardDelete = form.querySelector('input[name="hardDelete"]')?.checked || false;
+
+    const submitBtn = document.querySelector('button[form="deleteCategoryForm"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(buildAdminServicesUrl(), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'delete-category',
+                categoryId,
+                hardDelete
+            })
+        });
+
+        const data = await parseApiResponse(response);
+        if (response.ok && data && data.success) {
+            showNotification(data.message || 'Category updated', 'success');
+            window.invalidateCategoriesCache('all');
+            closeModal();
+            setTimeout(() => manageCategories(true), 250);
+        } else {
+            const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
+            showNotification(serverMessage || 'Failed to delete category', 'error');
+        }
+    } catch (error) {
+        console.error('Delete category error:', error);
+        showNotification('Failed to delete category. Please try again.', 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-trash"></i> Delete';
         }
     }
 }

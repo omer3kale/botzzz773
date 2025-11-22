@@ -57,9 +57,6 @@ function renderPaymentHistory(payments) {
             </td>
             <td>$${parseFloat(payment.amount).toFixed(2)}</td>
             <td>${formatMethod(payment.method)}</td>
-            <td>
-                <span class="status-badge status-${payment.status}">${capitalizeFirst(payment.status)}</span>
-            </td>
             <td class="transaction-id" title="${payment.transaction_id}">${payment.transaction_id || '—'}</td>
         </tr>
     `).join('');
@@ -68,10 +65,9 @@ function renderPaymentHistory(payments) {
         <table class="payment-history-table">
             <thead>
                 <tr>
-                    <th>Date</th>
+                    <th>Date & Time</th>
                     <th>Amount</th>
                     <th>Method</th>
-                    <th>Status</th>
                     <th>Transaction ID</th>
                 </tr>
             </thead>
@@ -100,16 +96,22 @@ function formatMethod(method) {
 // Helper functions
 function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    if (Number.isNaN(date.getTime())) {
+        return '—';
+    }
+
+    const pad = (value) => String(value).padStart(2, '0');
+    const day = pad(date.getDate());
+    const month = pad(date.getMonth() + 1);
+    const year = date.getFullYear();
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+
+    return `${day}.${month}.${year} ${hours}.${minutes}`;
 }
 
-function capitalizeFirst(str) {
+function capitalizeFirst(str = '') {
+    if (!str) return '';
     return str.charAt(0).toUpperCase() + str.slice(1);
 }
 

@@ -7,6 +7,10 @@ let authToken = null;
 const serviceDetailsMap = {};
 let servicesStatusController = null;
 let servicesNetworkController = null;
+let categoriesCache = null;
+let approvedServicesCache = [];
+let fullServicesHTMLCache = '';
+let activeFilterContext = null;
 
 function createServiceStatusController() {
     const container = document.querySelector('[data-service-status]');
@@ -152,6 +156,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize search (can work immediately)
     initializeSearch();
+    
+    // Initialize dynamic category loading for public pages
+    initializeCategoryLoading();
 });
 
 // Initialize filter buttons
@@ -334,6 +341,7 @@ async function loadServicesFromAPI(options = {}) {
 
         const services = Array.isArray(data.services) ? data.services : [];
         const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
+        approvedServicesCache = approvedServices;
         console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length);
         
         if (approvedServices.length === 0) {
@@ -349,130 +357,16 @@ async function loadServicesFromAPI(options = {}) {
         }
         
         // Group services by category
-        const grouped = {};
+        const grouped = groupServicesByCategory(approvedServices);
         Object.keys(serviceDetailsMap).forEach((key) => delete serviceDetailsMap[key]);
-
-    approvedServices.forEach(service => {
+        approvedServices.forEach(service => {
             const serviceKey = assignServiceKey(service);
             serviceDetailsMap[serviceKey] = service;
-            const category = (service.category || 'Other').toLowerCase();
-            if (!grouped[category]) {
-                grouped[category] = [];
-            }
-            grouped[category].push(service);
         });
-        
-        // Generate HTML for each category
-        let html = '';
-        const categoryIcons = {
-            'instagram': '📱',
-            'tiktok': '🎵',
-            'youtube': '▶️',
-            'twitter': '🐦',
-            'facebook': '👥',
-            'telegram': '💬',
-            'spotify': '🎧',
-            'soundcloud': '🎶',
-            'other': '⭐'
-        };
-        
-        Object.keys(grouped).sort().forEach(category => {
-            const icon = categoryIcons[category] || '⭐';
-            const categoryServices = grouped[category]
-                .slice()
-                .sort((a, b) => {
-                    const slotA = Number(a?.customer_portal_slot ?? a?.customerPortalSlot);
-                    const slotB = Number(b?.customer_portal_slot ?? b?.customerPortalSlot);
 
-                    const hasSlotA = Number.isFinite(slotA);
-                    const hasSlotB = Number.isFinite(slotB);
-
-                    if (hasSlotA && hasSlotB && slotA !== slotB) {
-                        return slotA - slotB;
-                    }
-                    if (hasSlotA && !hasSlotB) return -1;
-                    if (!hasSlotA && hasSlotB) return 1;
-
-                    const nameA = String(a?.name || '').toLowerCase();
-                    const nameB = String(b?.name || '').toLowerCase();
-                    return nameA.localeCompare(nameB);
-                });
-            const categoryName = category.charAt(0).toUpperCase() + category.slice(1);
-            
-            html += `
-                <div class="service-category" data-category="${category}" id="${category}">
-                    <h2 class="category-title">${icon} ${categoryName} Services</h2>
-                    
-                    <div class="service-subcategory">
-                        <div class="services-table">
-                            <div class="service-row service-row-header">
-                                <div class="service-col">Service Name</div>
-                                <div class="service-col">Rate (per 1000)</div>
-                                <div class="service-col">Min/Max</div>
-                                <div class="service-col">Action</div>
-                            </div>
-            `;
-            
-            categoryServices.forEach(service => {
-                const serviceKey = assignServiceKey(service);
-                const rate = parseFloat(service.rate || 0);
-                const currency = (service.currency || 'USD').toUpperCase();
-                const pricePerK = formatCurrencyValue(rate, currency);
-                const minRaw = service.min_quantity ?? service.min_order;
-                const maxRaw = service.max_quantity ?? service.max_order;
-                const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
-                const max = maxRaw === null || maxRaw === undefined
-                    ? Infinity
-                    : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
-                const rawPublicId = service.public_id ?? service.publicId;
-                const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
-                    ? null
-                    : Number(rawPublicId);
-                const serviceHeading = Number.isFinite(publicIdValue)
-                    ? `#${publicIdValue} · ${escapeHtml(service.name)}`
-                    : escapeHtml(service.name);
-                // Provider names are hidden from customers - only admins see them
-                const avgTimeBadge = service.average_time
-                    ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
-                    : '';
-                const currencyBadge = `<span class="service-meta-tag service-meta-tag--muted" title="Billing currency">${currency}</span>`;
-                const capabilityBadges = renderSupportBadges(service);
-                const metaRows = [];
-                const primaryTags = [currencyBadge];
-                if (avgTimeBadge) {
-                    primaryTags.unshift(avgTimeBadge);
-                }
-                metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
-                if (capabilityBadges) {
-                    metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
-                }
-                // No provider badge for customers - white-label experience
-                const serviceMetaMarkup = metaRows.join('');
-                
-                html += `
-                    <div class="service-row" data-service-id="${service.id}">
-                        <div class="service-col">
-                            <strong>${serviceHeading}</strong>
-                            <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
-                            ${serviceMetaMarkup}
-                        </div>
-                        <div class="service-col price">${pricePerK}<span class="price-note">per 1K</span></div>
-                        <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
-                        <div class="service-col">
-                            <button class="btn btn-primary btn-sm" data-service-key="${escapeHtml(service.__clientKey)}" onclick="showServiceDescription(this.dataset.serviceKey)">Details</button>
-                        </div>
-                    </div>
-                `;
-            });
-            
-            html += `
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-        
+        const html = await buildGroupedServicesHtml(grouped);
         container.innerHTML = html;
+        fullServicesHTMLCache = html;
         console.log('[SUCCESS] Services loaded and displayed');
         servicesStatusController?.setState('success');
         
@@ -507,6 +401,134 @@ async function loadServicesFromAPI(options = {}) {
         // Return false to signal error
         return false;
     }
+}
+
+function groupServicesByCategory(services = []) {
+    return services.reduce((acc, service) => {
+        const category = (service.category || 'other').toLowerCase();
+        if (!acc[category]) {
+            acc[category] = [];
+        }
+        acc[category].push(service);
+        return acc;
+    }, {});
+}
+
+async function buildGroupedServicesHtml(groupedServices = {}) {
+    const categoryIcons = await getCategoryIconsMap();
+    const orderedCategories = Object.keys(groupedServices).sort();
+    return orderedCategories.map(category => {
+        const icon = categoryIcons[category] || '⭐';
+        const displayName = `${formatCategoryLabel(category)} Services`;
+        return buildCategorySectionHtml({
+            slug: category,
+            icon,
+            title: displayName,
+            services: sortServicesForDisplay(groupedServices[category])
+        });
+    }).join('');
+}
+
+function buildCategorySectionHtml({ slug, icon, title, services }) {
+    const rowsHtml = buildServiceRowsHtml(services);
+    return `
+        <div class="service-category" data-category="${slug}" id="${slug}">
+            <h2 class="category-title">${icon} ${title}</h2>
+            <div class="service-subcategory">
+                <div class="services-table">
+                    <div class="service-row service-row-header">
+                        <div class="service-col">Service Name</div>
+                        <div class="service-col">Rate (per 1000)</div>
+                        <div class="service-col">Min/Max</div>
+                        <div class="service-col">Action</div>
+                    </div>
+                    ${rowsHtml}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function buildServiceRowsHtml(services = []) {
+    return services.map(service => buildServiceRowMarkup(service)).join('');
+}
+
+function buildServiceRowMarkup(service) {
+    const serviceKey = assignServiceKey(service);
+    const rate = parseFloat(service.rate || 0);
+    const currency = (service.currency || 'USD').toUpperCase();
+    const pricePerK = formatCurrencyValue(rate, currency);
+    const minRaw = service.min_quantity ?? service.min_order;
+    const maxRaw = service.max_quantity ?? service.max_order;
+    const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
+    const max = maxRaw === null || maxRaw === undefined
+        ? Infinity
+        : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
+    const rawPublicId = service.public_id ?? service.publicId;
+    const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
+        ? null
+        : Number(rawPublicId);
+    const serviceHeading = Number.isFinite(publicIdValue)
+        ? `#${publicIdValue} · ${escapeHtml(service.name)}`
+        : escapeHtml(service.name);
+    const avgTimeBadge = service.average_time
+        ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
+        : '';
+    const currencyBadge = `<span class="service-meta-tag service-meta-tag--muted" title="Billing currency">${currency}</span>`;
+    const capabilityBadges = renderSupportBadges(service);
+    const metaRows = [];
+    const primaryTags = [currencyBadge];
+    if (avgTimeBadge) {
+        primaryTags.unshift(avgTimeBadge);
+    }
+    metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
+    if (capabilityBadges) {
+        metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
+    }
+    const serviceMetaMarkup = metaRows.join('');
+
+    return `
+        <div class="service-row" data-service-id="${service.id}">
+            <div class="service-col">
+                <strong>${serviceHeading}</strong>
+                <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
+                ${serviceMetaMarkup}
+            </div>
+            <div class="service-col price">${pricePerK}<span class="price-note">per 1K</span></div>
+            <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
+            <div class="service-col">
+                <button class="btn btn-primary btn-sm" data-service-key="${escapeHtml(service.__clientKey)}" onclick="showServiceDescription(this.dataset.serviceKey)">Details</button>
+            </div>
+        </div>
+    `;
+}
+
+function sortServicesForDisplay(services = []) {
+    return services.slice().sort((a, b) => {
+        const slotA = Number(a?.customer_portal_slot ?? a?.customerPortalSlot);
+        const slotB = Number(b?.customer_portal_slot ?? b?.customerPortalSlot);
+
+        const hasSlotA = Number.isFinite(slotA);
+        const hasSlotB = Number.isFinite(slotB);
+
+        if (hasSlotA && hasSlotB && slotA !== slotB) {
+            return slotA - slotB;
+        }
+        if (hasSlotA && !hasSlotB) return -1;
+        if (!hasSlotA && hasSlotB) return 1;
+
+        const nameA = String(a?.name || '').toLowerCase();
+        const nameB = String(b?.name || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+    });
+}
+
+function formatCategoryLabel(slug = '') {
+    return slug
+        .split('-')
+        .filter(Boolean)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ') || 'Other';
 }
 
 function escapeHtml(text) {
@@ -808,3 +830,762 @@ modalStyle.textContent = `
     }
 `;
 document.head.appendChild(modalStyle);
+
+// Add loading styles for categories
+const categoryLoadingStyle = document.createElement('style');
+categoryLoadingStyle.textContent = `
+    .loading-categories, .loading-categories-home {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 20px;
+        color: var(--text-secondary, #6b7280);
+        font-size: 14px;
+    }
+    
+    .loading-categories i, .loading-categories-home i {
+        color: var(--primary, #ff1494);
+    }
+    
+    .loading-categories {
+        min-height: 50px;
+    }
+    
+    .loading-categories-home {
+        min-height: 200px;
+        grid-column: 1 / -1;
+    }
+    
+    /* Subcategory Modal Styles */
+    .subcategory-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+        animation: fadeIn 0.2s ease-out;
+    }
+    
+    .subcategory-modal-content {
+        background: white;
+        border-radius: 12px;
+        padding: 0;
+        max-width: 500px;
+        width: 90%;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    .subcategory-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid #e5e7eb;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: linear-gradient(135deg, #ff1494, #ff6b6b);
+        color: white;
+    }
+    
+    .subcategory-header h3 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .close-subcategory {
+        background: none;
+        border: none;
+        font-size: 24px;
+        color: white;
+        cursor: pointer;
+        padding: 0;
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: background-color 0.2s;
+    }
+    
+    .close-subcategory:hover {
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+    
+    .subcategory-options {
+        padding: 20px;
+        display: grid;
+        gap: 12px;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+    
+    .subcategory-btn {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: #f8fafc;
+        border: 2px solid #e2e8f0;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 14px;
+        font-weight: 500;
+        text-align: left;
+        color: #374151;
+    }
+    
+    .subcategory-btn:hover {
+        background: #eff6ff;
+        border-color: #3b82f6;
+        color: #1d4ed8;
+        transform: translateY(-1px);
+    }
+    
+    .subcategory-btn[data-type="parent"] {
+        background: linear-gradient(135deg, #ff1494, #ff6b6b);
+        color: white;
+        border-color: transparent;
+    }
+    
+    .subcategory-btn[data-type="parent"]:hover {
+        background: linear-gradient(135deg, #e11d48, #ef4444);
+        transform: translateY(-1px);
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    
+    @keyframes slideIn {
+        from { 
+            opacity: 0;
+            transform: translateY(-20px) scale(0.95);
+        }
+        to { 
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+    }
+
+    .services-filter-context {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 20px;
+        padding: 16px;
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        background: #f8fafc;
+    }
+
+    .services-filter-label {
+        font-weight: 600;
+        color: #0f172a;
+    }
+`;
+document.head.appendChild(categoryLoadingStyle);
+
+// ==========================================
+// Dynamic Category Loading Functions
+// ==========================================
+
+async function loadCategoriesFromAPI() {
+    try {
+        const response = await fetch('/.netlify/functions/services?type=categories');
+        const data = await response.json();
+        
+        if (data.success && Array.isArray(data.categories)) {
+            const sortedCategories = data.categories.sort((a, b) => (a.display_order || 1) - (b.display_order || 1));
+            
+            // Organize into hierarchical structure
+            const parentCategories = sortedCategories.filter(cat => !cat.parent_id);
+            const childCategories = sortedCategories.filter(cat => cat.parent_id);
+            
+            // Add children to their parents
+            parentCategories.forEach(parent => {
+                parent.subcategories = childCategories.filter(child => child.parent_id === parent.id);
+            });
+            
+            categoriesCache = { 
+                flat: sortedCategories, 
+                hierarchical: parentCategories,
+                children: childCategories
+            };
+            return categoriesCache;
+        }
+        
+        // Fallback to default categories if API fails
+        return getDefaultCategories();
+    } catch (error) {
+        console.warn('Failed to load categories from API, using defaults:', error);
+        return getDefaultCategories();
+    }
+}
+
+function getDefaultCategories() {
+    const defaultParents = [
+        { name: 'Instagram', slug: 'instagram', icon: 'fab fa-instagram', description: 'Followers, Likes, Views, Comments & More', subcategories: [] },
+        { name: 'TikTok', slug: 'tiktok', icon: 'fab fa-tiktok', description: 'Followers, Likes, Views, Shares & More', subcategories: [] },
+        { name: 'YouTube', slug: 'youtube', icon: 'fab fa-youtube', description: 'Views, Subscribers, Likes, Comments & More', subcategories: [] },
+        { name: 'Twitter', slug: 'twitter', icon: 'fab fa-twitter', description: 'Followers, Likes, Retweets, Views & More', subcategories: [] },
+        { name: 'Facebook', slug: 'facebook', icon: 'fab fa-facebook', description: 'Likes, Followers, Views, Shares & More', subcategories: [] },
+        { name: 'Telegram', slug: 'telegram', icon: 'fab fa-telegram', description: 'Members, Views, Reactions & More', subcategories: [] }
+    ];
+    
+    return {
+        flat: defaultParents,
+        hierarchical: defaultParents,
+        children: []
+    };
+}
+
+// Create category icons mapping for services display
+async function getCategoryIconsMap() {
+    const categoriesData = categoriesCache || await loadCategoriesFromAPI();
+    const allCategories = categoriesData.flat || categoriesData;
+    const iconMap = {};
+    
+    allCategories.forEach(category => {
+        const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+        // Convert Font Awesome icons to emoji for service display
+        const emojiMap = {
+            'fab fa-instagram': '📱',
+            'fab fa-tiktok': '🎵',
+            'fab fa-youtube': '▶️',
+            'fab fa-twitter': '🐦',
+            'fab fa-facebook': '👥',
+            'fab fa-telegram': '💬',
+            'fab fa-spotify': '🎧',
+            'fab fa-soundcloud': '🎶',
+            'fab fa-reddit': '🟠',
+            'fab fa-discord': '💜',
+            'fas fa-folder': '📁'
+        };
+        
+        iconMap[slug] = emojiMap[category.icon] || '⭐';
+    });
+    
+    // Add fallback for 'other' category
+    iconMap['other'] = '⭐';
+    
+    return iconMap;
+}
+
+// Load category filter buttons for services page
+async function loadCategoryFilters() {
+    const container = document.getElementById('categoryFilterButtons');
+    if (!container) return;
+    
+    try {
+        const categoriesData = await loadCategoriesFromAPI();
+        const parentCategories = categoriesData.hierarchical || categoriesData;
+        
+        let buttonsHTML = `
+            <button class="filter-btn filter-btn--all active" data-filter="all">
+                <i class="fas fa-th"></i> All Services
+            </button>
+        `;
+        
+        parentCategories.forEach(category => {
+            const iconClass = category.icon || 'fas fa-folder';
+            const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+            const subcategoryCount = category.subcategories ? category.subcategories.length : 0;
+            const countText = subcategoryCount > 0 ? ` (${subcategoryCount})` : '';
+            
+            buttonsHTML += `
+                <button class="filter-btn filter-btn--${slug}" data-filter="${slug}" data-has-subcategories="${subcategoryCount > 0}">
+                    <i class="${iconClass}"></i> ${category.name}${countText}
+                </button>
+            `;
+        });
+        
+        container.innerHTML = buttonsHTML;
+        
+        // Re-initialize filter functionality
+        initializeFilterButtons();
+        
+    } catch (error) {
+        console.error('Error loading category filters:', error);
+        // Keep loading state if error occurs
+    }
+}
+
+// Load category cards for index page
+async function loadCategoryCards() {
+    const container = document.getElementById('categoryCardsContainer');
+    if (!container) return;
+    
+    try {
+        const categoriesData = await loadCategoriesFromAPI();
+        const parentCategories = categoriesData.hierarchical || categoriesData;
+        
+        let cardsHTML = '';
+        parentCategories.forEach(category => {
+            const iconClass = category.icon || 'fas fa-folder';
+            const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+            const description = category.description || `${category.name} services and more`;
+            const subcategoryCount = category.subcategories ? category.subcategories.length : 0;
+            const serviceCountText = subcategoryCount > 0 ? ` (${subcategoryCount} categories)` : '';
+            
+            cardsHTML += `
+                <div class="service-card">
+                    <div class="service-icon">
+                        <i class="${iconClass}"></i>
+                    </div>
+                    <h3 class="service-title">${category.name}${serviceCountText}</h3>
+                    <p class="service-desc">${description}</p>
+                    <a href="services.html#${slug}" class="btn btn-primary">View Services</a>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = cardsHTML;
+        
+    } catch (error) {
+        console.error('Error loading category cards:', error);
+        // Fallback to default categories in case of error
+        const defaultCategories = getDefaultCategories();
+        let cardsHTML = '';
+        defaultCategories.forEach(category => {
+            cardsHTML += `
+                <div class="service-card">
+                    <div class="service-icon">
+                        <i class="${category.icon}"></i>
+                    </div>
+                    <h3 class="service-title">${category.name}</h3>
+                    <p class="service-desc">${category.description}</p>
+                    <a href="services.html#${category.slug}" class="btn btn-primary">View Services</a>
+                </div>
+            `;
+        });
+        container.innerHTML = cardsHTML;
+    }
+}
+
+// Initialize filter buttons functionality
+function initializeFilterButtons() {
+    filterButtons = document.querySelectorAll('.filter-btn');
+    
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', async function() {
+            // Remove active class from all buttons
+            filterButtons.forEach(b => b.classList.remove('active'));
+            // Add active class to clicked button
+            this.classList.add('active');
+            
+            const filter = this.dataset.filter;
+            const hasSubcategories = this.dataset.hasSubcategories === 'true';
+            
+            if (hasSubcategories && categoriesCache) {
+                // Show subcategories for this parent category
+                showSubcategoryOptions(filter);
+            } else {
+                await filterServices(filter);
+            }
+        });
+    });
+}
+
+// Show subcategory selection modal
+function showSubcategoryOptions(parentSlug) {
+    const categoriesData = categoriesCache;
+    if (!categoriesData || !categoriesData.hierarchical) return;
+    
+    const parentCategory = categoriesData.hierarchical.find(cat => cat.slug === parentSlug);
+    if (!parentCategory || !parentCategory.subcategories) return;
+    
+    const subcategories = parentCategory.subcategories;
+    
+    // Create subcategory selection modal with black design palette
+    let modalHTML = `
+        <div class="subcategory-modal" id="subcategoryModal">
+            <div class="subcategory-modal-overlay" onclick="closeSubcategoryModal()"></div>
+            <div class="subcategory-modal-content">
+                <div class="subcategory-header">
+                    <h3><i class="${parentCategory.icon}" style="color: #e91e63; margin-right: 8px;"></i>${parentCategory.name} Categories</h3>
+                    <button class="close-subcategory" onclick="closeSubcategoryModal()">&times;</button>
+                </div>
+                <div class="subcategory-options">
+                    <button class="subcategory-btn subcategory-btn--all" data-filter="${parentSlug}" data-type="parent">
+                        <i class="fas fa-th"></i> All ${parentCategory.name} Services
+                    </button>
+    `;
+    
+    subcategories.forEach(sub => {
+        const iconClass = sub.icon || 'fas fa-folder';
+        modalHTML += `
+            <button class="subcategory-btn" data-filter="${sub.slug}" data-type="subcategory" data-category-id="${sub.id}">
+                <i class="${iconClass}"></i> ${sub.name}
+            </button>
+        `;
+    });
+    
+    modalHTML += `
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Add smooth animation
+    setTimeout(() => {
+        const modal = document.getElementById('subcategoryModal');
+        if (modal) modal.classList.add('show');
+    }, 10);
+    
+    // Add event listeners
+    document.querySelectorAll('.subcategory-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const filter = this.dataset.filter;
+            const categoryId = this.dataset.categoryId;
+            const type = this.dataset.type;
+            
+            // Update active button styling
+            document.querySelectorAll('.subcategory-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Filter and load services for this subcategory
+            if (type === 'subcategory' && categoryId) {
+                await loadServicesForSubcategory(categoryId, filter);
+            } else {
+                await filterServices(filter);
+            }
+            
+            // Close modal after selection
+            setTimeout(() => closeSubcategoryModal(), 300);
+        });
+    });
+}
+
+// Close subcategory modal with animation
+function closeSubcategoryModal() {
+    const modal = document.getElementById('subcategoryModal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => {
+            if (modal.parentNode) {
+                modal.remove();
+            }
+        }, 300);
+    }
+}
+
+async function filterServices(filterSlug) {
+    const normalizedSlug = (filterSlug || 'all').toLowerCase();
+    if (normalizedSlug === 'all') {
+        await resetFiltersToAll();
+        return;
+    }
+
+    if (!approvedServicesCache.length) {
+        const loaded = await loadServicesFromAPI();
+        if (!loaded) {
+            return;
+        }
+    }
+
+    const filteredServices = approvedServicesCache.filter(service => (service.category || '').toLowerCase() === normalizedSlug);
+    const parentCategory = categoriesCache?.hierarchical?.find(cat => cat.slug === normalizedSlug) ||
+        categoriesCache?.flat?.find(cat => cat.slug === normalizedSlug);
+
+    await displayFilteredServices(filteredServices, {
+        slug: normalizedSlug,
+        label: parentCategory?.name || formatCategoryLabel(normalizedSlug),
+        parentSlug: normalizedSlug
+    });
+
+    const currentUrl = new URL(window.location);
+    currentUrl.searchParams.set('category', normalizedSlug);
+    window.history.pushState({}, '', currentUrl);
+}
+
+async function displayFilteredServices(services, options = {}) {
+    const container = document.getElementById('servicesContainer');
+    if (!container) return;
+
+    const label = options.label || formatCategoryLabel(options.slug || 'filtered');
+    const suffix = options.subcategoryLabel ? ` · ${options.subcategoryLabel}` : '';
+    const headline = `${label}${suffix}`;
+    const categoryIcons = await getCategoryIconsMap();
+    const icon = options.icon || categoryIcons[options.parentSlug || options.slug] || '⭐';
+
+    activeFilterContext = {
+        slug: options.slug,
+        label,
+        subcategoryLabel: options.subcategoryLabel || ''
+    };
+
+    if (!Array.isArray(services) || services.length === 0) {
+        container.innerHTML = `
+            ${buildFilterContextBar(`No services found for ${headline}`)}
+            <div class="no-services-message">
+                <i class="fas fa-search"></i>
+                <h3>No services found</h3>
+                <p>Try selecting a different category or reset the filters.</p>
+            </div>
+        `;
+        attachResetFiltersHandler(container);
+        return;
+    }
+
+    const rowsHtml = buildServiceRowsHtml(sortServicesForDisplay(services));
+    container.innerHTML = `
+        ${buildFilterContextBar(`Showing ${headline}`)}
+        <div class="service-category service-category--filtered" data-category="${options.slug || 'filtered'}">
+            <h2 class="category-title">${icon} ${headline}</h2>
+            <div class="service-subcategory">
+                <div class="services-table">
+                    <div class="service-row service-row-header">
+                        <div class="service-col">Service Name</div>
+                        <div class="service-col">Rate (per 1000)</div>
+                        <div class="service-col">Min/Max</div>
+                        <div class="service-col">Action</div>
+                    </div>
+                    ${rowsHtml}
+                </div>
+            </div>
+        </div>
+    `;
+
+    attachResetFiltersHandler(container);
+}
+
+function buildFilterContextBar(labelText) {
+    return `
+        <div class="services-filter-context">
+            <button type="button" class="btn btn-secondary btn-sm" data-reset-filters>
+                <i class="fas fa-arrow-left"></i> View All Services
+            </button>
+            <span class="services-filter-label">${labelText}</span>
+        </div>
+    `;
+}
+
+function attachResetFiltersHandler(scope) {
+    const resetBtn = scope.querySelector('[data-reset-filters]');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+            await resetFiltersToAll();
+        });
+    }
+}
+
+async function resetFiltersToAll() {
+    activeFilterContext = null;
+    await restoreFullServicesView();
+    closeSubcategoryModal();
+
+    if (filterButtons?.length) {
+        filterButtons.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.filter === 'all');
+        });
+    }
+
+    const currentUrl = new URL(window.location);
+    currentUrl.searchParams.delete('category');
+    window.history.pushState({}, '', currentUrl);
+}
+
+async function restoreFullServicesView() {
+    const container = document.getElementById('servicesContainer');
+    if (!container) return;
+
+    if (fullServicesHTMLCache) {
+        container.innerHTML = fullServicesHTMLCache;
+        servicesStatusController?.setState('success');
+        return;
+    }
+
+    await loadServicesFromAPI();
+}
+
+// Load services for a specific subcategory
+async function loadServicesForSubcategory(categoryId, categorySlug) {
+    servicesStatusController?.setState('loading');
+
+    try {
+        if (!approvedServicesCache.length) {
+            const loaded = await loadServicesFromAPI();
+            if (!loaded) {
+                servicesStatusController?.setState('error');
+                return;
+            }
+        }
+
+        const categoriesData = categoriesCache;
+        let filteredServices = [];
+        let selectedCategory = null;
+        let parentCategory = null;
+
+        if (categoriesData) {
+            const allCategories = [
+                ...(categoriesData.hierarchical || []),
+                ...(categoriesData.children || [])
+            ];
+            selectedCategory = allCategories.find(cat => cat.slug === categorySlug) || null;
+
+            if (selectedCategory) {
+                if (selectedCategory.parent_id) {
+                    parentCategory = categoriesData.hierarchical?.find(cat => cat.id === selectedCategory.parent_id) || null;
+                } else {
+                    parentCategory = selectedCategory;
+                }
+            }
+        }
+
+        const parentSlug = (parentCategory?.slug || categorySlug || '').toLowerCase();
+
+        if (selectedCategory && selectedCategory.parent_id && parentCategory) {
+            const subCatName = selectedCategory.name.toLowerCase();
+            const subCatTerms = [];
+
+            if (subCatName.includes('followers')) subCatTerms.push('follower');
+            if (subCatName.includes('likes')) subCatTerms.push('like');
+            if (subCatName.includes('views')) subCatTerms.push('view');
+            if (subCatName.includes('comments')) subCatTerms.push('comment');
+            if (subCatName.includes('shares')) subCatTerms.push('share');
+
+            filteredServices = approvedServicesCache.filter(service => {
+                const serviceCat = (service.category || '').toLowerCase();
+                const serviceName = String(service.name || '').toLowerCase();
+                const parentMatches = serviceCat === parentSlug;
+                const subCatMatches = subCatTerms.length > 0
+                    ? subCatTerms.some(term => serviceName.includes(term))
+                    : false;
+                return parentMatches && subCatMatches;
+            });
+        } else {
+            filteredServices = approvedServicesCache.filter(service => (service.category || '').toLowerCase() === parentSlug);
+        }
+
+        if (filteredServices.length === 0) {
+            const fallbackTerms = (categorySlug || '').replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
+            filteredServices = approvedServicesCache.filter(service => {
+                const serviceName = String(service.name || '').toLowerCase();
+                const serviceCategory = (service.category || '').toLowerCase();
+                return fallbackTerms.some(term =>
+                    serviceName.includes(term) || serviceCategory.includes(term)
+                );
+            });
+        }
+
+        await displayFilteredServices(filteredServices, {
+            slug: parentSlug || categorySlug,
+            label: parentCategory?.name || formatCategoryLabel(parentSlug || categorySlug),
+            subcategoryLabel: selectedCategory && selectedCategory.parent_id ? selectedCategory.name : '',
+            parentSlug: parentSlug || categorySlug
+        });
+
+        const currentUrl = new URL(window.location);
+        currentUrl.searchParams.set('category', categorySlug);
+        window.history.pushState({}, '', currentUrl);
+
+        servicesStatusController?.setState('success');
+    } catch (error) {
+        console.error('Error loading subcategory services:', error);
+        servicesStatusController?.setState('error');
+    }
+}
+
+// Display filtered services in the UI
+function displayFilteredServices(services, categoryName) {
+    const container = document.getElementById('servicesContainer');
+    if (!container) return;
+    
+    if (services.length === 0) {
+        container.innerHTML = `
+            <div class="no-services-message">
+                <i class="fas fa-search"></i>
+                <h3>No services found for ${categoryName.replace(/-/g, ' ')}</h3>
+                <p>Try selecting a different category or check back later.</p>
+            </div>
+        `;
+        return;
+    }
+    
+    let servicesHTML = `<div class="services-category-header">
+        <h2><i class="fas fa-layer-group"></i> ${categoryName.replace(/-/g, ' ').toUpperCase()} Services (${services.length})</h2>
+    </div>`;
+    
+    services.forEach(service => {
+        const rate = service.rate || service.price || 0;
+        const minQty = service.min_quantity || service.minimum || 1;
+        const maxQty = service.max_quantity || service.maximum || 999999;
+        const providerName = service.provider?.name || 'Provider';
+        
+        servicesHTML += `
+            <div class="service-card" data-service-id="${service.id}">
+                <div class="service-header">
+                    <h3 class="service-name">${service.name}</h3>
+                    <div class="service-price">$${rate.toFixed(3)}</div>
+                </div>
+                <div class="service-details">
+                    <div class="service-range">
+                        <span class="range-label">Range:</span>
+                        <span class="range-value">${minQty.toLocaleString()} - ${maxQty.toLocaleString()}</span>
+                    </div>
+                    <div class="service-provider">
+                        <span class="provider-label">Provider:</span>
+                        <span class="provider-name">${providerName}</span>
+                    </div>
+                </div>
+                <div class="service-actions">
+                    <button class="btn btn-primary order-service-btn" 
+                            data-service-id="${service.id}"
+                            data-service-name="${service.name}"
+                            data-rate="${rate}"
+                            data-min="${minQty}"
+                            data-max="${maxQty}">
+                        <i class="fas fa-shopping-cart"></i> Order Now
+                    </button>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = servicesHTML;
+    
+    // Re-initialize order buttons
+    initializeOrderButtons();
+}
+
+// Check if we're on the index page or services page and load appropriate content
+function initializeCategoryLoading() {
+    // Load category cards for index page
+    if (document.getElementById('categoryCardsContainer')) {
+        loadCategoryCards();
+    }
+    
+    // Load category filters for services page
+    if (document.getElementById('categoryFilterButtons')) {
+        loadCategoryFilters();
+    }
+}
+
+// Initialize for public pages (no auth required)
+document.addEventListener('DOMContentLoaded', function() {
+    // Only initialize category loading if not already authenticated
+    // The authenticated DOMContentLoaded handler will handle this for logged-in users
+    const token = localStorage.getItem('token');
+    if (!token) {
+        initializeCategoryLoading();
+    }
+});
