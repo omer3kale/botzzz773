@@ -1510,7 +1510,8 @@ body.sidebar-collapsed .admin-main {
 }
 
 .status-badge.canceled,
-.status-badge.fail {
+.status-badge.fail,
+.status-badge.failed {
     background: rgba(239, 68, 68, 0.1);
     color: #ef4444;
 }
@@ -1519,6 +1520,56 @@ body.sidebar-collapsed .admin-main {
 .status-badge.processing {
     background: rgba(168, 85, 247, 0.1);
     color: #a855f7;
+}
+
+.failure-meta {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.failure-meta__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.failure-chip {
+    background: rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+    border-radius: 999px;
+    padding: 3px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.failure-chip--code {
+    background: rgba(190, 24, 93, 0.15);
+    color: #be185d;
+}
+
+.failure-chip--retry {
+    background: rgba(13, 148, 136, 0.15);
+    color: #0f766e;
+}
+
+.failure-chip--resolved {
+    background: rgba(34, 197, 94, 0.2);
+    color: #15803d;
+}
+
+.failure-meta__context {
+    font-size: 11px;
+    color: #475569;
+    word-break: break-word;
+}
+
+.failure-meta__timestamp {
+    font-size: 11px;
+    color: #94a3b8;
 }
 
 .order-status-chip-row {

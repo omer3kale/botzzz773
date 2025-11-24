@@ -25,6 +25,41 @@ function logOrderError(message, error, meta) {
   logger.error(message, { error: serializeError(error), ...meta });
 }
 
+async function markOrderFailure(orderId, {
+  message,
+  source = 'provider',
+  code = null,
+  context = {},
+  extra = {}
+} = {}) {
+  if (!orderId) {
+    return null;
+  }
+
+  const payload = {
+    status: 'failed',
+    customer_status: 'processing',
+    provider_status: 'failed',
+    provider_error: message || 'Unknown failure',
+    failure_source: source,
+    failure_code: code,
+    failure_context: context,
+    last_status_sync: new Date().toISOString(),
+    ...extra
+  };
+
+  const { error } = await supabaseAdmin
+    .from('orders')
+    .update(payload)
+    .eq('id', orderId);
+
+  if (error) {
+    logger.error('Failed to mark order failure', { orderId, error, payload });
+  }
+
+  return error;
+}
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -456,7 +491,7 @@ const baseHandler = async (event) => {
 
     switch (event.httpMethod) {
       case 'GET':
-        return await handleGetOrders(user, headers);
+        return await handleGetOrders(user, headers, event.queryStringParameters);
       case 'POST':
         if (body && body.action === 'sync-status') {
           return await handleSyncOrderStatuses(user, body, headers);
@@ -472,6 +507,9 @@ const baseHandler = async (event) => {
         }
         if (body && body.action === 'resolve_all_conflicts') {
           return await handleResolveAllConflicts(user, headers);
+        }
+        if (body && body.action === 'resend_order') {
+          return await handleResendOrder(user, body, headers);
         }
         return await handleCreateOrder(user, body, headers);
       case 'PUT':
@@ -509,11 +547,34 @@ const ORDERS_RATE_LIMIT = {
 
 exports.handler = withRateLimit(ORDERS_RATE_LIMIT, baseHandler);
 
-async function handleGetOrders(user, headers) {
+async function handleGetOrders(user, headers, queryParams = {}) {
   try {
-    // Get pagination params
-    const limit = 100; // Default limit
-    const offset = 0;  // Can be made dynamic from query params
+    // Validate user object
+    if (!user || !user.userId) {
+      console.error('[GET ORDERS] Invalid user object:', user);
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Unauthorized' })
+      };
+    }
+
+    // Get pagination params with validation
+    const limit = Math.min(Math.max(parseInt(queryParams?.limit) || 100, 1), 500); // Max 500
+    const offset = Math.max(parseInt(queryParams?.offset) || 0, 0);
+    const statusFilter = queryParams?.status ? String(queryParams.status).toLowerCase().trim() : null;
+    const orderIdFilter = queryParams?.orderId ? String(queryParams.orderId).trim() : null;
+    
+    // Validate status filter if provided
+    const validStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+    if (statusFilter && !validStatuses.includes(statusFilter)) {
+      console.warn('[GET ORDERS] Invalid status filter:', statusFilter);
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid status filter' })
+      };
+    }
     
     let query = supabaseAdmin
       .from('orders')
@@ -525,9 +586,32 @@ async function handleGetOrders(user, headers) {
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
+    if (orderIdFilter) {
+      query = query.eq('id', orderIdFilter);
+    }
+
     // Non-admins can only see their own orders
     if (user.role !== 'admin') {
       query = query.eq('user_id', user.userId);
+      
+      // Non-admins cannot filter by 'failed' status (they shouldn't see failed orders)
+      if (statusFilter === 'failed' || statusFilter === 'error') {
+        console.warn('[GET ORDERS] Non-admin attempted to filter failed orders:', user.userId);
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Access denied' })
+        };
+      }
+    }
+
+    // Admin can filter by status (for failed orders view)
+    if (user.role === 'admin' && statusFilter) {
+      if (statusFilter === 'failed') {
+        query = query.in('status', ['failed', 'error']);
+      } else {
+        query = query.eq('status', statusFilter);
+      }
     }
 
     const { data: orders, error } = await query;
@@ -541,7 +625,7 @@ async function handleGetOrders(user, headers) {
       };
     }
 
-    const normalizedOrders = Array.isArray(orders)
+    let normalizedOrders = Array.isArray(orders)
       ? orders.map(order => {
           const reference = resolveOrderDisplayNumber(order);
           if (!reference) {
@@ -588,6 +672,39 @@ async function handleGetOrders(user, headers) {
           return normalized;
         })
       : [];
+
+    if (user.role === 'admin' && statusFilter === 'failed' && normalizedOrders.length > 0) {
+      const failedOrderIds = normalizedOrders
+        .map(order => order?.id)
+        .filter(id => id !== null && id !== undefined);
+
+      if (failedOrderIds.length > 0) {
+        const { data: failureLogs, error: failureLogsError } = await supabaseAdmin
+          .from('provider_errors')
+          .select('order_id, retry_count, resolved, resolved_at, last_retry_at, error_timestamp, error_message, failure_source, failure_code, failure_context')
+          .in('order_id', failedOrderIds);
+
+        if (failureLogsError) {
+          logOrderError('Failed to load provider error metadata', failureLogsError, { count: failedOrderIds.length });
+        } else if (Array.isArray(failureLogs) && failureLogs.length > 0) {
+          const failureMap = failureLogs.reduce((acc, log) => {
+            if (log && log.order_id) {
+              acc[String(log.order_id)] = log;
+            }
+            return acc;
+          }, {});
+
+          normalizedOrders = normalizedOrders.map(order => {
+            const key = order?.id !== undefined && order?.id !== null ? String(order.id) : null;
+            if (!key) {
+              return order;
+            }
+            const failureLog = failureMap[key];
+            return failureLog ? { ...order, failure_log: failureLog } : order;
+          });
+        }
+      }
+    }
 
     return {
       statusCode: 200,
@@ -864,7 +981,8 @@ async function handleCreateOrder(user, data, headers) {
       provider_cost: providerCharge,
       start_count: 0,
       remains: qty,
-      status: 'pending'
+      status: 'pending',
+      customer_status: 'processing' // Customer always sees positive status
     };
     
     // Add link_id now that migration is applied
@@ -1044,6 +1162,7 @@ async function handleCreateOrder(user, data, headers) {
       const providerUpdatePayload = {
         provider_order_id: providerOrderId,
         status: 'processing',
+        customer_status: 'processing', // Customer sees processing
         provider_status: 'processing',
         last_status_sync: nowIso,
         provider_response: providerResponse.response,
@@ -1108,45 +1227,82 @@ async function handleCreateOrder(user, data, headers) {
     } catch (providerError) {
       console.error('[ORDER] Provider submission failed:', providerError);
       
-      // ============= ROLLBACK: REFUND AND MARK FAILED =============
-      console.log(`[ORDER] Rolling back order ${order.id}`);
+      // ============= SILENT FAILURE: SAVE ERROR BUT SHOW SUCCESS TO CUSTOMER =============
+      console.log(`[ORDER] Implementing silent failure for order ${order.id}`);
       
-      // Refund user
-      const { error: refundError } = await supabaseAdmin
-        .from('users')
-        .update({ 
-          balance: originalBalance
-        })
-        .eq('id', user.userId);
-
-      if (refundError) {
-        console.error('[ORDER] CRITICAL: Failed to refund user after provider failure:', refundError, {
-          userId: user.userId,
-          orderId: order.id,
-          amount: totalCost
-        });
-      } else {
-        console.log(`[ORDER] User refunded: ${totalCost}`);
+      // Extract error message from provider response (comprehensive extraction)
+      let providerErrorMessage = 'Provider request failed';
+      try {
+        if (providerError.response) {
+          if (typeof providerError.response.error === 'string') {
+            providerErrorMessage = providerError.response.error;
+          } else if (providerError.response.message) {
+            providerErrorMessage = providerError.response.message;
+          } else if (providerError.response.data?.error) {
+            providerErrorMessage = providerError.response.data.error;
+          } else if (typeof providerError.response === 'string') {
+            providerErrorMessage = providerError.response;
+          }
+        } else if (providerError.message) {
+          providerErrorMessage = providerError.message;
+        }
+        
+        // Sanitize error message (limit length, remove sensitive data)
+        providerErrorMessage = String(providerErrorMessage)
+          .substring(0, 500)
+          .replace(/api[_-]?key[=:]?\s*[\w-]+/gi, 'api_key=***')
+          .replace(/token[=:]?\s*[\w-]+/gi, 'token=***');
+      } catch (extractError) {
+        console.error('[ORDER] Error extracting provider error message:', extractError);
+        providerErrorMessage = 'Provider error (details unavailable)';
       }
-
-      // Mark order as failed
-      await supabaseAdmin
-        .from('orders')
-        .update({ 
-          status: 'failed',
-          provider_status: 'failed',
-          last_status_sync: new Date().toISOString()
-        })
-        .eq('id', order.id);
-
+      
+      // DO NOT REFUND - Keep the charge, mark as failed internally
+      // Customer still sees "processing", admin can resend later
+      try {
+        await markOrderFailure(order.id, {
+          message: providerErrorMessage,
+          source: 'provider',
+          code: 'provider_api_error',
+          context: {
+            stage: 'provider_submission',
+            provider_id: order.service?.provider_id || null
+          },
+          extra: {
+            provider_response: providerError.response || { error: providerErrorMessage }
+          }
+        });
+      } catch (dbError) {
+        console.error('[ORDER] Database error during silent failure update:', dbError);
+        // Continue anyway - we'll still return success to customer
+      }
+      
+      order.status = 'failed';
+      order.customer_status = 'processing';
+      order.provider_error = providerErrorMessage;
+      order.failure_source = 'provider';
+      order.failure_code = 'provider_api_error';
+      
+      console.log(`[ORDER] Silent failure applied - customer sees success, admin can review`);
+      
+      // RETURN SUCCESS TO CUSTOMER (they never see the error)
       return {
-        statusCode: 500,
+        statusCode: 201,
         headers,
-        body: JSON.stringify({ 
-          error: 'Failed to submit order to provider',
-          details: providerError.message || 'Provider API error',
-          orderId: order.id,
-          refunded: !refundError
+        body: JSON.stringify({
+          success: true,
+          order: {
+            id: order.id,
+            order_number: orderDisplayNumber || order.order_number,
+            order_reference: order.order_reference ?? orderDisplayNumber ?? order.order_number,
+            service_name: order.service_name,
+            quantity: order.quantity,
+            charge: order.charge,
+            status: 'processing', // Customer sees processing, not failed
+            link: order.link,
+            created_at: order.created_at
+          },
+          message: 'Order submitted successfully'
         })
       };
     }
@@ -1256,6 +1412,147 @@ async function handleUpdateOrder(user, data, headers) {
         statusCode: 403,
         headers,
         body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    if (action === 'admin_update') {
+      if (user.role !== 'admin') {
+        return {
+          statusCode: 403,
+          headers,
+          body: JSON.stringify({ error: 'Admin access required' })
+        };
+      }
+
+      const {
+        serviceId,
+        link,
+        quantity,
+        charge,
+        status,
+        providerOrderId
+      } = data;
+
+      const updates = {};
+
+      if (serviceId && serviceId !== order.service_id) {
+        const { data: serviceRecord, error: serviceLookupError } = await supabaseAdmin
+          .from('services')
+          .select('id, name, status')
+          .eq('id', serviceId)
+          .single();
+
+        if (serviceLookupError || !serviceRecord) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Selected service not found' })
+          };
+        }
+
+        if (serviceRecord.status !== 'active') {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Selected service is not active' })
+          };
+        }
+
+        updates.service_id = serviceRecord.id;
+        updates.service_name = serviceRecord.name;
+      }
+
+      if (typeof link === 'string') {
+        const sanitizedLink = link.trim();
+        if (!sanitizedLink || sanitizedLink.length > 500) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Link must be between 1 and 500 characters' })
+          };
+        }
+        updates.link = sanitizedLink;
+      }
+
+      if (quantity !== undefined && quantity !== null) {
+        const parsedQuantity = Number(quantity);
+        if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Quantity must be a positive number' })
+          };
+        }
+        updates.quantity = Math.floor(parsedQuantity);
+      }
+
+      if (charge !== undefined && charge !== null) {
+        const parsedCharge = Number(charge);
+        if (!Number.isFinite(parsedCharge) || parsedCharge < 0) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Charge must be zero or greater' })
+          };
+        }
+        updates.charge = Number(parsedCharge.toFixed(2));
+      }
+
+      if (typeof providerOrderId === 'string') {
+        updates.provider_order_id = providerOrderId.trim() || null;
+      }
+
+      if (typeof status === 'string') {
+        const normalizedStatus = status.toLowerCase();
+        const allowedStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+        if (!allowedStatuses.includes(normalizedStatus)) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Invalid status value' })
+          };
+        }
+
+        updates.status = normalizedStatus;
+        if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+          updates.customer_status = 'processing';
+        } else if (normalizedStatus === 'completed' || normalizedStatus === 'partial') {
+          updates.customer_status = normalizedStatus;
+        } else if (normalizedStatus === 'canceled') {
+          updates.customer_status = 'canceled';
+        }
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'No updates provided' })
+        };
+      }
+
+      updates.updated_at = new Date().toISOString();
+
+      const { data: updatedOrder, error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update(updates)
+        .eq('id', orderId)
+        .select('*, service:services(*, provider:providers(*))')
+        .single();
+
+      if (updateError || !updatedOrder) {
+        console.error('Admin update failed:', updateError);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to update order' })
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, order: updatedOrder })
       };
     }
 
@@ -2404,5 +2701,320 @@ async function findOrCreateLink(url, serviceId) {
 */
 
 // End of disabled Link Management functions
+
+// ============= RESEND FAILED ORDER HANDLER =============
+async function handleResendOrder(user, body, headers) {
+  try {
+    // Only allow admin users to resend orders
+    if (!user || user.role !== 'admin') {
+      logger.warn('Unauthorized resend attempt', { userId: user?.userId, role: user?.role });
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    // Validate request body
+    if (!body || typeof body !== 'object') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid request body' })
+      };
+    }
+
+    const { order_id: orderId } = body;
+    if (!orderId || (typeof orderId !== 'string' && typeof orderId !== 'number')) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Valid order_id is required' })
+      };
+    }
+
+    logger.info('Resending failed order', { orderId, adminUser: user.email });
+
+    // Get order details with service and provider info
+    const { data: order, error: orderError } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        *,
+        service:services(
+          id,
+          name,
+          provider_service_id,
+          provider_id,
+          provider:providers(
+            id,
+            name,
+            api_url,
+            api_key,
+            status
+          )
+        ),
+        user:users(email)
+      `)
+      .eq('id', orderId)
+      .single();
+
+    if (orderError || !order) {
+      logger.warn('Order not found for resend', { orderId, error: orderError });
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    // Validate order is actually failed (prevent resending successful orders)
+    if (order.status !== 'failed' && order.status !== 'error') {
+      logger.warn('Attempt to resend non-failed order', { orderId, status: order.status });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Can only resend failed orders',
+          currentStatus: order.status 
+        })
+      };
+    }
+
+    if (!order.service || !order.service.provider) {
+      logger.error('Order missing service or provider', { orderId });
+      await markOrderFailure(orderId, {
+        message: 'System: Service or provider configuration missing',
+        source: 'system',
+        code: 'service_missing',
+        context: { stage: 'resend_validation' }
+      });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order service or provider not configured' })
+      };
+    }
+
+    // Validate required order fields
+    if (!order.link || !order.quantity || !order.service.provider_service_id) {
+      logger.error('Order missing required fields', { 
+        orderId, 
+        hasLink: !!order.link, 
+        hasQuantity: !!order.quantity,
+        hasProviderServiceId: !!order.service.provider_service_id 
+      });
+      await markOrderFailure(orderId, {
+        message: 'System: Order missing required data for resend',
+        source: 'system',
+        code: 'resend_validation_failed',
+        context: {
+          stage: 'resend_validation',
+          hasLink: !!order.link,
+          hasQuantity: !!order.quantity,
+          hasProviderServiceId: !!order.service.provider_service_id
+        }
+      });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order missing required fields (link, quantity, or service ID)' })
+      };
+    }
+
+    const provider = order.service.provider;
+
+    if (provider.status !== 'active') {
+      logger.warn('Provider not active', { providerId: provider.id, status: provider.status });
+      await markOrderFailure(orderId, {
+        message: 'System: Provider is not active',
+        source: 'system',
+        code: 'provider_inactive',
+        context: { provider_status: provider.status }
+      });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Provider is not active' })
+      };
+    }
+
+    if (!provider.api_url || !provider.api_key) {
+      logger.error('Provider missing API credentials', { providerId: provider.id });
+      await markOrderFailure(orderId, {
+        message: 'System: Provider API credentials missing',
+        source: 'system',
+        code: 'provider_credentials_missing',
+        context: { provider_id: provider.id }
+      });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Provider API credentials not configured' })
+      };
+    }
+
+    // Submit to provider with retry logic
+    try {
+      logger.info('Submitting order to provider', { orderId, providerId: provider.id });
+
+      let providerResponse;
+      let lastError;
+      const maxRetries = 2;
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          logger.info('Provider submission attempt', { orderId, attempt, maxRetries });
+          
+          providerResponse = await submitOrderToProvider(provider, {
+            service: order.service.provider_service_id,
+            link: order.link,
+            quantity: order.quantity
+          });
+
+          if (!providerResponse) {
+            throw new Error('Provider returned null/undefined response');
+          }
+
+          if (!providerResponse.order) {
+            throw new Error('Provider did not return an order ID');
+          }
+          
+          // Success - break retry loop
+          logger.info('Provider accepted order', { orderId, attempt, providerOrderId: providerResponse.order });
+          break;
+          
+        } catch (retryError) {
+          lastError = retryError;
+          logger.warn('Provider submission attempt failed', { 
+            orderId, 
+            attempt, 
+            error: retryError.message,
+            willRetry: attempt < maxRetries 
+          });
+          
+          if (attempt < maxRetries) {
+            // Wait before retry (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+          }
+        }
+      }
+      
+      // If all retries failed, throw last error
+      if (!providerResponse || !providerResponse.order) {
+        throw lastError || new Error('Provider submission failed after retries');
+      }
+
+      const providerOrderId = providerResponse.order;
+      logger.info('Provider accepted resent order', { orderId, providerOrderId });
+
+      // Extract response details
+      const providerChargeFromResponse = toNumberOrNull(
+        providerResponse.response?.charge ?? providerResponse.response?.price ?? providerResponse.response?.cost
+      );
+      const providerStartCountFromResponse = toNumberOrNull(
+        providerResponse.response?.start_count ?? providerResponse.response?.startCount ?? providerResponse.response?.start
+      );
+      const providerRemainsFromResponse = toNumberOrNull(
+        providerResponse.response?.remains ?? providerResponse.response?.remain ?? providerResponse.response?.left
+      );
+      const providerCurrencyFromResponse = providerResponse.response?.currency
+        ?? providerResponse.response?.cur
+        ?? providerResponse.response?.price_currency;
+      const nowIso = new Date().toISOString();
+
+      const updatePayload = {
+        provider_order_id: providerOrderId,
+        status: 'processing',
+        customer_status: 'processing',
+        provider_status: 'processing',
+        last_status_sync: nowIso,
+        provider_response: providerResponse.response,
+        provider_error: null, // Clear previous error
+        provider_currency: normalizeCurrency(providerCurrencyFromResponse)
+      };
+
+      if (providerChargeFromResponse !== null) {
+        updatePayload.provider_cost = providerChargeFromResponse;
+      }
+
+      if (providerStartCountFromResponse !== null) {
+        updatePayload.start_count = providerStartCountFromResponse;
+      }
+
+      if (providerRemainsFromResponse !== null) {
+        updatePayload.remains = providerRemainsFromResponse;
+      }
+
+      // Update order
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update(updatePayload)
+        .eq('id', orderId);
+
+      if (updateError) {
+        logger.error('Failed to update order after resend', { orderId, error: updateError });
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Order submitted but failed to update record' })
+        };
+      }
+
+      logger.info('Order resent successfully', { orderId, providerOrderId });
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          providerOrderId,
+          message: 'Order resent successfully'
+        })
+      };
+
+    } catch (providerError) {
+      logger.error('Provider submission failed on resend', { orderId, error: providerError });
+
+      // Extract error message
+      let providerErrorMessage = 'Provider request failed';
+      if (providerError.response && providerError.response.error) {
+        providerErrorMessage = providerError.response.error;
+      } else if (providerError.message) {
+        providerErrorMessage = providerError.message;
+      }
+
+      await markOrderFailure(orderId, {
+        message: providerErrorMessage,
+        source: 'provider',
+        code: 'provider_resend_failed',
+        context: {
+          stage: 'resend_provider_submission',
+          attempt: 'resend'
+        },
+        extra: {
+          provider_response: providerError.response || null
+        }
+      });
+
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Provider request failed',
+          details: providerErrorMessage
+        })
+      };
+    }
+
+  } catch (error) {
+    logOrderError('Failed to resend order', error, { orderId: body.orderId });
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
 
 

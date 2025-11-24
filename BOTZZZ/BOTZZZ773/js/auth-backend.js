@@ -63,7 +63,7 @@ function ensureAdminOtpModalStructure() {
 
     const template = document.createElement('template');
     template.innerHTML = `
-        <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true">
+        <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true" style="display: none;">
             <div class="otp-modal" role="dialog" aria-labelledby="otpModalTitle" aria-modal="true">
                 <button type="button" class="otp-modal-close" id="closeAdminOtpModal" aria-label="Close admin verification">&times;</button>
                 <div class="otp-modal-header">
@@ -155,7 +155,9 @@ function openAdminOtpModal(message, expiresIn = ADMIN_OTP_DEFAULT_EXPIRY) {
 
     modal.classList.add('active');
     modal.setAttribute('aria-hidden', 'false');
+    modal.style.display = 'flex';
     document.body.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
 
     setOtpFeedback(message || 'OTP sent to your admin email. Enter the code to continue.', 'success');
     updateAdminOtpCountdown();
@@ -174,7 +176,9 @@ function closeAdminOtpModal({ clearCredentials = false } = {}) {
 
     modal.classList.remove('active');
     modal.setAttribute('aria-hidden', 'true');
+    modal.style.display = 'none';
     document.body.classList.remove('modal-open');
+    document.body.style.overflow = '';
 
     const otpInput = document.getElementById('adminOtpInput');
     if (otpInput) {
@@ -203,6 +207,11 @@ function closeAdminOtpModal({ clearCredentials = false } = {}) {
     adminOtpState.resendAvailableAt = null;
 
     if (clearCredentials) {
+        adminOtpState.email = '';
+        adminOtpState.password = '';
+        adminOtpState.rememberMe = false;
+    }
+}
         clearAdminOtpCredentials();
     }
 }

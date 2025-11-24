@@ -16,6 +16,8 @@ const servicesOptionsState = {
     hasServices: false,
     error: null
 };
+const failedOrdersRegistry = new Map();
+const ORDER_STATUS_OPTIONS = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
 
 function getOrderById(orderId) {
     if (orderId === undefined || orderId === null) return undefined;
@@ -230,6 +232,132 @@ function formatStatusLabel(status) {
     return value.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
+function formatDateTimeLabel(timestamp) {
+    if (!timestamp) {
+        return null;
+    }
+
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime())) {
+        return null;
+    }
+
+    return parsed.toLocaleString();
+}
+
+function normalizeFailureContext(context) {
+    if (!context) {
+        return null;
+    }
+
+    if (typeof context === 'object') {
+        return context;
+    }
+
+    if (typeof context === 'string') {
+        const trimmed = context.trim();
+        if (!trimmed) {
+            return null;
+        }
+        try {
+            const parsed = JSON.parse(trimmed);
+            if (parsed && typeof parsed === 'object') {
+                return parsed;
+            }
+        } catch (error) {
+            // Ignore parse errors and fall back to treating string as message
+        }
+        return { message: trimmed };
+    }
+
+    return null;
+}
+
+function formatFailureContextSummary(context) {
+    const normalized = normalizeFailureContext(context);
+    if (!normalized || typeof normalized !== 'object') {
+        return null;
+    }
+
+    const entries = Object.entries(normalized).filter(([key, value]) => {
+        if (!key) return false;
+        if (value === undefined || value === null) return false;
+        if (typeof value === 'string' && !value.trim()) return false;
+        if (typeof value === 'object' && Object.keys(value).length === 0) return false;
+        return true;
+    });
+
+    if (entries.length === 0) {
+        return null;
+    }
+
+    const parts = entries.slice(0, 3).map(([key, value]) => {
+        if (typeof value === 'object') {
+            try {
+                return `${key}: ${truncateText(JSON.stringify(value), 60)}`;
+            } catch (error) {
+                return `${key}: [object]`;
+            }
+        }
+        return `${key}: ${truncateText(String(value), 60)}`;
+    });
+
+    return parts.join(' • ') + (entries.length > 3 ? ' +' : '');
+}
+
+function buildFailureMeta(order = {}) {
+    const failureSourceRaw = order.failure_source || order.failure_log?.failure_source;
+    const failureCode = order.failure_code || order.failure_log?.failure_code;
+    const retryCount = typeof order.failure_log?.retry_count === 'number'
+        ? order.failure_log.retry_count
+        : null;
+    const resolved = Boolean(order.failure_log?.resolved);
+    const contextSummary = formatFailureContextSummary(order.failure_context || order.failure_log?.failure_context);
+    const lastRetryLabel = formatDateTimeLabel(order.failure_log?.last_retry_at || order.failure_log?.error_timestamp);
+
+    if (!failureSourceRaw && !failureCode && retryCount === null && !resolved && !contextSummary && !lastRetryLabel) {
+        return '';
+    }
+
+    const chips = [];
+
+    if (failureSourceRaw) {
+        chips.push(`<span class="failure-chip failure-chip--source">Source: ${escapeHtml(formatStatusLabel(failureSourceRaw))}</span>`);
+    }
+
+    if (failureCode) {
+        chips.push(`<span class="failure-chip failure-chip--code">Code: ${escapeHtml(String(failureCode))}</span>`);
+    }
+
+    if (retryCount !== null) {
+        chips.push(`<span class="failure-chip failure-chip--retry">Retries: ${escapeHtml(String(retryCount))}</span>`);
+    }
+
+    if (resolved) {
+        chips.push('<span class="failure-chip failure-chip--resolved">Resolved</span>');
+    }
+
+    const chipsMarkup = chips.length
+        ? `<div class="failure-meta__chips">${chips.join('')}</div>`
+        : '';
+
+    const contextMarkup = contextSummary
+        ? `<div class="failure-meta__context" title="${escapeHtml(contextSummary)}">${escapeHtml(contextSummary)}</div>`
+        : '';
+
+    const timestampMarkup = lastRetryLabel
+        ? `<div class="failure-meta__timestamp">Last retry ${escapeHtml(lastRetryLabel)}</div>`
+        : '';
+
+    return `
+        <div class="failure-meta">
+            ${chipsMarkup}
+            ${contextMarkup}
+            ${timestampMarkup}
+        </div>
+    `;
+}
+
 function getStatusColor(statusKey) {
     switch (statusKey) {
         case 'completed':
@@ -343,6 +471,66 @@ function formatRelativeTime(timestamp) {
     }
     const diffDays = Math.floor(diffHours / 24);
     return `Synced ${diffDays}d ago`;
+}
+
+async function fetchOrderDetails(orderId) {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        throw new Error('Not authenticated. Please sign in again.');
+    }
+
+    const response = await fetch(`/.netlify/functions/orders?orderId=${encodeURIComponent(orderId)}&limit=1`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Failed to load order #${orderId}`);
+    }
+
+    const data = await response.json();
+    if (Array.isArray(data.orders) && data.orders.length > 0) {
+        return data.orders[0];
+    }
+
+    return null;
+}
+
+async function resolveOrderForManagement(orderId) {
+    const cached = getOrderById(orderId);
+    if (cached) {
+        return cached;
+    }
+
+    const failedCached = failedOrdersRegistry.get(String(orderId));
+    if (failedCached) {
+        return failedCached;
+    }
+
+    try {
+        const fetched = await fetchOrderDetails(orderId);
+        if (fetched) {
+            return fetched;
+        }
+    } catch (error) {
+        console.error('[ORDERS] Failed to fetch order details:', error);
+        throw error;
+    }
+
+    return null;
+}
+
+function refreshOrdersAfterAdminChange() {
+    const isFailedView = Boolean(document.querySelector('.failed-orders-notice'));
+    if (isFailedView) {
+        loadFailedOrders();
+    } else {
+        loadOrders({ skipSync: true });
+    }
 }
 
 // Resolve provider information from the order payload regardless of shape
@@ -1085,8 +1273,19 @@ function filterOrders(status) {
     tabs.forEach(tab => tab.classList.remove('active'));
     document.querySelector(`[data-status="${status}"]`)?.classList.add('active');
     
+    // Handle 'failed' filter separately - load from API with status=failed
+    if (status === 'failed') {
+        loadFailedOrders();
+        return;
+    }
+    
     if (status === 'all') {
-        rows.forEach(row => row.style.display = '');
+        // Reload all orders if coming from failed view
+        if (document.querySelector('.failed-orders-notice')) {
+            loadOrders({ skipSync: true });
+        } else {
+            rows.forEach(row => row.style.display = '');
+        }
     } else {
         rows.forEach(row => {
             if (row.dataset.status === status) {
@@ -1099,158 +1298,334 @@ function filterOrders(status) {
 }
 
 // View order details
-function viewOrder(orderId) {
-    const content = `
-        <div class="user-details">
-            <div class="user-detail-section">
-                <h4><i class="fas fa-info-circle"></i> Order Details</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Order ID:</span>
-                    <span class="detail-value">#${orderId}</span>
+async function viewOrder(orderId) {
+    try {
+        const order = await resolveOrderForManagement(orderId);
+        if (!order) {
+            showNotification(`Order #${orderId} not found`, 'error');
+            return;
+        }
+
+        const providerOrderId = resolveProviderOrderIdFromRecord(order) || order.provider_order_id || 'N/A';
+        const createdAt = order.created_at ? new Date(order.created_at).toLocaleString() : 'Unknown';
+        const updatedAt = order.updated_at ? new Date(order.updated_at).toLocaleString() : 'Unknown';
+        const statusKey = getStatusKey(order.status);
+        const providerStatusKey = getStatusKey(order.provider_status);
+        const failureMetaMarkup = buildFailureMeta(order);
+
+        const content = `
+            <div class="user-details">
+                <div class="user-detail-section">
+                    <h4><i class="fas fa-ticket-alt"></i> Core Details</h4>
+                    <div class="detail-row"><span class="detail-label">Order ID:</span><span class="detail-value">${escapeHtml(String(order.id || 'Unknown'))}</span></div>
+                    <div class="detail-row"><span class="detail-label">Provider Order:</span><span class="detail-value">${escapeHtml(providerOrderId)}</span></div>
+                    <div class="detail-row"><span class="detail-label">Service:</span><span class="detail-value">${escapeHtml(order.service?.name || order.service_name || 'Unknown')}</span></div>
+                    <div class="detail-row"><span class="detail-label">Link:</span><span class="detail-value"><a href="${order.link ? encodeURI(order.link) : '#'}" target="_blank" rel="noopener">${escapeHtml(truncateText(order.link || 'N/A', 80))}</a></span></div>
+                    <div class="detail-row"><span class="detail-label">Quantity:</span><span class="detail-value">${escapeHtml(String(order.quantity || 'N/A'))}</span></div>
+                    <div class="detail-row"><span class="detail-label">Charge:</span><span class="detail-value">${escapeHtml(formatCurrency(order.charge))}</span></div>
                 </div>
-                <div class="detail-row">
-                    <span class="detail-label" style="color: #888;">Loading order details...</span>
+                <div class="user-detail-section">
+                    <h4><i class="fas fa-traffic-light"></i> Status</h4>
+                    ${buildOrderStatusChipRow({
+                        orderStatusLabel: formatStatusLabel(order.status),
+                        orderStatusKey: statusKey,
+                        providerStatusLabel: order.provider_status ? formatStatusLabel(order.provider_status) : null,
+                        providerStatusKey: providerStatusKey,
+                        lastSyncLabel: order.last_status_sync ? formatRelativeTime(order.last_status_sync) : null,
+                        modeLabel: order.mode ? `Mode: ${order.mode}` : null
+                    })}
+                    ${failureMetaMarkup}
+                </div>
+                <div class="user-detail-section">
+                    <h4><i class="fas fa-clock"></i> Timeline</h4>
+                    <div class="detail-row"><span class="detail-label">Created:</span><span class="detail-value">${escapeHtml(createdAt)}</span></div>
+                    <div class="detail-row"><span class="detail-label">Updated:</span><span class="detail-value">${escapeHtml(updatedAt)}</span></div>
+                    <div class="detail-row"><span class="detail-label">Last Sync:</span><span class="detail-value">${order.last_status_sync ? escapeHtml(new Date(order.last_status_sync).toLocaleString()) : 'Never'}</span></div>
                 </div>
             </div>
-            <div class="user-detail-section" style="text-align: center; padding: 40px 20px; color: #888;">
-                <i class="fas fa-spinner fa-spin" style="font-size: 32px; color: #FF1494; margin-bottom: 16px;"></i>
-                <p>Fetching order information from database...</p>
-            </div>
-            <div class="user-detail-section" style="display: none;">
-                <h4><i class="fas fa-clock"></i> Timeline</h4>
-                <div class="detail-row">
-                    <span class="detail-label">Created:</span>
-                    <span class="detail-value">-</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Started:</span>
-                    <span class="detail-value">-</span>
-                </div>
-                <div class="detail-row">
-                    <span class="detail-label">Mode:</span>
-                    <span class="detail-value">-</span>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="editOrder(${orderId})">
-            <i class="fas fa-edit"></i> Edit
-        </button>
-        <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
-    `;
-    
-    createModal(`Order #${orderId} Details`, content, actions);
+        `;
+
+        const actions = `
+            <button type="button" class="btn-secondary" onclick="editOrder('${escapeHtml(orderId)}')">
+                <i class="fas fa-edit"></i> Edit
+            </button>
+            <button type="button" class="btn-primary" onclick="closeModal()">Close</button>`;
+
+        createModal(`Order #${orderId} Details`, content, actions);
+    } catch (error) {
+        console.error('[ORDERS] viewOrder failed:', error);
+        showNotification(`Unable to load order #${orderId}: ${error.message}`, 'error');
+    }
 }
 
 // Edit order
 async function editOrder(orderId) {
-    const servicesOptions = await getServicesOptions();
-    
-    const content = `
-        <form id="editOrderForm" onsubmit="submitEditOrder(event, ${orderId})" class="admin-form">
-            <div class="form-group">
-                <label>Service</label>
-                <select name="service" required>
-                    ${servicesOptions}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Link</label>
-                <input type="url" name="link" value="https://www.instagram.com/username/" required>
-            </div>
-            <div class="form-row">
+    try {
+        const order = await resolveOrderForManagement(orderId);
+        if (!order) {
+            showNotification(`Order #${orderId} not found`, 'error');
+            return;
+        }
+
+        const servicesOptions = await getServicesOptions(order.service?.id || order.service_id);
+        const statusOptionsMarkup = ORDER_STATUS_OPTIONS.map(status => {
+            const selected = getStatusKey(order.status) === getStatusKey(status);
+            return `<option value="${status}"${selected ? ' selected' : ''}>${formatStatusLabel(status)}</option>`;
+        }).join('');
+
+        const content = `
+            <form id="editOrderForm" onsubmit="submitEditOrder(event, '${escapeHtml(orderId)}')" class="admin-form">
                 <div class="form-group">
-                    <span class="detail-label">Quantity:</span>
-                    <input type="number" name="quantity" value="1000" min="1" required>
+                    <label>Service</label>
+                    <select name="service" required>
+                        ${servicesOptions}
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label>Charge</label>
-                    <input type="number" name="charge" value="12.50" min="0" step="0.01" required>
+                    <label>Link</label>
+                    <input type="url" name="link" value="${escapeHtml(order.link || '')}" required>
                 </div>
-            </div>
-            <div class="form-group">
-                <label>Status</label>
-                <select name="status">
-                    <option value="Pending">Pending</option>
-                    <option value="In progress" selected>In progress</option>
-                    <option value="Completed">Completed</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Canceled">Canceled</option>
-                </select>
-            </div>
-        </form>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="submit" form="editOrderForm" class="btn-primary">
-            <i class="fas fa-save"></i> Save Changes
-        </button>
-    `;
-    
-    createModal(`Edit Order #${orderId}`, content, actions);
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        <input type="number" name="quantity" value="${escapeHtml(String(order.quantity || ''))}" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Charge (USD)</label>
+                        <input type="number" name="charge" value="${escapeHtml(String(order.charge || '0'))}" min="0" step="0.01" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Provider Order ID</label>
+                    <input type="text" name="providerOrderId" value="${escapeHtml(resolveProviderOrderIdFromRecord(order) || '')}" placeholder="#123456789">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="status">
+                        ${statusOptionsMarkup}
+                    </select>
+                </div>
+            </form>
+        `;
+
+        const actions = `
+            <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+            <button type="submit" form="editOrderForm" class="btn-primary">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
+        `;
+
+        createModal(`Edit Order #${orderId}`, content, actions);
+    } catch (error) {
+        console.error('[ORDERS] editOrder failed:', error);
+        showNotification(`Unable to edit order #${orderId}: ${error.message}`, 'error');
+    }
 }
 
-function submitEditOrder(event, orderId) {
+async function submitEditOrder(event, orderId) {
     event.preventDefault();
-    showNotification(`Order #${orderId} updated successfully!`, 'success');
-    closeModal();
+
+    const formData = new FormData(event.target);
+    const payload = {
+        action: 'admin_update',
+        orderId,
+        serviceId: formData.get('service'),
+        link: formData.get('link'),
+        quantity: formData.get('quantity'),
+        charge: formData.get('charge'),
+        status: formData.get('status'),
+        providerOrderId: formData.get('providerOrderId')
+    };
+
+    const button = event.submitter;
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to update order');
+        }
+
+        showNotification(`Order #${orderId} updated`, 'success');
+        closeModal();
+        refreshOrdersAfterAdminChange();
+    } catch (error) {
+        console.error('[ORDERS] submitEditOrder failed:', error);
+        showNotification(error.message || 'Failed to update order', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }
+    }
 }
 
 // Refill order
-function refillOrder(orderId) {
-    const content = `
-        <div class="confirmation-message">
-            <i class="fas fa-redo-alt" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
-            <p>Refill order #${orderId}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will add the order back to the queue for processing. The remaining quantity will be fulfilled.
-            </p>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-primary" onclick="confirmRefillOrder(${orderId})">
-            <i class="fas fa-redo-alt"></i> Refill Order
-        </button>
-    `;
-    
-    createModal('Refill Order', content, actions);
+async function refillOrder(orderId) {
+    try {
+        const order = await resolveOrderForManagement(orderId);
+        if (!order) {
+            showNotification(`Order #${orderId} not found`, 'error');
+            return;
+        }
+
+        const providerOrderId = resolveProviderOrderIdFromRecord(order);
+        const content = `
+            <div class="confirmation-message">
+                <i class="fas fa-sync-alt" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+                <p>Request a refill for order #${escapeHtml(String(orderId))}?</p>
+                <p style="color: #888; font-size: 14px; margin-top: 10px;">
+                    Provider reference: <strong>${escapeHtml(providerOrderId || 'Unavailable')}</strong><br>
+                    Service: ${escapeHtml(order.service?.name || order.service_name || 'Unknown')}
+                </p>
+            </div>
+        `;
+
+        const actions = `
+            <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+            <button type="button" class="btn-primary" id="confirmRefillButton" onclick="confirmRefillOrder('${escapeHtml(orderId)}')">
+                <i class="fas fa-sync-alt"></i> Request Refill
+            </button>
+        `;
+
+        createModal('Refill Order', content, actions);
+    } catch (error) {
+        console.error('[ORDERS] refillOrder error:', error);
+        showNotification(`Unable to open refill dialog: ${error.message}`, 'error');
+    }
 }
 
-function confirmRefillOrder(orderId) {
-    showNotification(`Order #${orderId} refill requested successfully`, 'success');
-    closeModal();
+async function confirmRefillOrder(orderId) {
+    const button = document.getElementById('confirmRefillButton');
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Requesting';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'refill', orderId })
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to request refill');
+        }
+
+        showNotification(data.message || `Refill requested for order #${orderId}`, 'success');
+        closeModal();
+        refreshOrdersAfterAdminChange();
+    } catch (error) {
+        console.error('[ORDERS] confirmRefillOrder error:', error);
+        showNotification(error.message || 'Refill request failed', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-sync-alt"></i> Request Refill';
+        }
+    }
 }
 
 // Cancel order
-function cancelOrder(orderId) {
-    const content = `
-        <div class="confirmation-message danger">
-            <i class="fas fa-times-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
-            <p>Cancel order #${orderId}?</p>
-            <p style="color: #888; font-size: 14px; margin-top: 10px;">
-                This will stop the order processing and mark it as canceled. This action cannot be undone.
-            </p>
-        </div>
-    `;
-    
-    const actions = `
-        <button type="button" class="btn-secondary" onclick="closeModal()">Keep Order</button>
-        <button type="button" class="btn-danger" onclick="confirmCancelOrder(${orderId})">
-            <i class="fas fa-times"></i> Cancel Order
-        </button>
-    `;
-    
-    createModal('Cancel Order', content, actions);
+async function cancelOrder(orderId) {
+    try {
+        const order = await resolveOrderForManagement(orderId);
+        if (!order) {
+            showNotification(`Order #${orderId} not found`, 'error');
+            return;
+        }
+
+        const refundAmount = escapeHtml(formatCurrency(order.charge));
+        const content = `
+            <div class="confirmation-message danger">
+                <i class="fas fa-times-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
+                <p>Cancel order #${escapeHtml(String(orderId))}?</p>
+                <p style="color: #888; font-size: 14px; margin-top: 10px;">
+                    The customer will be refunded ${refundAmount}. This action cannot be undone.
+                </p>
+            </div>
+        `;
+
+        const actions = `
+            <button type="button" class="btn-secondary" onclick="closeModal()">Keep Order</button>
+            <button type="button" class="btn-danger" id="confirmCancelButton" onclick="confirmCancelOrder('${escapeHtml(orderId)}')">
+                <i class="fas fa-times"></i> Cancel Order
+            </button>
+        `;
+
+        createModal('Cancel Order', content, actions);
+    } catch (error) {
+        console.error('[ORDERS] cancelOrder error:', error);
+        showNotification(error.message || 'Unable to open cancel dialog', 'error');
+    }
 }
 
-function confirmCancelOrder(orderId) {
-    showNotification(`Order #${orderId} has been canceled`, 'success');
-    closeModal();
+async function confirmCancelOrder(orderId) {
+    const button = document.getElementById('confirmCancelButton');
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ orderId })
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) {
+            throw new Error(data.error || 'Failed to cancel order');
+        }
+
+        showNotification(data.message || `Order #${orderId} cancelled`, 'success');
+        closeModal();
+        refreshOrdersAfterAdminChange();
+    } catch (error) {
+        console.error('[ORDERS] confirmCancelOrder error:', error);
+        showNotification(error.message || 'Unable to cancel order', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-times"></i> Cancel Order';
+        }
+    }
 }
 
 // Add Order Modal
@@ -1670,12 +2045,12 @@ function buildOrderActions(order) {
 }
 
 // Helper function to get services options
-async function getServicesOptions() {
+async function getServicesOptions(selectedServiceId = null) {
     if (servicesCache.length > 0) {
         servicesOptionsState.hasServices = servicesCache.length > 0;
         servicesOptionsState.error = null;
         servicesOptionsState.lastUpdated = Date.now();
-        return buildServicesOptionsHTML(servicesCache);
+        return buildServicesOptionsHTML(servicesCache, selectedServiceId);
     }
     
     try {
@@ -1697,7 +2072,7 @@ async function getServicesOptions() {
         servicesOptionsState.hasServices = servicesCache.length > 0;
         servicesOptionsState.error = null;
         servicesOptionsState.lastUpdated = Date.now();
-        return buildServicesOptionsHTML(servicesCache);
+        return buildServicesOptionsHTML(servicesCache, selectedServiceId);
     } catch (error) {
         console.error('Failed to load services:', error);
         servicesCache = [];
@@ -1708,7 +2083,7 @@ async function getServicesOptions() {
     }
 }
 
-function buildServicesOptionsHTML(services) {
+function buildServicesOptionsHTML(services, selectedServiceId = null) {
     if (services.length === 0) {
         return '<option value="">No services available</option>';
     }
@@ -1728,14 +2103,365 @@ function buildServicesOptionsHTML(services) {
     Object.keys(grouped).sort().forEach(categoryName => {
         html += `<optgroup label="${escapeHtml(categoryName)}">`;
         grouped[categoryName].forEach(service => {
+            const isSelected = selectedServiceId && String(service.id) === String(selectedServiceId);
             const rate = parseFloat(service.rate || 0).toFixed(2);
-            html += `<option value="${service.id}">${escapeHtml(service.name)} - $${rate}/1k</option>`;
+            html += `<option value="${service.id}"${isSelected ? ' selected' : ''}>${escapeHtml(service.name)} - $${rate}/1k</option>`;
         });
         html += '</optgroup>';
     });
     
     return html;
 }
+
+// ==========================================
+// FAILED ORDERS MANAGEMENT (SILENT FAILURE)
+// ==========================================
+
+// Load failed orders from API
+async function loadFailedOrders() {
+    const tbody = document.getElementById('ordersTableBody');
+    if (!tbody) {
+        console.error('[FAILED ORDERS] Table body element not found!');
+        return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading failed orders...</td></tr>';
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.error('[FAILED ORDERS] No auth token found!');
+            throw new Error('Not authenticated - please sign in again');
+        }
+
+        console.log('[FAILED ORDERS] Fetching failed orders from API...');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch('/.netlify/functions/orders?status=failed', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+
+        if (response.status === 401 || response.status === 403) {
+            console.error('[FAILED ORDERS] Authentication failed');
+            localStorage.removeItem('token');
+            window.location.href = '/signin.html';
+            return;
+        }
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('[FAILED ORDERS] API error:', errorText);
+            throw new Error(`Server error (${response.status}): ${errorText.substring(0, 100)}`);
+        }
+
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            console.error('[FAILED ORDERS] Invalid response type:', contentType);
+            throw new Error('Invalid server response format');
+        }
+
+        const data = await response.json();
+        
+        if (!data || typeof data !== 'object') {
+            console.error('[FAILED ORDERS] Invalid response data:', data);
+            throw new Error('Invalid response data from server');
+        }
+        
+        const failedOrders = Array.isArray(data.orders) ? data.orders : [];
+        failedOrdersRegistry.clear();
+        
+        console.log('[FAILED ORDERS] Received', failedOrders.length, 'failed orders');
+        
+        // Update badge count
+        const badge = document.getElementById('failedOrderCount');
+        if (badge) {
+            badge.textContent = failedOrders.length;
+        }
+
+        if (failedOrders.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="13" style="text-align: center; padding: 40px;">
+                        <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 16px;"></i>
+                        <p style="font-size: 16px; color: #64748b;">No failed orders found!</p>
+                        <p style="font-size: 14px; color: #94a3b8;">All orders processed successfully.</p>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = `
+            <tr class="failed-orders-notice">
+                <td colspan="13" style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px;">
+                    <i class="fas fa-exclamation-triangle" style="color: #ef4444; margin-right: 8px;"></i>
+                    <strong>Failed Orders View:</strong> Showing ${failedOrders.length} order(s) with provider failures. Customers see these as "processing".
+                </td>
+            </tr>
+        `;
+
+        failedOrders.forEach((order, index) => {
+            try {
+                // Validate order object
+                if (!order || typeof order !== 'object') {
+                    console.warn('[FAILED ORDERS] Invalid order object at index', index);
+                    return;
+                }
+
+                if (order.id !== undefined && order.id !== null) {
+                    failedOrdersRegistry.set(String(order.id), order);
+                }
+                
+                const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
+                const orderUser = order.user || order.users || null;
+                const orderService = order.service || order.services || null;
+                const identifierMeta = resolveOrderIdentifiers(order);
+                
+                const orderPrimaryLabel = escapeHtml(identifierMeta?.primaryLabel || order.id || 'Unknown');
+                const orderSecondaryMarkup = identifierMeta?.secondaryLabel
+                    ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
+                    : '';
+
+                const linkLabel = order.link ? truncateText(order.link, 42) : null;
+                const linkHref = order.link ? encodeURI(order.link) : null;
+                const linkMarkup = order.link
+                    ? `<a href="${linkHref}" class="link-preview" target="_blank" rel="noopener">${escapeHtml(linkLabel)}</a>`
+                    : '<span class="cell-secondary cell-muted">No link</span>';
+
+                const quantity = toNumberOrNull(order.quantity) || 'N/A';
+                const chargeValue = toNumberOrNull(order.charge || order.retail_charge || order.customer_charge || order.amount);
+                const charge = chargeValue !== null ? formatCurrency(chargeValue, 2, 'N/A', order.currency || 'USD') : 'N/A';
+
+                const userName = escapeHtml(orderUser?.username || orderUser?.email || 'Unknown');
+                const serviceName = escapeHtml(orderService?.name || 'Unknown Service');
+                
+                // Show provider error with safe extraction
+                let providerError = 'Unknown error';
+                try {
+                    if (order.provider_error) {
+                        providerError = String(order.provider_error);
+                    } else if (order.error) {
+                        providerError = String(order.error);
+                    }
+                } catch (e) {
+                    console.warn('[FAILED ORDERS] Error extracting provider error:', e);
+                }
+                const errorPreview = truncateText(providerError, 80);
+                const failureMetaMarkup = buildFailureMeta(order);
+
+                const selectionKey = buildOrderSelectionKey(order, index);
+                const isSelected = selectedOrderIds.has(selectionKey);
+                const providerOrderId = resolveProviderOrderIdFromRecord(order);
+                const canRefill = Boolean(providerOrderId);
+
+            const row = document.createElement('tr');
+            row.dataset.orderId = order.id || '';
+            row.dataset.status = 'failed';
+            row.innerHTML = `
+                <td><input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleOrderSelection('${selectionKey}', this.checked)"></td>
+                <td>
+                    <div class="order-id-cell">
+                        <span class="order-id-primary">${orderPrimaryLabel}</span>
+                        ${orderSecondaryMarkup}
+                    </div>
+                </td>
+                <td>${userName}</td>
+                <td>${charge}</td>
+                <td>${linkMarkup}</td>
+                <td>—</td>
+                <td>${escapeHtml(quantity)}</td>
+                <td>${serviceName}</td>
+                <td>
+                    <span class="status-badge status-failed">Failed</span>
+                    <div style="font-size: 11px; color: #ef4444; margin-top: 4px;" title="${escapeHtml(providerError)}">
+                        ${escapeHtml(errorPreview)}
+                    </div>
+                    ${failureMetaMarkup}
+                </td>
+                <td>—</td>
+                <td>${escapeHtml(createdDate)}</td>
+                <td>—</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn-icon" onclick="resendFailedOrder('${escapeHtml(order.id || '')}')" title="Resend to provider" ${!order.id ? 'disabled' : ''}>
+                            <i class="fas fa-redo"></i>
+                        </button>
+                        <button class="btn-icon" onclick="refillOrder('${escapeHtml(order.id || '')}')" title="Request provider refill" ${!order.id || !canRefill ? 'disabled' : ''}>
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn-icon" onclick="editOrder('${escapeHtml(order.id || '')}')" title="Edit order" ${!order.id ? 'disabled' : ''}>
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-icon" onclick="deleteOrder('${escapeHtml(order.id || '')}')" title="Delete order" ${!order.id ? 'disabled' : ''}>
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            `;
+            tbody.appendChild(row);
+            } catch (rowError) {
+                console.error('[FAILED ORDERS] Error rendering row:', rowError, order);
+                // Continue with next order
+            }
+        });
+
+    } catch (error) {
+        console.error('[FAILED ORDERS] Error:', error);
+        
+        let errorMessage = 'Error loading failed orders';
+        let errorDetails = '';
+        
+        if (error.name === 'AbortError') {
+            errorMessage = 'Request timed out';
+            errorDetails = 'The server took too long to respond. Please try again.';
+        } else if (error.message) {
+            errorDetails = error.message;
+        }
+        
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="13" style="text-align: center; padding: 40px;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 16px;"></i>
+                    <p style="font-size: 16px; color: #ef4444; font-weight: 600; margin-bottom: 8px;">${escapeHtml(errorMessage)}</p>
+                    <p style="font-size: 14px; color: #64748b; margin-bottom: 16px;">${escapeHtml(errorDetails)}</p>
+                    <button class="btn-primary" onclick="loadFailedOrders()" style="margin-top: 12px;">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Resend failed order to provider
+async function resendFailedOrder(orderId) {
+    // Validate order ID
+    if (!orderId || (typeof orderId !== 'string' && typeof orderId !== 'number')) {
+        alert('Invalid order ID');
+        return;
+    }
+    
+    if (!confirm('Resend this order to the provider?\n\nThis will retry the order with the same details.\nMake sure the link and quantity are still valid.')) {
+        return;
+    }
+
+    // Show loading state
+    const button = event?.target?.closest('button');
+    const originalButtonHTML = button ? button.innerHTML : '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated - please sign in again');
+        }
+
+        console.log('[RESEND ORDER] Resending order:', orderId);
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout (provider can be slow)
+        
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'resend_order',
+                order_id: orderId
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('token');
+            window.location.href = '/signin.html';
+            return;
+        }
+
+        const contentType = response.headers.get('content-type');
+        let data;
+        
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            console.error('[RESEND ORDER] Non-JSON response:', text);
+            throw new Error('Invalid server response format');
+        }
+        
+        if (!response.ok || data.error || !data.success) {
+            const errorMsg = data.error || data.details || `Server error (${response.status})`;
+            throw new Error(errorMsg);
+        }
+
+        console.log('[RESEND ORDER] Success:', data);
+        
+        const providerOrderId = data.providerOrderId || data.provider_order_id || 'N/A';
+        alert(`✓ Order resent successfully!\n\nProvider Order ID: ${providerOrderId}\n\nThe order is now processing.`);
+        refreshOrdersAfterAdminChange();
+
+    } catch (error) {
+        console.error('[RESEND ORDER] Error:', error);
+        
+        let errorMessage = 'Failed to resend order';
+        if (error.name === 'AbortError') {
+            errorMessage = 'Request timed out. The provider may be slow or unavailable. Please try again later.';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+        
+        alert(`✗ ${errorMessage}`);
+    } finally {
+        // Restore button state
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = originalButtonHTML;
+        }
+    }
+}
+
+// Initialize failed order count on page load
+document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        const token = localStorage.getItem('token');
+        if (token) {
+            const response = await fetch('/.netlify/functions/orders?status=failed', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                const failedCount = Array.isArray(data.orders) ? data.orders.length : 0;
+                const badge = document.getElementById('failedOrderCount');
+                if (badge) {
+                    badge.textContent = failedCount;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[FAILED ORDERS COUNT] Error:', error);
+    }
+});
 
 function escapeHtml(text) {
     if (!text) return '';

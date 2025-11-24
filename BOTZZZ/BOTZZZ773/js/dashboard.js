@@ -888,8 +888,32 @@
             const quantity = Number.isFinite(Number(order.quantity))
                 ? Number(order.quantity)
                 : 0;
-            const statusKey = buildStatusKey(order.status);
-            const statusLabel = formatOrderStatusLabel(order.status);
+            
+            // CRITICAL: Use customer_status instead of status to hide errors from customers
+            // For customers, failed orders should appear as 'processing'
+            // Multiple fallbacks to ensure we always show something safe
+            let displayStatus = 'pending'; // Default safe value
+            try {
+                // Priority 1: customer_status (set by silent failure system)
+                if (order.customer_status && typeof order.customer_status === 'string') {
+                    displayStatus = order.customer_status;
+                }
+                // Priority 2: If no customer_status, check actual status
+                else if (order.status && typeof order.status === 'string') {
+                    // Map failed statuses to 'processing' for customer view
+                    if (order.status === 'failed' || order.status === 'error') {
+                        displayStatus = 'processing';
+                    } else {
+                        displayStatus = order.status;
+                    }
+                }
+            } catch (statusError) {
+                console.warn('[DASHBOARD] Error determining order status:', statusError, order);
+                displayStatus = 'processing'; // Safe default
+            }
+            
+            const statusKey = buildStatusKey(displayStatus);
+            const statusLabel = formatOrderStatusLabel(displayStatus);
 
             return `
                 <tr>
