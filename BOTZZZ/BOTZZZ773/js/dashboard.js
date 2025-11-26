@@ -87,6 +87,24 @@
 
     const { token, user } = auth;
 
+    if (window.BalanceSync) {
+        window.BalanceSync.configure({
+            fetcher: (context = {}) => refreshUserSnapshot({ reason: context.reason || 'balance-sync' })
+        });
+
+        window.BalanceSync.setUser(user, { reason: 'dashboard-init' });
+        window.BalanceSync.subscribe(({ user: syncedUser, balance }) => {
+            if (!syncedUser) {
+                return;
+            }
+            Object.assign(user, syncedUser);
+            if (Number.isFinite(balance)) {
+                user.balance = balance;
+            }
+            updateUserDisplay();
+        }, { immediate: true });
+    }
+
     // Update UI with user data
     function updateUserDisplay() {
         const userNameEl = document.getElementById('userName');
@@ -101,7 +119,7 @@
         }
     }
 
-    async function refreshUserSnapshot() {
+    async function refreshUserSnapshot(context = {}) {
         try {
             const response = await fetch('/.netlify/functions/users', {
                 method: 'GET',
@@ -112,7 +130,7 @@
             });
 
             if (!response.ok) {
-                return;
+                return null;
             }
 
             const data = await response.json();
@@ -120,10 +138,15 @@
                 Object.assign(user, data.user);
                 localStorage.setItem('user', JSON.stringify(user));
                 updateUserDisplay();
+                if (window.BalanceSync) {
+                    window.BalanceSync.setUser(user, { reason: context.reason || 'dashboard-refresh' });
+                }
+                return user;
             }
         } catch (error) {
             console.warn('[DASHBOARD] Failed to refresh user snapshot:', error);
         }
+        return null;
     }
 
     function escapeHtml(text) {
@@ -910,9 +933,12 @@
                     showToast('Order placed successfully!', 'success');
                     
                     // Update user balance
-                    user.balance = (parseFloat(user.balance) - charge).toFixed(2);
+                    user.balance = Number((parseFloat(user.balance) - charge).toFixed(2));
                     localStorage.setItem('user', JSON.stringify(user));
                     updateUserDisplay();
+                    if (window.BalanceSync) {
+                        window.BalanceSync.setBalance(user.balance, { reason: 'order-created' });
+                    }
 
                     // Reset form
                     orderForm.reset();
@@ -1332,6 +1358,9 @@
                 user.balance = Number(result.newBalance);
                 localStorage.setItem('user', JSON.stringify(user));
                 updateUserDisplay();
+                if (window.BalanceSync) {
+                    window.BalanceSync.setBalance(user.balance, { reason: 'refund-success' });
+                }
             }
 
             showToast('Order cancelled and refunded', 'success');

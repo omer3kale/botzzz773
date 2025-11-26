@@ -329,6 +329,250 @@
     emit('fetchguard:ready', { config: guardConfig });
 })(typeof window !== 'undefined' ? window : undefined);
 
+(function installBalanceSync(globalObject) {
+    if (!globalObject || globalObject.BalanceSync) {
+        return;
+    }
+
+    const STORAGE_KEY = 'user';
+    const EVENT_NAME = 'balance:updated';
+    const DEFAULT_REFRESH_THROTTLE_MS = 3500;
+
+    let cachedUser = readUserSnapshot();
+    let refreshThrottleMs = DEFAULT_REFRESH_THROTTLE_MS;
+    let lastRefreshAt = 0;
+    let refreshPromise = null;
+    let fetcher = null;
+    const subscribers = new Set();
+
+    function readUserSnapshot() {
+        try {
+            const raw = globalObject.localStorage?.getItem(STORAGE_KEY);
+            if (!raw) {
+                return null;
+            }
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : null;
+        } catch (error) {
+            console.warn('[BalanceSync] Failed to read user snapshot.', error);
+            return null;
+        }
+    }
+
+    function persistUserSnapshot(snapshot) {
+        try {
+            if (!snapshot) {
+                globalObject.localStorage?.removeItem(STORAGE_KEY);
+                return;
+            }
+            globalObject.localStorage?.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+        } catch (error) {
+            console.warn('[BalanceSync] Failed to persist user snapshot.', error);
+        }
+    }
+
+    function cloneUser(snapshot) {
+        if (!snapshot || typeof snapshot !== 'object') {
+            return null;
+        }
+        return { ...snapshot };
+    }
+
+    function getBalanceValue(snapshot = cachedUser) {
+        if (!snapshot || snapshot.balance === undefined || snapshot.balance === null) {
+            return null;
+        }
+        const numeric = Number(snapshot.balance);
+        return Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function emit(meta = {}) {
+        const detail = {
+            user: cloneUser(cachedUser),
+            balance: getBalanceValue(),
+            meta
+        };
+
+        subscribers.forEach((callback) => {
+            try {
+                callback(detail);
+            } catch (error) {
+                console.warn('[BalanceSync] Subscriber error.', error);
+            }
+        });
+
+        if (typeof globalObject.dispatchEvent === 'function') {
+            try {
+                globalObject.dispatchEvent(new CustomEvent(EVENT_NAME, { detail }));
+            } catch (error) {
+                console.warn('[BalanceSync] Failed to dispatch event.', error);
+            }
+        }
+    }
+
+    function setUserSnapshot(nextUser, meta = {}) {
+        if (nextUser === null) {
+            cachedUser = null;
+            persistUserSnapshot(null);
+            emit(meta);
+            return true;
+        }
+
+        if (!nextUser || typeof nextUser !== 'object') {
+            return false;
+        }
+
+        cachedUser = { ...(cachedUser || {}), ...nextUser };
+        persistUserSnapshot(cachedUser);
+        emit(meta);
+        return true;
+    }
+
+    function setBalanceValue(balanceValue, meta = {}) {
+        const numeric = Number(balanceValue);
+        if (!Number.isFinite(numeric)) {
+            return false;
+        }
+        cachedUser = { ...(cachedUser || {}), balance: Number(numeric.toFixed(4)) };
+        persistUserSnapshot(cachedUser);
+        emit(meta);
+        return true;
+    }
+
+    function configure(options = {}) {
+        if (typeof options.fetcher === 'function') {
+            fetcher = options.fetcher;
+        }
+        if (Number.isFinite(options.throttleMs) && options.throttleMs >= 0) {
+            refreshThrottleMs = options.throttleMs;
+        }
+    }
+
+    function scheduleRefresh(reason = 'manual') {
+        if (!fetcher) {
+            return Promise.resolve(null);
+        }
+        if (refreshPromise) {
+            return refreshPromise;
+        }
+
+        const now = Date.now();
+        const elapsed = now - lastRefreshAt;
+        const waitMs = Math.max(0, refreshThrottleMs - elapsed);
+
+        refreshPromise = (waitMs > 0 ? delay(waitMs) : Promise.resolve())
+            .then(() => fetcher({ reason }))
+            .then((result) => {
+                lastRefreshAt = Date.now();
+                refreshPromise = null;
+
+                const nextUser = extractUser(result);
+                if (nextUser) {
+                    setUserSnapshot(nextUser, { reason: reason || 'refresh' });
+                } else if (result && typeof result === 'object' && result.balance !== undefined) {
+                    setBalanceValue(result.balance, { reason: reason || 'refresh' });
+                }
+                return nextUser || result || null;
+            })
+            .catch((error) => {
+                lastRefreshAt = Date.now();
+                refreshPromise = null;
+                console.warn('[BalanceSync] Refresh failed.', error);
+                throw error;
+            });
+
+        return refreshPromise;
+    }
+
+    function extractUser(result) {
+        if (!result) {
+            return null;
+        }
+        if (result.user && typeof result.user === 'object') {
+            return result.user;
+        }
+        if (result && typeof result === 'object' && (result.email || result.username || result.id !== undefined || result.balance !== undefined)) {
+            return result;
+        }
+        return null;
+    }
+
+    function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function subscribe(handler, options = {}) {
+        if (typeof handler !== 'function') {
+            return () => {};
+        }
+        subscribers.add(handler);
+        if (options.immediate) {
+            try {
+                handler({
+                    user: cloneUser(cachedUser),
+                    balance: getBalanceValue(),
+                    meta: { reason: 'immediate' }
+                });
+            } catch (error) {
+                console.warn('[BalanceSync] Immediate subscriber error.', error);
+            }
+        }
+        return () => subscribers.delete(handler);
+    }
+
+    function handleRefundUpdate(event) {
+        if (!event?.detail) {
+            return;
+        }
+        if (fetcher) {
+            scheduleRefresh('refund-event');
+            return;
+        }
+        const refundAmount = Number(event.detail.amount);
+        const currentBalance = getBalanceValue();
+        if (Number.isFinite(refundAmount) && Number.isFinite(currentBalance)) {
+            setBalanceValue(currentBalance + refundAmount, { reason: 'refund-event-local' });
+        }
+    }
+
+    function handleStorageSync(event) {
+        if (event && event.key && event.key !== STORAGE_KEY) {
+            return;
+        }
+        cachedUser = readUserSnapshot();
+        emit({ reason: 'storage-sync' });
+    }
+
+    const api = Object.freeze({
+        configure,
+        refresh: scheduleRefresh,
+        setUser: setUserSnapshot,
+        setBalance: setBalanceValue,
+        clearUser(meta = {}) {
+            cachedUser = null;
+            persistUserSnapshot(null);
+            emit(meta);
+        },
+        getUser() {
+            return cloneUser(cachedUser);
+        },
+        getBalance() {
+            return getBalanceValue();
+        },
+        subscribe,
+        dispatch(meta = {}) {
+            emit(meta);
+        }
+    });
+
+    globalObject.BalanceSync = api;
+
+    if (typeof globalObject.addEventListener === 'function') {
+        globalObject.addEventListener('refund:updated', handleRefundUpdate);
+        globalObject.addEventListener('storage', handleStorageSync);
+    }
+})(typeof window !== 'undefined' ? window : undefined);
+
 function openAppPopup(path, options = {}) {
     if (typeof window === 'undefined') {
         return null;

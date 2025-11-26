@@ -26,7 +26,29 @@ document.addEventListener('DOMContentLoaded', function() {
     const refundSummary = document.getElementById('refundSummary');
     const refundSummaryMessage = document.getElementById('refundSummaryMessage');
 
+    function renderBalanceAmount(value) {
+        if (!balanceAmount) {
+            return;
+        }
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return;
+        }
+        balanceAmount.textContent = formatCurrencyValue(numeric);
+    }
+
     initializeRefundSnapshotBridge();
+
+    if (window.BalanceSync) {
+        window.BalanceSync.configure({
+            fetcher: (context = {}) => loadUserBalance(context)
+        });
+        window.BalanceSync.subscribe(({ balance }) => {
+            if (Number.isFinite(balance)) {
+                renderBalanceAmount(balance);
+            }
+        }, { immediate: true });
+    }
 
     if (!form) {
         console.warn('[ADDFUNDS] Form element not found.');
@@ -48,7 +70,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const FEE_PERCENTAGE = 2.5;
 
     // Load current balance on page load
-    loadUserBalance();
+    loadUserBalance({ reason: 'page-load' });
     loadRecentRefundHighlight();
 
     updatePaymentMethodHint();
@@ -146,14 +168,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize with no amount selected
     updateSummary(0);
 
-    async function loadUserBalance() {
-        if (!balanceAmount) {
-            return;
-        }
-
+    async function loadUserBalance(context = {}) {
         const token = resolveAuthToken('load-balance');
         if (!token) {
-            return;
+            return null;
         }
 
         try {
@@ -167,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (response.status === 401 || response.status === 403) {
                 handleMissingAuth('balance-response-unauthorized');
-                return;
+                return null;
             }
 
             if (!response.ok) {
@@ -177,13 +195,18 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
 
             if (data && data.user) {
-                const balanceValue = parseFloat(data.user.balance || 0);
-                balanceAmount.textContent = `$${balanceValue.toFixed(2)}`;
+                const balanceValue = Number(data.user.balance || 0);
+                renderBalanceAmount(balanceValue);
                 localStorage.setItem('user', JSON.stringify(data.user));
+                if (window.BalanceSync) {
+                    window.BalanceSync.setUser(data.user, { reason: context.reason || 'addfunds-refresh' });
+                }
+                return data.user;
             }
         } catch (error) {
             console.error('Error loading user balance:', error);
         }
+        return null;
     }
 
     function updatePaymentMethodHint() {
@@ -224,7 +247,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (data.success) {
             showManualPaymentInstructions(amount, data.orderId);
-            loadUserBalance();
+            loadUserBalance({ reason: 'payment-created' });
             notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
         } else {
             throw new Error(data.error || 'Payment initiation failed');

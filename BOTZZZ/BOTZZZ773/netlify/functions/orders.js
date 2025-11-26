@@ -1779,6 +1779,7 @@ async function recordRefundTransaction(order, amount, options = {}) {
 
     const payload = {
       transaction_id: buildRefundTransactionId(order.id || order.order_number),
+      order_id: order.id || order.order_id || null,
       user_id: order.user_id,
       amount: -Math.abs(Number(numericAmount.toFixed(2))),
       method: 'refund',

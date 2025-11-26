@@ -2,6 +2,44 @@
    BOTZZZ773 Customer Dashboard Styles
    ========================================== */
 
+/* Full-screen layout when dashboard is not running inside a popup */
+body.dashboard-shell:not(.popup-mode) {
+    background: var(--bg-black);
+    min-height: 100vh;
+}
+
+body.dashboard-shell:not(.popup-mode) .lightbox-main {
+    padding-top: 0;
+    min-height: 100vh;
+}
+
+body.dashboard-shell:not(.popup-mode) .lightbox-panel {
+    min-height: 100vh;
+    padding: 0;
+    background: transparent;
+}
+
+body.dashboard-shell:not(.popup-mode) .lightbox-panel > .dashboard-wrapper {
+    min-height: 100vh;
+}
+
+body.dashboard-shell:not(.popup-mode) .lightbox-close {
+    display: none;
+}
+
+body.dashboard-shell:not(.popup-mode) .dashboard-content {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: var(--spacing-xl) calc(var(--spacing-xl) * 1.25) var(--spacing-2xl);
+}
+
+@media (max-width: 1024px) {
+    body.dashboard-shell:not(.popup-mode) .dashboard-content {
+        padding: var(--spacing-lg);
+    }
+}
+
 /* Dashboard Layout */
 .dashboard-wrapper {
     display: flex;

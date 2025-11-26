@@ -22,6 +22,9 @@ async function checkAuthStatus() {
         const data = await api.verifyToken(token);
         if (data.success && data.user) {
             localStorage.setItem('user', JSON.stringify(data.user));
+            if (window.BalanceSync) {
+                window.BalanceSync.setUser(data.user, { reason: 'auth-verify' });
+            }
             updateNavigation(true, data.user);
             return true;
         } else {
@@ -356,6 +359,9 @@ function finalizeLogin(data, rememberMe, context = {}) {
 
     localStorage.setItem('token', data.token);
     localStorage.setItem('user', JSON.stringify(data.user));
+    if (window.BalanceSync) {
+        window.BalanceSync.setUser(data.user, { reason: 'auth-login' });
+    }
 
     if (rememberMe) {
         localStorage.setItem('rememberMe', 'true');
@@ -447,6 +453,9 @@ async function handleLogout() {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('rememberMe');
+    if (window.BalanceSync) {
+        window.BalanceSync.clearUser({ reason: 'auth-logout' });
+    }
     
     // Redirect to signin
     window.location.href = 'signin.html';
@@ -505,6 +514,20 @@ function updateNavigation(isLoggedIn, user = null) {
             `;
         }
     }
+}
+
+if (window.BalanceSync) {
+    window.BalanceSync.subscribe(({ user, balance }) => {
+        if (!user) {
+            updateNavigation(false, null);
+            return;
+        }
+        const hydrated = { ...user };
+        if (Number.isFinite(balance)) {
+            hydrated.balance = balance;
+        }
+        updateNavigation(true, hydrated);
+    }, { immediate: true });
 }
 
 // Helper function to escape HTML
