@@ -75,11 +75,17 @@
         </div>
     </nav>
 
-    <!-- Auth Section -->
-    <section class="auth-section">
-        <div class="container">
-            <div class="auth-container">
-                <div class="auth-card">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close sign-up window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+            <!-- Auth Section -->
+            <section class="auth-section">
+                <div class="container">
+                    <div class="auth-container">
+                        <div class="auth-card">
                     <div class="auth-header">
                         <h1>Create Account</h1>
                         <p>Join BOTZZZ773 and start boosting your social media</p>
@@ -247,9 +253,11 @@
                         <p>Get <strong>$5 free credits</strong> on your first deposit!</p>
                     </div>
                 </div>
-            </div>
+                    </div>
+                </div>
+            </section>
         </div>
-    </section>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
@@ -323,18 +331,18 @@
             .then(data => {
                 console.log('Backend response:', data);
                 if (data.success) {
-                    // Store token with consistent key name
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    
-                    // Show success message
                     console.log('Google Sign-Up successful!');
-                    
-                    // Role-based redirection
-                    if (data.user.role === 'admin') {
-                        window.location.href = '/admin/index.html';
+                    if (window.BOTZZZAuth?.completeSession) {
+                        window.BOTZZZAuth.completeSession(data, {
+                            rememberMe: true,
+                            source: 'google-signup',
+                            successMessage: 'Signed up with Google! Redirecting...'
+                        });
                     } else {
-                        window.location.href = '/dashboard.html';
+                        localStorage.setItem('token', data.token);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        const destination = data.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                        window.location.href = destination;
                     }
                 } else {
                     alert(data.error || 'Google Sign-Up failed. Please try again.');

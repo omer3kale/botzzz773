@@ -1,5 +1,66 @@
 // API Dashboard JavaScript with Encryption
 
+let isPopupMode = false;
+let authGuardTriggered = false;
+let authToken = null;
+let userProfile = null;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to access the API dashboard. Please sign in or create an account.';
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'API dashboard window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    try {
+        window.opener.postMessage(payload, window.location.origin);
+    } catch (error) {
+        console.warn('[API DASHBOARD] Failed to notify opener.', error);
+    }
+}
+
 // Security Constants
 const ENCRYPTION_KEY = 'BOTZZZ773_SECURE_KEY_2025'; // In production, use user-specific key
 
@@ -81,8 +142,10 @@ function copyApiKey() {
 // Update dashboard stats from backend
 async function updateDashboardStats() {
     try {
-        const token = localStorage.getItem('token');
-        if (!token) return;
+        const token = resolveAuthToken('dashboard-stats');
+        if (!token) {
+            return;
+        }
         
         const response = await fetch('/.netlify/functions/dashboard', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -111,7 +174,7 @@ async function renderApiKeys() {
     const container = document.getElementById('apiKeysList');
     
     try {
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('render-api-keys');
         if (!token) {
             container.innerHTML = '<div class="empty-state"><p>Please login to view API keys</p></div>';
             return;
@@ -211,9 +274,8 @@ async function deleteApiKey(keyId) {
     }
     
     try {
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('delete-api-key');
         if (!token) {
-            alert('Please login to delete API keys');
             return;
         }
         
@@ -231,6 +293,7 @@ async function deleteApiKey(keyId) {
         if (data.success) {
             showMessage('API key deleted successfully', 'success');
             renderApiKeys();
+            notifyOpener({ type: 'API_KEY_DELETED', keyId });
         } else {
             showMessage(data.error || 'Failed to delete API key', 'error');
         }
@@ -245,7 +308,7 @@ async function renderProviders() {
     const container = document.getElementById('providersList');
     
     try {
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('render-providers');
         if (!token) {
             container.innerHTML = '<div class="empty-state"><p>Please login to view providers</p></div>';
             return;
@@ -338,9 +401,8 @@ async function syncProvider(providerId) {
     try {
         showMessage('Syncing services...', 'info');
         
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('sync-provider');
         if (!token) {
-            alert('Please login to sync providers');
             return;
         }
         
@@ -360,6 +422,11 @@ async function syncProvider(providerId) {
         
         if (data.success) {
             showMessage(`Successfully synced ${data.servicesCount || 0} services`, 'success');
+            notifyOpener({
+                type: 'PROVIDER_SYNCED',
+                providerId,
+                servicesCount: data.servicesCount || 0
+            });
             renderProviders();
             updateDashboardStats();
         } else {
@@ -383,9 +450,8 @@ async function deleteProvider(providerId) {
     }
     
     try {
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('delete-provider');
         if (!token) {
-            alert('Please login to delete providers');
             return;
         }
         
@@ -402,6 +468,7 @@ async function deleteProvider(providerId) {
         
         if (data.success) {
             showMessage('Provider deleted successfully', 'success');
+            notifyOpener({ type: 'PROVIDER_DELETED', providerId });
             renderProviders();
             updateDashboardStats();
         } else {
@@ -415,6 +482,18 @@ async function deleteProvider(providerId) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    authToken = resolveAuthToken('initial-load');
+    userProfile = resolveUserProfile('initial-load');
+    if (!authToken || !userProfile) {
+        return;
+    }
+
     // Initialize dashboard
     updateDashboardStats();
     renderApiKeys();
@@ -439,10 +518,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         try {
-            const token = localStorage.getItem('token');
+            const token = resolveAuthToken('generate-api-key');
             if (!token) {
-                alert('Please login to generate API keys');
-                window.location.href = '/signin.html';
                 return;
             }
             
@@ -473,6 +550,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Re-render keys
                 renderApiKeys();
+                notifyOpener({
+                    type: 'API_KEY_CREATED',
+                    name: keyName,
+                    permissions
+                });
             } else {
                 showMessage(data.error || 'Failed to generate API key', 'error');
             }
@@ -502,10 +584,8 @@ document.addEventListener('DOMContentLoaded', function() {
         
         try {
             // Get auth token
-            const token = localStorage.getItem('token');
+            const token = resolveAuthToken('add-provider');
             if (!token) {
-                alert('Please login to add providers');
-                window.location.href = '/signin.html';
                 return;
             }
 
@@ -539,6 +619,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 document.getElementById('addProviderForm').reset();
                 
                 // Re-render providers
+                const providerId = (data.provider && data.provider.id) || data.providerId || null;
+                notifyOpener({
+                    type: 'PROVIDER_ADDED',
+                    providerName,
+                    providerId
+                });
                 renderProviders();
                 updateDashboardStats();
             } else {
@@ -562,4 +648,80 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 });
+
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
+    if (!token) {
+        handleMissingAuth(reason || 'token-missing');
+    }
+    return token;
+}
+
+function getAuthToken() {
+    try {
+        const token = localStorage.getItem('token');
+        if (token) {
+            authToken = token;
+        }
+        return token;
+    } catch (error) {
+        console.warn('[API DASHBOARD] Unable to read auth token.', error);
+        return null;
+    }
+}
+
+function resolveUserProfile(reason) {
+    const profile = getStoredUser();
+    if (!profile) {
+        handleMissingAuth(reason || 'user-missing');
+    }
+    return profile;
+}
+
+function getStoredUser() {
+    try {
+        const raw = localStorage.getItem('user');
+        if (!raw) {
+            return null;
+        }
+        const parsed = JSON.parse(raw);
+        userProfile = parsed;
+        return parsed;
+    } catch (error) {
+        console.warn('[API DASHBOARD] Failed to parse user profile.', error);
+        localStorage.removeItem('user');
+        return null;
+    }
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'api-dashboard', reason };
+    notifyOpener(payload);
+
+    if (isPopupMode) {
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('[API DASHBOARD] Failed to close popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
 

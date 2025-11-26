@@ -1,6 +1,9 @@
 // Authentication with Backend Integration
 // Load this AFTER api-client.js
 
+let authPopupMode = false;
+let popupSurfaceEl = null;
+
 // Check if user is already logged in on page load
 document.addEventListener('DOMContentLoaded', async () => {
     await checkAuthStatus();
@@ -345,7 +348,7 @@ async function handleAdminOtpResend() {
     }
 }
 
-function finalizeLogin(data, rememberMe) {
+function finalizeLogin(data, rememberMe, context = {}) {
     if (!data || !data.token || !data.user) {
         showError('Login failed. Please try again.');
         return;
@@ -360,14 +363,21 @@ function finalizeLogin(data, rememberMe) {
         localStorage.removeItem('rememberMe');
     }
 
-    showSuccess('Login successful! Redirecting...');
+    const source = context.source || 'login';
+    const successMessage = context.successMessage || (source === 'signup' ? 'Account created successfully! Redirecting...' : 'Login successful! Redirecting...');
+    showSuccess(successMessage);
+
+    if (authPopupMode) {
+        const payload = { user: data.user, token: data.token };
+        const eventType = source === 'signup' ? 'USER_SIGNED_UP' : 'USER_LOGGED_IN';
+        notifyOpener(eventType, payload);
+        setTimeout(() => handlePopupClose(), 700);
+        return;
+    }
 
     setTimeout(() => {
-        if (data.user.role === 'admin') {
-            window.location.href = 'admin/index.html';
-        } else {
-            window.location.href = 'dashboard.html';
-        }
+        const isAdmin = data.user.role === 'admin';
+        window.location.href = isAdmin ? 'admin/index.html' : 'dashboard.html';
     }, 1000);
 }
 
@@ -411,24 +421,15 @@ async function handleSignUp(e) {
         const data = await api.signup(email, password, username, firstName, lastName);
         
         if (data.success && data.token && data.user) {
-            // Store token and user data
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
-
-            showSuccess('Account created successfully! Redirecting...');
-            
-            // Redirect to dashboard
-            setTimeout(() => {
-                window.location.href = 'dashboard.html';
-            }, 1500);
-        } else {
-            showError(data.error || 'Signup failed');
-            submitBtn.disabled = false;
-            submitBtn.textContent = originalText;
+            finalizeLogin(data, false, { source: 'signup' });
+            return;
         }
+
+        showError(data.error || 'Signup failed');
     } catch (error) {
         console.error('Signup error:', error);
         showError(error.message || 'Signup failed. Please try again.');
+    } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
     }
@@ -569,8 +570,98 @@ function toggleConfirmPassword() {
     }
 }
 
+function initializeAuthPopupSurface() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    try {
+        const params = new URLSearchParams(window.location.search);
+        authPopupMode = params.get('popup') === '1';
+    } catch (error) {
+        authPopupMode = false;
+    }
+
+    if (authPopupMode) {
+        enablePopupSurface();
+    }
+}
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    popupSurfaceEl = document.querySelector('[data-popup-surface]');
+
+    if (popupSurfaceEl) {
+        popupSurfaceEl.setAttribute('role', 'dialog');
+        popupSurfaceEl.setAttribute('aria-modal', 'true');
+        popupSurfaceEl.setAttribute('aria-label', 'Authentication window');
+        popupSurfaceEl.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => popupSurfaceEl?.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', handlePopupKeydown);
+}
+
+function handlePopupKeydown(event) {
+    if (event.key === 'Escape') {
+        handlePopupClose();
+    }
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        try {
+            window.opener.focus();
+        } catch (error) {
+            console.warn('[AUTH] Unable to focus opener window:', error);
+        }
+        window.close();
+    }
+
+    document.body.classList.remove('popup-mode');
+    if (popupSurfaceEl) {
+        popupSurfaceEl.removeAttribute('role');
+        popupSurfaceEl.removeAttribute('aria-modal');
+        popupSurfaceEl.removeAttribute('tabindex');
+        popupSurfaceEl = null;
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.removeEventListener('click', handlePopupClose);
+    }
+
+    window.removeEventListener('keydown', handlePopupKeydown);
+    authPopupMode = false;
+}
+
+function notifyOpener(type, detail = {}) {
+    if (!authPopupMode || !type) {
+        return;
+    }
+
+    const openerWindow = window.opener;
+    if (!openerWindow || openerWindow.closed) {
+        return;
+    }
+
+    const payload = { type, ...detail };
+
+    try {
+        openerWindow.postMessage(payload, window.location.origin);
+    } catch (error) {
+        console.warn('[AUTH] Failed to notify opener window:', error);
+    }
+}
+
 // Attach event listeners
 document.addEventListener('DOMContentLoaded', () => {
+    initializeAuthPopupSurface();
     ensureAdminOtpModalStructure();
     const signinForm = document.getElementById('signinForm');
     const signupForm = document.getElementById('signupForm');
@@ -623,6 +714,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 });
+
+if (typeof window !== 'undefined') {
+    window.BOTZZZAuth = window.BOTZZZAuth || {};
+    window.BOTZZZAuth.completeSession = function completeSession(data, options = {}) {
+        const { rememberMe = false, ...context } = options;
+        finalizeLogin(data, rememberMe, context);
+    };
+    window.BOTZZZAuth.isPopupMode = () => authPopupMode;
+    window.BOTZZZAuth.closePopup = handlePopupClose;
+}
 
 // Get current user
 function getCurrentUser() {

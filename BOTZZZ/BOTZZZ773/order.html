@@ -57,18 +57,24 @@
         </div>
     </nav>
 
-    <!-- Page Header -->
-    <section class="page-header">
-        <div class="container">
-            <h1 class="page-title">Place Your <span class="gradient-text">Order</span></h1>
-            <p class="page-subtitle">Fill out the form below to get started</p>
-        </div>
-    </section>
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close order window">
+                <span aria-hidden="true">&times;</span>
+            </button>
 
-    <!-- Order Form -->
-    <section class="order-section">
-        <div class="container">
-            <div class="order-wrapper">
+            <!-- Page Header -->
+            <section class="page-header">
+                <div class="container">
+                    <h1 class="page-title">Place Your <span class="gradient-text">Order</span></h1>
+                    <p class="page-subtitle">Fill out the form below to get started</p>
+                </div>
+            </section>
+
+            <!-- Order Form -->
+            <section class="order-section">
+                <div class="container">
+                    <div class="order-wrapper">
                 <div class="order-form-container">
                     <form id="orderForm" class="order-form">
                         <div class="form-group">
@@ -148,16 +154,16 @@
                         <p class="payment-text">Manual Payeer Transfers</p>
                     </div>
                 </div>
-            </div>
-        </div>
-    </section>
+                    </div>
+                </div>
+            </section>
 
-    <!-- FAQ Section -->
-    <section class="faq-section">
-        <div class="container">
-            <h2 class="section-title">Frequently Asked Questions</h2>
-            
-            <div class="faq-grid">
+            <!-- FAQ Section -->
+            <section class="faq-section">
+                <div class="container">
+                    <h2 class="section-title">Frequently Asked Questions</h2>
+                    
+                    <div class="faq-grid">
                 <div class="faq-item">
                     <h3 class="faq-question">How long does delivery take?</h3>
                     <p class="faq-answer">Most services start within 0-6 hours and complete within 24-72 hours depending on the quantity.</p>
@@ -174,9 +180,11 @@
                     <h3 class="faq-question">Do you offer refills?</h3>
                     <p class="faq-answer">Yes! Many of our services come with 30-365 day refill guarantees. Check service details for specifics.</p>
                 </div>
-            </div>
+                    </div>
+                </div>
+            </section>
         </div>
-    </section>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
@@ -220,18 +228,6 @@
     </footer>
 
     <script src="js/main.js"></script>
-    <script>
-        // Authentication check - redirect if not logged in
-        (function() {
-            const token = localStorage.getItem('token');
-            const user = localStorage.getItem('user');
-            
-            if (!token || !user) {
-                alert('You must be signed in to place orders. Please sign in or create an account.');
-                window.location.href = 'signin.html';
-            }
-        })();
-    </script>
     <script src="js/order.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>

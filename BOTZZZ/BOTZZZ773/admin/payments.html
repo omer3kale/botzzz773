@@ -27,7 +27,13 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body class="admin-body">
+<body class="admin-body admin-payments-page">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin payments window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
     <!-- Admin Header -->
     <header class="admin-header">
         <button class="sidebar-toggle" onclick="toggleSidebar()">
@@ -109,7 +115,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="admin-main">
+    <section class="admin-main" role="main">
         <div class="admin-page-header">
             <h1>Payments</h1>
             <div class="page-actions">
@@ -155,6 +161,9 @@
             <button class="btn-secondary" id="prevPage" disabled>Previous</button>
             <span class="pagination-info" id="paginationInfo">Showing 0-0 of 0</span>
             <button class="btn-secondary" id="nextPage">Next</button>
+        </div>
+    </section>
+
         </div>
     </main>
 

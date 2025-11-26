@@ -2,35 +2,87 @@
 (function() {
     'use strict';
 
+    let isPopupMode = false;
+    let authGuardTriggered = false;
+
+    const AUTH_ALERT_MESSAGE = 'You must be signed in to access the dashboard. Please sign in or create an account.';
+
+    function enablePopupSurface() {
+        document.body.classList.add('popup-mode');
+        const panel = document.querySelector('[data-popup-surface]');
+        if (panel) {
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-modal', 'true');
+            panel.setAttribute('aria-label', 'Dashboard window');
+            panel.setAttribute('tabindex', '-1');
+            requestAnimationFrame(() => panel.focus());
+        }
+
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.addEventListener('click', handlePopupClose);
+        }
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                handlePopupClose();
+            }
+        });
+    }
+
+    function handlePopupClose() {
+        if (window.opener && !window.opener.closed) {
+            window.opener.focus();
+            window.close();
+            return;
+        }
+
+        document.body.classList.remove('popup-mode');
+        const panel = document.querySelector('[data-popup-surface]');
+        if (panel) {
+            panel.removeAttribute('role');
+            panel.removeAttribute('aria-modal');
+            panel.removeAttribute('tabindex');
+        }
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.style.display = 'none';
+        }
+    }
+
+    function notifyOpener(payload) {
+        if (!isPopupMode || !window.opener || window.opener.closed) {
+            return;
+        }
+        try {
+            window.opener.postMessage(payload, window.location.origin);
+        } catch (error) {
+            console.warn('[DASHBOARD] Failed to notify opener.', error);
+        }
+    }
+
     // ==========================================
     // AUTHENTICATION CHECK
     // ==========================================
-    function checkAuth() {
-        const token = localStorage.getItem('token');
-        const user = localStorage.getItem('user');
-
-        // If no token or user, redirect to sign in
-        if (!token || !user) {
-            window.location.href = 'signin.html';
+    function checkAuth(reason = 'dashboard-init') {
+        const token = resolveAuthToken(reason);
+        const userProfile = resolveUserProfile(reason);
+        if (!token || !userProfile) {
             return null;
         }
-
-        try {
-            const userData = JSON.parse(user);
-            return { token, user: userData };
-        } catch (error) {
-            console.error('Invalid user data:', error);
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = 'signin.html';
-            return null;
-        }
+        return { token, user: userProfile };
     }
 
     // ==========================================
     // INITIALIZE DASHBOARD
     // ==========================================
-    const auth = checkAuth();
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    const auth = checkAuth('initial-load');
     if (!auth) return;
 
     const { token, user } = auth;
@@ -49,6 +101,31 @@
         }
     }
 
+    async function refreshUserSnapshot() {
+        try {
+            const response = await fetch('/.netlify/functions/users', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                return;
+            }
+
+            const data = await response.json();
+            if (data?.user) {
+                Object.assign(user, data.user);
+                localStorage.setItem('user', JSON.stringify(user));
+                updateUserDisplay();
+            }
+        } catch (error) {
+            console.warn('[DASHBOARD] Failed to refresh user snapshot:', error);
+        }
+    }
+
     function escapeHtml(text) {
         if (text === undefined || text === null) {
             return '';
@@ -56,6 +133,32 @@
         const div = document.createElement('div');
         div.textContent = String(text);
         return div.innerHTML;
+    }
+
+    function resolveOrderDisplayLabel(order = {}) {
+        if (order.order_number !== undefined && order.order_number !== null && String(order.order_number).trim().length > 0) {
+            return `#${String(order.order_number).trim()}`;
+        }
+        if (order.id) {
+            const compactId = String(order.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
+            return `#${compactId}`;
+        }
+        return '—';
+    }
+
+    function formatRelativeTimestamp(dateInput) {
+        if (!dateInput) {
+            return 'just now';
+        }
+        const date = typeof dateInput === 'number' ? new Date(dateInput) : new Date(dateInput);
+        if (Number.isNaN(date.getTime())) {
+            return 'just now';
+        }
+        const diff = Date.now() - date.getTime();
+        if (diff < 15000) return 'just now';
+        if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`;
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+        return `${Math.floor(diff / 3600000)}h ago`;
     }
 
     // ==========================================
@@ -101,6 +204,7 @@
     // LOGOUT FUNCTIONALITY
     // ==========================================
     function handleLogout() {
+        stopOrdersAutoRefresh();
         // Clear all auth data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -108,6 +212,14 @@
 
         // Show notification
         showToast('Logged out successfully', 'success');
+
+        if (isPopupMode) {
+            setTimeout(() => {
+                notifyOpener({ type: 'USER_LOGGED_OUT' });
+                handlePopupClose();
+            }, 800);
+            return;
+        }
 
         // Redirect to home page
         setTimeout(() => {
@@ -274,6 +386,85 @@
         { key: 'dripfeed', label: 'Dripfeed' },
         { key: 'subscription', label: 'Subscription' }
     ];
+
+    const CUSTOMER_PENDING_STATUS_KEYS = new Set([
+        'pending',
+        'processing',
+        'in-progress',
+        'inprogress',
+        'awaiting',
+        'awaiting-start',
+        'awaitingstart',
+        'queued',
+        'queue',
+        'submitted',
+        'verifying',
+        'hold',
+        'holding',
+        'new',
+        'received',
+        'accepted',
+        'created',
+        'error',
+        'failed'
+    ]);
+
+    const CUSTOMER_SUCCESS_STATUS_KEYS = new Set([
+        'success',
+        'successful',
+        'completed',
+        'complete',
+        'delivered',
+        'done',
+        'finished'
+    ]);
+
+    const CUSTOMER_CANCELLED_KEYS = new Set(['canceled', 'cancelled']);
+
+    function coerceCustomerFacingStatusDescriptor(rawStatus, fallbackLabel = null) {
+        const safeRaw = typeof rawStatus === 'string' && rawStatus.trim().length > 0
+            ? rawStatus.trim()
+            : 'pending';
+        const normalizedKey = buildStatusKey(safeRaw);
+
+        if (CUSTOMER_PENDING_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'pending',
+                label: 'Pending',
+                raw: safeRaw
+            };
+        }
+
+        if (CUSTOMER_SUCCESS_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'success',
+                label: 'Success',
+                raw: safeRaw
+            };
+        }
+
+        if (CUSTOMER_CANCELLED_KEYS.has(normalizedKey)) {
+            return {
+                key: 'canceled',
+                label: fallbackLabel || 'Canceled',
+                raw: safeRaw
+            };
+        }
+
+        if (normalizedKey === 'refunded' || normalizedKey === 'reversed') {
+            return {
+                key: normalizedKey,
+                label: fallbackLabel || formatOrderStatusLabel(safeRaw),
+                raw: safeRaw
+            };
+        }
+
+        return {
+            key: normalizedKey,
+            label: fallbackLabel || formatOrderStatusLabel(safeRaw),
+            raw: safeRaw
+        };
+    }
 
     function renderCapabilityPills(capabilities = {}) {
         return CAPABILITY_BADGES
@@ -727,6 +918,17 @@
                     orderForm.reset();
                     resetOrderCalculation();
 
+                    notifyOpener({
+                        type: 'ORDER_CREATED',
+                        order: result.order || null,
+                        source: 'dashboard'
+                    });
+
+                    if (isPopupMode) {
+                        setTimeout(() => handlePopupClose(), 1200);
+                        return;
+                    }
+
                     // Switch to orders view after 2 seconds
                     setTimeout(() => {
                         showOrdersView();
@@ -749,6 +951,25 @@
     const dashboardLink = document.querySelector('.sidebar-link[href="dashboard.html"]');
     const dashboardContent = document.getElementById('dashboardContent');
     const ordersView = document.getElementById('ordersView');
+    const liveOrderStatus = document.getElementById('liveOrderStatus');
+    const orderStatusMessageEl = document.getElementById('orderStatusMessage');
+    const orderStatusCountsEl = document.getElementById('orderStatusCounts');
+    const orderStatusLastUpdatedEl = document.getElementById('orderStatusLastUpdated');
+    const orderStatusRefreshLabel = document.getElementById('orderStatusRefreshLabel');
+    const orderRefundAlert = document.getElementById('orderRefundAlert');
+    const refreshOrdersBtn = document.getElementById('refreshOrdersBtn');
+    const refundsLink = document.getElementById('refundsLink');
+    const refundsView = document.getElementById('refundsView');
+    const refundsEligibleList = document.getElementById('refundsEligibleList');
+    const refundsEligibleEmpty = document.getElementById('refundsEligibleEmpty');
+    const refundsHistoryBody = document.getElementById('refundsHistoryBody');
+    const refreshRefundsBtn = document.getElementById('refreshRefundsBtn');
+
+    const ORDER_AUTO_REFRESH_INTERVAL_MS = 25000;
+    let ordersAutoRefreshHandle = null;
+    let lastOrdersUpdatedAt = null;
+    let lastOrdersSnapshot = [];
+    let ordersLoadingInFlight = false;
 
     function setActiveSidebarLink(activeLink) {
         document.querySelectorAll('.sidebar-link').forEach(link => {
@@ -765,6 +986,8 @@
     function showOrdersView() {
         if (dashboardContent) dashboardContent.classList.add('hidden');
         if (ordersView) ordersView.classList.remove('hidden');
+        if (paymentsView) paymentsView.classList.add('hidden');
+        if (refundsView) refundsView.classList.add('hidden');
 
         setActiveSidebarLink(ordersLink);
     }
@@ -772,16 +995,387 @@
     function showDashboardView() {
         if (ordersView) ordersView.classList.add('hidden');
         if (paymentsView) paymentsView.classList.add('hidden');
+        if (refundsView) refundsView.classList.add('hidden');
         if (dashboardContent) dashboardContent.classList.remove('hidden');
 
         setActiveSidebarLink(dashboardLink);
+    }
+
+    function showRefundsView() {
+        if (dashboardContent) dashboardContent.classList.add('hidden');
+        if (ordersView) ordersView.classList.add('hidden');
+        if (paymentsView) paymentsView.classList.add('hidden');
+        if (refundsView) refundsView.classList.remove('hidden');
+
+        setActiveSidebarLink(refundsLink);
+
+        if (!lastOrdersSnapshot || lastOrdersSnapshot.length === 0) {
+            loadOrders({ reason: 'refunds-view' });
+        } else {
+            updateRefundDisplays(lastOrdersSnapshot);
+        }
+    }
+
+    function startOrdersAutoRefresh() {
+        if (ordersAutoRefreshHandle) {
+            return;
+        }
+        ordersAutoRefreshHandle = setInterval(() => {
+            loadOrders({ silent: true, reason: 'auto-refresh' });
+        }, ORDER_AUTO_REFRESH_INTERVAL_MS);
+    }
+
+    function buildCustomerFacingStatus(order = {}) {
+        const summary = order?.status_summary;
+        if (summary?.customer) {
+            const raw = summary.customer.raw || summary.customer.key || summary.customer.label || 'pending';
+            return coerceCustomerFacingStatusDescriptor(raw, summary.customer.label);
+        }
+
+        const directCustomerStatus = order?.customer_status || order?.customerStatus;
+        if (typeof directCustomerStatus === 'string' && directCustomerStatus.trim().length > 0) {
+            return coerceCustomerFacingStatusDescriptor(directCustomerStatus.trim());
+        }
+
+        const fallbackRaw = typeof order?.status === 'string'
+            ? order.status
+            : (order?.order_status || 'pending');
+
+        return coerceCustomerFacingStatusDescriptor(fallbackRaw);
+    }
+
+    function isOrderRefunded(order = {}) {
+        const status = buildCustomerFacingStatus(order);
+        const refundKeys = new Set(['canceled', 'cancelled', 'refunded', 'reversed']);
+        if (refundKeys.has(status.key)) {
+            return true;
+        }
+
+        const explicitRefund = (order.refund_status || order.refunded_status || '').toLowerCase();
+        return explicitRefund === 'refunded';
+    }
+
+    function isRefundEligible(order = {}) {
+        const statusCandidates = [
+            order.status,
+            order.customer_status,
+            order.provider_status,
+            order?.status_summary?.customer?.key,
+            order?.status_summary?.customer?.raw,
+            order?.status_summary?.provider?.key
+        ];
+
+        const normalizedStatus = statusCandidates
+            .map(value => typeof value === 'string' ? value.trim().toLowerCase() : null)
+            .find(value => Boolean(value));
+
+        if (!normalizedStatus) {
+            return false;
+        }
+
+        return normalizedStatus === 'pending' || normalizedStatus === 'processing' || normalizedStatus === 'in-progress';
+    }
+
+    function updateLiveStatusPanel(orders = []) {
+        if (!liveOrderStatus) {
+            return;
+        }
+
+        const total = Array.isArray(orders) ? orders.length : 0;
+        const counts = {};
+        const labels = {};
+
+        if (total > 0) {
+            orders.forEach(order => {
+                const status = buildCustomerFacingStatus(order);
+                const key = status.key || 'pending';
+                counts[key] = (counts[key] || 0) + 1;
+                if (!labels[key]) {
+                    labels[key] = status.label;
+                }
+            });
+        }
+
+        if (orderStatusCountsEl) {
+            if (total === 0) {
+                orderStatusCountsEl.innerHTML = '<span class="status-chip">No orders yet</span>';
+            } else {
+                const priority = ['pending', 'success', 'partial', 'canceled', 'failed'];
+                const chips = [];
+                priority.forEach(key => {
+                    if (counts[key]) {
+                        const label = labels[key] || formatOrderStatusLabel(key);
+                        chips.push(`<span class="status-chip" data-status="${key}">${escapeHtml(label)} · ${counts[key]}</span>`);
+                    }
+                });
+                Object.keys(counts)
+                    .filter(key => !priority.includes(key))
+                    .forEach(key => {
+                        const label = labels[key] || formatOrderStatusLabel(key);
+                        chips.push(`<span class="status-chip" data-status="${key}">${escapeHtml(label)} · ${counts[key]}</span>`);
+                    });
+                orderStatusCountsEl.innerHTML = chips.length > 0
+                    ? chips.join('')
+                    : '<span class="status-chip">No orders yet</span>';
+            }
+        }
+
+        if (orderStatusMessageEl) {
+            let message = 'Place your first order to see live tracking.';
+            if (total > 0) {
+                const pendingTotal = (counts.pending || 0) + (counts.processing || 0);
+                if (pendingTotal > 0) {
+                    message = `Tracking ${pendingTotal} live order${pendingTotal === 1 ? '' : 's'}. Status will update automatically.`;
+                } else if (counts.canceled) {
+                    message = 'Recent orders were refunded after cancellation. Funds returned automatically.';
+                } else if (counts.completed === total) {
+                    message = 'All recent orders have been completed successfully.';
+                } else {
+                    message = 'Orders are up-to-date with the latest provider response.';
+                }
+            }
+            orderStatusMessageEl.textContent = message;
+        }
+
+        if (orderStatusLastUpdatedEl) {
+            const label = lastOrdersUpdatedAt
+                ? `Last updated ${formatRelativeTimestamp(lastOrdersUpdatedAt)}`
+                : 'Waiting for first update…';
+            orderStatusLastUpdatedEl.textContent = label;
+        }
+
+        if (orderStatusRefreshLabel) {
+            orderStatusRefreshLabel.textContent = 'Auto-refreshing every 25s';
+        }
+    }
+
+    function renderRefundHistory(refundedOrders = []) {
+        if (!refundsHistoryBody) {
+            return;
+        }
+
+        if (!Array.isArray(refundedOrders) || refundedOrders.length === 0) {
+            refundsHistoryBody.innerHTML = `
+                <tr>
+                    <td colspan="4">
+                        <div class="refunds-empty">
+                            <div class="empty-icon">💸</div>
+                            <h4>No refunds yet</h4>
+                            <p>Completed refunds will be listed here automatically.</p>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        refundsHistoryBody.innerHTML = refundedOrders
+            .slice(0, 25)
+            .map(order => {
+                const amount = formatCurrencyDisplay(
+                    order.charge ?? order.customer_charge ?? order.retail_charge ?? order.amount ?? 0,
+                    order.currency || order.customer_currency || order.retail_currency || 'USD'
+                );
+                const label = resolveOrderDisplayLabel(order);
+                const updatedAgo = formatRelativeTimestamp(order.updated_at || order.last_status_sync || order.created_at || Date.now());
+                const status = buildCustomerFacingStatus(order);
+
+                return `
+                    <tr>
+                        <td>${escapeHtml(label)}</td>
+                        <td>${escapeHtml(amount)}</td>
+                        <td>${escapeHtml(updatedAgo)}</td>
+                        <td><span class="refunds-status-pill" data-status="${escapeHtml(status.key)}">${escapeHtml(status.label || 'Refunded')}</span></td>
+                    </tr>
+                `;
+            })
+            .join('');
+    }
+
+    function renderRefundEligibleList(orders = []) {
+        if (!refundsEligibleList || !refundsEligibleEmpty) {
+            return;
+        }
+
+        const eligibleOrders = Array.isArray(orders)
+            ? orders
+                .filter(order => isRefundEligible(order) && !isOrderRefunded(order))
+                .sort((a, b) => {
+                    const aTime = new Date(a.created_at || 0).getTime();
+                    const bTime = new Date(b.created_at || 0).getTime();
+                    return aTime - bTime;
+                })
+            : [];
+
+        if (eligibleOrders.length === 0) {
+            refundsEligibleList.innerHTML = '';
+            refundsEligibleEmpty.classList.remove('hidden');
+            return;
+        }
+
+        refundsEligibleEmpty.classList.add('hidden');
+        refundsEligibleList.innerHTML = eligibleOrders
+            .slice(0, 20)
+            .map(order => {
+                const label = resolveOrderDisplayLabel(order);
+                const createdAgo = formatRelativeTimestamp(order.created_at || order.last_status_sync || Date.now());
+                const amount = formatCurrencyDisplay(
+                    order.charge ?? order.customer_charge ?? order.retail_charge ?? order.amount ?? 0,
+                    order.currency || order.customer_currency || order.retail_currency || 'USD'
+                );
+
+                return `
+                    <li class="refunds-eligible-item">
+                        <div>
+                            <p class="eligible-order-id">${escapeHtml(label)}</p>
+                            <p class="eligible-order-meta">Placed ${escapeHtml(createdAgo)} · ${escapeHtml(amount)}</p>
+                        </div>
+                        <button type="button" class="btn-refund" data-refund-order-id="${escapeHtml(order.id)}" data-order-label="${escapeHtml(label)}" data-order-amount="${escapeHtml(amount)}">
+                            Cancel &amp; Refund
+                        </button>
+                    </li>
+                `;
+            })
+            .join('');
+    }
+
+    function updateRefundDisplays(orders = []) {
+        const refundedOrders = Array.isArray(orders)
+            ? orders
+                .filter(order => isOrderRefunded(order))
+                .sort((a, b) => {
+                    const aTime = new Date(a.updated_at || a.last_status_sync || a.created_at || 0).getTime();
+                    const bTime = new Date(b.updated_at || b.last_status_sync || b.created_at || 0).getTime();
+                    return bTime - aTime;
+                })
+            : [];
+
+        renderRefundHistory(refundedOrders);
+        renderRefundEligibleList(orders);
+
+        if (!orderRefundAlert) {
+            return;
+        }
+
+        if (refundedOrders.length === 0) {
+            orderRefundAlert.classList.remove('show');
+            orderRefundAlert.textContent = '';
+            return;
+        }
+
+        const latestRefund = refundedOrders[0];
+        const amount = formatCurrencyDisplay(
+            latestRefund.charge ?? latestRefund.customer_charge ?? latestRefund.retail_charge ?? latestRefund.amount ?? 0,
+            latestRefund.currency || latestRefund.customer_currency || latestRefund.retail_currency || 'USD'
+        );
+        const label = resolveOrderDisplayLabel(latestRefund);
+        const updatedAgo = formatRelativeTimestamp(latestRefund.updated_at || latestRefund.last_status_sync || Date.now());
+        const message = `${label} refunded ${amount} back to your balance ${updatedAgo}.`;
+
+        orderRefundAlert.textContent = message;
+        orderRefundAlert.classList.add('show');
+    }
+
+    async function handleRefundRequest(orderId, triggerButton = null) {
+        if (!orderId) {
+            return;
+        }
+
+        const orderLabel = triggerButton?.dataset.orderLabel || `Order ${orderId}`;
+        const orderAmount = triggerButton?.dataset.orderAmount || '';
+        const confirmMessage = orderAmount
+            ? `Cancel ${orderLabel} and refund ${orderAmount} back to your balance?`
+            : `Cancel ${orderLabel} and refund the full charge back to your balance?`;
+
+        const confirmed = window.confirm(confirmMessage);
+        if (!confirmed) {
+            return;
+        }
+
+        if (triggerButton) {
+            triggerButton.disabled = true;
+            triggerButton.dataset.originalLabel = triggerButton.textContent;
+            triggerButton.textContent = 'Cancelling…';
+        }
+
+        try {
+            const response = await fetch('/.netlify/functions/orders', {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ orderId })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                throw new Error(result.error || result.message || 'Unable to cancel this order right now.');
+            }
+
+            showToast('Order cancelled and refunded', 'success');
+            loadOrders({ reason: 'refund-request' });
+            loadPayments();
+        } catch (error) {
+            console.error('Refund request failed:', error);
+            showToast(error.message || 'Unable to process refund. Please try again later.', 'error');
+        } finally {
+            if (triggerButton) {
+                triggerButton.disabled = false;
+                triggerButton.textContent = triggerButton.dataset.originalLabel || 'Cancel & Refund';
+                delete triggerButton.dataset.originalLabel;
+            }
+        }
+    }
+
+    function stopOrdersAutoRefresh() {
+        if (!ordersAutoRefreshHandle) {
+            return;
+        }
+        clearInterval(ordersAutoRefreshHandle);
+        ordersAutoRefreshHandle = null;
     }
 
     if (ordersLink) {
         ordersLink.addEventListener('click', (e) => {
             e.preventDefault();
             showOrdersView();
-            loadOrders();
+            loadOrders({ reason: 'orders-sidebar' });
+        });
+    }
+
+    if (refreshOrdersBtn) {
+        refreshOrdersBtn.addEventListener('click', () => {
+            loadOrders({ reason: 'orders-manual-refresh' });
+        });
+    }
+
+    if (refundsLink) {
+        refundsLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showRefundsView();
+        });
+    }
+
+    if (refreshRefundsBtn) {
+        refreshRefundsBtn.addEventListener('click', () => {
+            loadOrders({ reason: 'refunds-manual-refresh' });
+        });
+    }
+
+    if (refundsView) {
+        refundsView.addEventListener('click', (event) => {
+            const actionButton = event.target.closest('[data-refund-order-id]');
+            if (!actionButton) {
+                return;
+            }
+
+            event.preventDefault();
+            const orderId = actionButton.dataset.refundOrderId;
+            if (orderId) {
+                handleRefundRequest(orderId, actionButton);
+            }
         });
     }
 
@@ -791,9 +1385,32 @@
     }
 
     // Load orders from backend
-    async function loadOrders() {
+    async function loadOrders(options = {}) {
+        const {
+            silent = false,
+            reason = 'manual'
+        } = options;
+
+        if (ordersLoadingInFlight && reason === 'auto-refresh') {
+            return;
+        }
+
         const ordersTableBody = document.getElementById('ordersTableBody');
-        if (!ordersTableBody) return;
+
+        if (!silent && ordersTableBody) {
+            ordersTableBody.innerHTML = `
+                <tr>
+                    <td colspan="9" class="no-orders">
+                        <div class="payments-loading">
+                            <div class="spinner"></div>
+                            <span>Refreshing your orders…</span>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }
+
+        ordersLoadingInFlight = true;
 
         try {
             const response = await fetch('/.netlify/functions/orders', {
@@ -805,24 +1422,57 @@
 
             const result = await response.json();
 
-            if (response.ok && result.orders) {
-                displayOrders(result.orders);
+            if (response.ok && Array.isArray(result.orders)) {
+                lastOrdersSnapshot = result.orders;
+                lastOrdersUpdatedAt = Date.now();
+                updateLiveStatusPanel(result.orders);
+                updateRefundDisplays(result.orders);
+                if (ordersTableBody) {
+                    if (result.orders.length > 0) {
+                        displayOrders(result.orders);
+                    } else {
+                        ordersTableBody.innerHTML = `
+                            <tr>
+                                <td colspan="9" class="no-orders">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <line x1="12" y1="8" x2="12" y2="12"/>
+                                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                    </svg>
+                                    <p>No orders found</p>
+                                </td>
+                            </tr>
+                        `;
+                    }
+                }
+                startOrdersAutoRefresh();
             } else {
+                if (ordersTableBody) {
+                    ordersTableBody.innerHTML = `
+                        <tr>
+                            <td colspan="9" class="no-orders">
+                                <p>Unable to load orders right now.</p>
+                            </td>
+                        </tr>
+                    `;
+                }
+                updateLiveStatusPanel([]);
+                updateRefundDisplays([]);
+            }
+        } catch (error) {
+            console.error('Error loading orders:', error);
+            if (ordersTableBody) {
                 ordersTableBody.innerHTML = `
                     <tr>
                         <td colspan="9" class="no-orders">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <circle cx="12" cy="12" r="10"/>
-                                <line x1="12" y1="8" x2="12" y2="12"/>
-                                <line x1="12" y1="16" x2="12.01" y2="16"/>
-                            </svg>
-                            <p>No orders found</p>
+                            <p>Something went wrong while loading your orders.</p>
                         </td>
                     </tr>
                 `;
             }
-        } catch (error) {
-            console.error('Error loading orders:', error);
+            updateLiveStatusPanel(lastOrdersSnapshot);
+        } finally {
+            ordersLoadingInFlight = false;
         }
     }
 
@@ -847,25 +1497,10 @@
         }
 
         ordersTableBody.innerHTML = orders.map(order => {
-            // Prioritize order_number (37M range) for display
-            let primaryLabel = '—';
-            if (order.order_number !== undefined && order.order_number !== null && String(order.order_number).trim().length > 0) {
-                primaryLabel = `#${String(order.order_number).trim()}`;
-            } else if (order.id) {
-                const compactId = String(order.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
-                primaryLabel = `#${compactId}`;
-            }
-            
-            // Show provider order ID as secondary if available
-            const providerOrderId = resolveProviderOrderId(order);
-            const providerMarkup = providerOrderId 
-                ? `<span class="order-id-secondary">Provider: ${escapeHtml(providerOrderId)}</span>`
-                : '';
-            
+            const orderLabel = resolveOrderDisplayLabel(order);
             const orderIdCell = `
                 <div class="order-id-cell">
-                    <span class="order-id-primary">${escapeHtml(primaryLabel)}</span>
-                    ${providerMarkup}
+                    <span class="order-id-primary">${escapeHtml(orderLabel)}</span>
                 </div>
             `;
             const createdAt = order.created_at ? new Date(order.created_at).toLocaleDateString() : '—';
@@ -888,32 +1523,10 @@
             const quantity = Number.isFinite(Number(order.quantity))
                 ? Number(order.quantity)
                 : 0;
-            
-            // CRITICAL: Use customer_status instead of status to hide errors from customers
-            // For customers, failed orders should appear as 'processing'
-            // Multiple fallbacks to ensure we always show something safe
-            let displayStatus = 'pending'; // Default safe value
-            try {
-                // Priority 1: customer_status (set by silent failure system)
-                if (order.customer_status && typeof order.customer_status === 'string') {
-                    displayStatus = order.customer_status;
-                }
-                // Priority 2: If no customer_status, check actual status
-                else if (order.status && typeof order.status === 'string') {
-                    // Map failed statuses to 'processing' for customer view
-                    if (order.status === 'failed' || order.status === 'error') {
-                        displayStatus = 'processing';
-                    } else {
-                        displayStatus = order.status;
-                    }
-                }
-            } catch (statusError) {
-                console.warn('[DASHBOARD] Error determining order status:', statusError, order);
-                displayStatus = 'processing'; // Safe default
-            }
-            
-            const statusKey = buildStatusKey(displayStatus);
-            const statusLabel = formatOrderStatusLabel(displayStatus);
+            const customerStatus = buildCustomerFacingStatus(order);
+            const statusKey = customerStatus.key;
+            const statusLabel = customerStatus.label;
+            const refunded = isOrderRefunded(order);
 
             return `
                 <tr>
@@ -926,7 +1539,12 @@
                     <td>${chargeDisplay}</td>
                     <td>${escapeHtml(order.start_count || 0)}</td>
                     <td>${escapeHtml(quantity)}</td>
-                    <td><span class="status-badge status-${statusKey}">${escapeHtml(statusLabel)}</span></td>
+                    <td>
+                        <div class="status-cell">
+                            <span class="status-badge status-${statusKey}">${escapeHtml(statusLabel)}</span>
+                            ${refunded ? '<span class="refund-pill">Refunded</span>' : ''}
+                        </div>
+                    </td>
                     <td>${escapeHtml(order.remains || 0)}</td>
                 </tr>
             `;
@@ -961,6 +1579,7 @@
         // Hide other views
         if (dashboardContent) dashboardContent.classList.add('hidden');
         if (ordersView) ordersView.classList.add('hidden');
+        if (refundsView) refundsView.classList.add('hidden');
         
         // Show payments view
         if (paymentsView) paymentsView.classList.remove('hidden');
@@ -1019,33 +1638,89 @@
         }
     }
 
-    function displayPayments(payments) {
+    function displayPayments(payments = []) {
         if (!paymentsTableBody) return;
 
         paymentsTableBody.innerHTML = payments.map(payment => {
-            const date = new Date(payment.created_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            const timestamp = payment.created_at ? new Date(payment.created_at) : null;
+            const date = timestamp && !Number.isNaN(timestamp.getTime())
+                ? timestamp.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                })
+                : '—';
 
-            const amount = formatCurrencyDisplay(payment.amount);
-            const method = escapeHtml(payment.payment_method || 'Unknown');
-            const status = payment.status || 'pending';
-            const statusClass = status.toLowerCase();
+            const amountValue = Number(payment.amount || 0);
+            const isRefund = amountValue < 0 || (payment.method || '').toLowerCase() === 'refund' || (payment.status || '').toLowerCase() === 'refunded';
+            const amountPrefix = isRefund ? '−' : '+';
+            const amountDisplay = formatCurrencyDisplay(Math.abs(amountValue), payment.currency || 'USD');
+            const amountClass = `payment-amount ${isRefund ? 'refund' : 'deposit'}`;
+
+            const method = formatPaymentMethodLabel(payment.method);
+            const statusRaw = (payment.status || (isRefund ? 'refunded' : 'pending')).toLowerCase();
+            const statusKey = statusRaw === 'completed' && isRefund ? 'refunded' : statusRaw;
+            const statusLabel = statusKey ? formatOrderStatusLabel(statusKey) : 'Pending';
+            const statusClass = ['completed', 'pending', 'failed', 'refunded'].includes(statusKey)
+                ? statusKey
+                : 'pending';
+
+            const reference = escapeHtml(payment.transaction_id || payment.id || '—');
+            const memo = payment.memo
+                ? `<p class="payment-memo">${escapeHtml(payment.memo)}</p>`
+                : '';
 
             return `
                 <tr>
-                    <td>#${escapeHtml(payment.id)}</td>
+                    <td>
+                        <span class="payment-reference">${reference}</span>
+                        ${memo}
+                    </td>
                     <td>${date}</td>
-                    <td><span class="payment-method">${method}</span></td>
-                    <td class="payment-amount">+${amount}</td>
-                    <td><span class="payment-status ${statusClass}">${escapeHtml(status)}</span></td>
+                    <td><span class="payment-method">${escapeHtml(method)}</span></td>
+                    <td class="${amountClass}">${amountPrefix}${amountDisplay}</td>
+                    <td><span class="payment-status ${statusClass}">${escapeHtml(statusLabel)}</span></td>
                 </tr>
             `;
         }).join('');
+    }
+
+    function formatPaymentMethodLabel(method) {
+        if (!method) {
+            return 'Manual';
+        }
+
+        const value = String(method).toLowerCase();
+        switch (value) {
+            case 'payeer':
+                return 'Payeer';
+            case 'stripe':
+                return 'Stripe';
+            case 'refund':
+                return 'Refund';
+            case 'manual':
+                return 'Manual';
+            default:
+                const normalized = String(method);
+                return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+        }
+    }
+
+    if (typeof window !== 'undefined') {
+        window.addEventListener('popup:order-created', (event) => {
+            if (event?.detail?.source === 'dashboard') {
+                return;
+            }
+            refreshUserSnapshot();
+            loadOrders({ reason: 'popup-order-created' });
+        });
+
+        window.addEventListener('popup:add-funds-order-created', () => {
+            refreshUserSnapshot();
+            loadPayments();
+        });
     }
 
     // Payments navigation
@@ -1066,6 +1741,7 @@
 
     // Initialize
     updateUserDisplay();
+    loadOrders({ silent: true, reason: 'initial-load' });
     
     // Load services from database on page load
     loadServicesFromDatabase().then(success => {
@@ -1075,5 +1751,75 @@
             console.warn('Dashboard loaded but services failed to load');
         }
     });
+
+    function resolveAuthToken(reason) {
+        const token = getAuthToken();
+        if (!token) {
+            handleMissingAuth(reason || 'token-missing');
+        }
+        return token;
+    }
+
+    function getAuthToken() {
+        try {
+            return localStorage.getItem('token');
+        } catch (error) {
+            console.warn('[DASHBOARD] Unable to read auth token from storage.', error);
+            return null;
+        }
+    }
+
+    function resolveUserProfile(reason) {
+        const userData = getStoredUser();
+        if (!userData) {
+            handleMissingAuth(reason || 'user-missing');
+        }
+        return userData;
+    }
+
+    function getStoredUser() {
+        try {
+            const raw = localStorage.getItem('user');
+            if (!raw) {
+                return null;
+            }
+            return JSON.parse(raw);
+        } catch (error) {
+            console.warn('[DASHBOARD] Failed to parse user profile.', error);
+            localStorage.removeItem('user');
+            return null;
+        }
+    }
+
+    function handleMissingAuth(reason) {
+        if (authGuardTriggered) {
+            return;
+        }
+        authGuardTriggered = true;
+
+        const payload = { type: 'AUTH_REQUIRED', source: 'dashboard', reason };
+        notifyOpener(payload);
+
+        if (isPopupMode) {
+            setTimeout(() => {
+                try {
+                    window.close();
+                } catch (error) {
+                    console.warn('[DASHBOARD] Failed to close popup after auth guard.', error);
+                }
+            }, 200);
+            return;
+        }
+
+        alert(AUTH_ALERT_MESSAGE);
+        const redirectTarget = buildRedirectTarget();
+        window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    }
+
+    function buildRedirectTarget() {
+        const path = window.location.pathname.replace(/^\/+/, '');
+        const search = window.location.search || '';
+        return search ? `${path}${search}` : path;
+    }
 
 })();

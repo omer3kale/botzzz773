@@ -75,11 +75,17 @@
         </div>
     </nav>
 
-    <!-- Auth Section -->
-    <section class="auth-section">
-        <div class="container">
-            <div class="auth-container">
-                <div class="auth-card">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close sign-in window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+            <!-- Auth Section -->
+            <section class="auth-section">
+                <div class="container">
+                    <div class="auth-container">
+                        <div class="auth-card">
                     <div class="auth-header">
                         <h1>Welcome Back</h1>
                         <p>Sign in to your account to continue</p>
@@ -214,83 +220,84 @@
                             </div>
                         </div>
                     </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-    </section>
+            </section>
 
-    <!-- Admin OTP Modal -->
-    <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true" style="display: none;">
-        <div class="otp-modal" role="dialog" aria-labelledby="otpModalTitle" aria-modal="true">
-            <button type="button" class="otp-modal-close" id="closeAdminOtpModal" aria-label="Close admin verification">
-                &times;
-            </button>
-            <div class="otp-modal-header">
-                <h2 id="otpModalTitle">Admin Verification</h2>
-                <p>Enter the 6-digit code we sent to your admin email to unlock the panel.</p>
+            <!-- Admin OTP Modal -->
+            <div class="otp-modal-backdrop" id="adminOtpModal" aria-hidden="true" style="display: none;">
+                <div class="otp-modal" role="dialog" aria-labelledby="otpModalTitle" aria-modal="true">
+                    <button type="button" class="otp-modal-close" id="closeAdminOtpModal" aria-label="Close admin verification">
+                        &times;
+                    </button>
+                    <div class="otp-modal-header">
+                        <h2 id="otpModalTitle">Admin Verification</h2>
+                        <p>Enter the 6-digit code we sent to your admin email to unlock the panel.</p>
+                    </div>
+                    <form id="adminOtpForm" class="otp-form">
+                        <div class="otp-input-group">
+                            <label for="adminOtpInput" class="sr-only">Admin OTP Code</label>
+                            <input
+                                type="text"
+                                id="adminOtpInput"
+                                name="adminOtpInput"
+                                inputmode="numeric"
+                                autocomplete="one-time-code"
+                                maxlength="6"
+                                pattern="[0-9]*"
+                                placeholder="000000"
+                                required
+                            >
+                        </div>
+                        <div class="otp-meta">
+                            <span id="otpCountdown">Code expires in 10:00</span>
+                            <button type="button" id="resendAdminOtp" class="otp-link" disabled>Resend code</button>
+                        </div>
+                        <div class="otp-feedback" id="adminOtpFeedback" role="alert"></div>
+                        <button type="submit" class="btn-submit otp-submit">Verify &amp; Continue</button>
+                    </form>
+                </div>
             </div>
-            <form id="adminOtpForm" class="otp-form">
-                <div class="otp-input-group">
-                    <label for="adminOtpInput" class="sr-only">Admin OTP Code</label>
-                    <input
-                        type="text"
-                        id="adminOtpInput"
-                        name="adminOtpInput"
-                        inputmode="numeric"
-                        autocomplete="one-time-code"
-                        maxlength="6"
-                        pattern="[0-9]*"
-                        placeholder="000000"
-                        required
-                    >
-                </div>
-                <div class="otp-meta">
-                    <span id="otpCountdown">Code expires in 10:00</span>
-                    <button type="button" id="resendAdminOtp" class="otp-link" disabled>Resend code</button>
-                </div>
-                <div class="otp-feedback" id="adminOtpFeedback" role="alert"></div>
-                <button type="submit" class="btn-submit otp-submit">Verify &amp; Continue</button>
-            </form>
         </div>
-    </div>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>BOTZZZ<span>773</span></h3>
-                    <p>Your trusted SMM panel provider for all social media marketing needs.</p>
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
+                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
                 </div>
-                <div class="footer-section">
-                    <h4>Quick Links</h4>
-                    <ul>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="index.html">Home</a></li>
                         <li><a href="services.html">Services</a></li>
                         <li><a href="order.html">Order Now</a></li>
-                        <li><a href="api.html">API</a></li>
-                        <li><a href="tickets.html">Support</a></li>
+                        <li><a href="contact.html">Contact</a></li>
                     </ul>
                 </div>
-                <div class="footer-section">
-                    <h4>Support</h4>
-                    <ul>
-                        <li><a href="contact.html">Contact Us</a></li>
-                        <li><a href="tickets.html">Tickets</a></li>
-                        <li><a href="#">FAQ</a></li>
-                        <li><a href="#">Terms of Service</a></li>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Services</h4>
+                    <ul class="footer-links">
+                        <li><a href="services.html#instagram">Instagram</a></li>
+                        <li><a href="services.html#tiktok">TikTok</a></li>
+                        <li><a href="services.html#youtube">YouTube</a></li>
+                        <li><a href="services.html#twitter">Twitter</a></li>
                     </ul>
                 </div>
-                <div class="footer-section">
-                    <h4>Connect</h4>
-                    <div class="social-links">
-                        <a href="#">Instagram</a>
-                        <a href="#">Twitter</a>
-                        <a href="#">Facebook</a>
-                    </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Contact</h4>
+                    <ul class="footer-links">
+                        <li>📧 <a href="mailto:botzzz773@gmail.com">botzzz773@gmail.com</a></li>
+                        <li>💬 24/7 Live Chat</li>
+                        <li>🌐 Worldwide Service</li>
+                    </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2024 BOTZZZ773. All rights reserved.</p>
+                <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
             </div>
         </div>
     </footer>
@@ -326,18 +333,18 @@
             .then(data => {
                 console.log('Backend response:', data);
                 if (data.success) {
-                    // Store token (use 'token' not 'authToken' to match auth-backend.js)
-                    localStorage.setItem('token', data.token);
-                    localStorage.setItem('user', JSON.stringify(data.user));
-                    
-                    // Show success message
                     console.log('Google Sign-In successful!');
-                    
-                    // Redirect based on role
-                    if (data.user.role === 'admin') {
-                        window.location.href = '/admin/index.html';
+                    if (window.BOTZZZAuth?.completeSession) {
+                        window.BOTZZZAuth.completeSession(data, {
+                            rememberMe: true,
+                            source: 'google-signin',
+                            successMessage: 'Signed in with Google! Redirecting...'
+                        });
                     } else {
-                        window.location.href = '/dashboard.html';
+                        localStorage.setItem('token', data.token);
+                        localStorage.setItem('user', JSON.stringify(data.user));
+                        const destination = data.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                        window.location.href = destination;
                     }
                 } else {
                     console.error('Sign-in failed:', data.error);

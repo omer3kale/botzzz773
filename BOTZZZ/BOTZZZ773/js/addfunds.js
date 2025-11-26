@@ -1,6 +1,20 @@
 // Add Funds Page Functionality
+let isPopupMode = false;
+let authGuardTriggered = false;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to add funds. Please sign in or create an account.';
 
 document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    if (!resolveAuthToken('initial-load')) {
+        return;
+    }
+
     const form = document.getElementById('addFundsForm');
     const customAmountInput = document.getElementById('customAmount');
     const amountButtons = document.querySelectorAll('.amount-btn');
@@ -9,6 +23,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const summaryTotal = document.getElementById('summaryTotal');
     const balanceAmount = document.querySelector('.balance-amount');
     const paymentMethodHint = document.getElementById('paymentMethodHint');
+    const refundSummary = document.getElementById('refundSummary');
+    const refundSummaryMessage = document.getElementById('refundSummaryMessage');
+
+    if (!form) {
+        console.warn('[ADDFUNDS] Form element not found.');
+        return;
+    }
+
     const submitBtn = form.querySelector('button[type="submit"]');
     const submitBtnText = submitBtn ? submitBtn.querySelector('span') : null;
 
@@ -25,6 +47,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load current balance on page load
     loadUserBalance();
+    loadRecentRefundHighlight();
 
     updatePaymentMethodHint();
     updateSubmitButtonLabel();
@@ -85,10 +108,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Get user email from token
-        const token = localStorage.getItem('token');
+        const token = resolveAuthToken('submit-add-funds');
         if (!token) {
-            showMessage('Please login to add funds', 'error');
-            window.location.href = 'signin.html';
             return;
         }
 
@@ -98,8 +119,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const payload = JSON.parse(atob(token.split('.')[1]));
             userEmail = payload.email;
         } catch (error) {
-            showMessage('Invalid session. Please login again.', 'error');
-            window.location.href = 'signin.html';
+            handleMissingAuth('token-decode-failed');
             return;
         }
 
@@ -109,7 +129,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            await initiatePayeerPayment({ amount, token, userEmail });
+            await initiatePayeerPayment({ amount, userEmail });
         } catch (error) {
             console.error('Payment error:', error);
             showMessage(error.message || 'Failed to initiate payment. Please try again.', 'error');
@@ -125,9 +145,12 @@ document.addEventListener('DOMContentLoaded', function() {
     updateSummary(0);
 
     async function loadUserBalance() {
-        const token = localStorage.getItem('token');
+        if (!balanceAmount) {
+            return;
+        }
 
-        if (!token || !balanceAmount) {
+        const token = resolveAuthToken('load-balance');
+        if (!token) {
             return;
         }
 
@@ -139,6 +162,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     'Content-Type': 'application/json'
                 }
             });
+
+            if (response.status === 401 || response.status === 403) {
+                handleMissingAuth('balance-response-unauthorized');
+                return;
+            }
 
             if (!response.ok) {
                 throw new Error('Failed to retrieve balance');
@@ -166,7 +194,12 @@ document.addEventListener('DOMContentLoaded', function() {
         submitBtnText.textContent = BUTTON_LABELS.payeer;
     }
 
-    async function initiatePayeerPayment({ amount, token, userEmail }) {
+    async function initiatePayeerPayment({ amount, userEmail }) {
+        const token = resolveAuthToken('initiate-payment');
+        if (!token) {
+            throw new Error('Please sign in to add funds.');
+        }
+
         const response = await fetch('/.netlify/functions/payeer', {
             method: 'POST',
             headers: {
@@ -182,14 +215,115 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const data = await response.json();
 
+        if (response.status === 401 || response.status === 403) {
+            handleMissingAuth('payeer-response-unauthorized');
+            throw new Error('Session expired. Please sign in again.');
+        }
+
         if (data.success) {
             showManualPaymentInstructions(amount, data.orderId);
             loadUserBalance();
+            notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
         } else {
             throw new Error(data.error || 'Payment initiation failed');
         }
     }
 
+    async function loadRecentRefundHighlight() {
+        if (!refundSummary || !refundSummaryMessage) {
+            return;
+        }
+
+        const token = resolveAuthToken('refund-summary');
+        if (!token) {
+            refundSummary.classList.add('hidden');
+            return;
+        }
+
+        try {
+            const response = await fetch('/.netlify/functions/payments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ action: 'history' })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to load refunds');
+            }
+
+            const data = await response.json();
+            const payments = Array.isArray(data.payments) ? data.payments : [];
+            const refundPayment = payments.find(entry => isRefundPayment(entry));
+
+            if (!refundPayment) {
+                refundSummary.classList.add('hidden');
+                return;
+            }
+
+            const amountValue = Math.abs(Number(refundPayment.amount || 0));
+            if (!Number.isFinite(amountValue)) {
+                refundSummary.classList.add('hidden');
+                return;
+            }
+
+            const formattedAmount = `$${amountValue.toFixed(2)}`;
+            const relativeTime = formatRelativeTimestamp(refundPayment.created_at);
+            const reference = refundPayment.transaction_id || refundPayment.id || '';
+            const referenceText = reference ? ` (Ref: ${escapeHtml(reference)})` : '';
+
+            refundSummaryMessage.innerHTML = `<strong>${formattedAmount}</strong> was returned to your balance ${relativeTime}${referenceText}.`;
+            refundSummary.classList.remove('hidden');
+        } catch (error) {
+            console.warn('[ADDFUNDS] Failed to load refund summary:', error);
+            refundSummary.classList.add('hidden');
+        }
+    }
+
+    function isRefundPayment(payment = {}) {
+        const amount = Number(payment.amount);
+        if (Number.isFinite(amount) && amount < 0) {
+            return true;
+        }
+        const method = typeof payment.method === 'string' ? payment.method.toLowerCase() : '';
+        const status = typeof payment.status === 'string' ? payment.status.toLowerCase() : '';
+        return method === 'refund' || status === 'refunded';
+    }
+
+    function formatRelativeTimestamp(dateInput) {
+        if (!dateInput) {
+            return 'just now';
+        }
+        const date = new Date(dateInput);
+        if (Number.isNaN(date.getTime())) {
+            return 'just now';
+        }
+        const diff = Date.now() - date.getTime();
+        if (diff < 60000) {
+            return 'just now';
+        }
+        if (diff < 3600000) {
+            const minutes = Math.max(1, Math.floor(diff / 60000));
+            return `${minutes}m ago`;
+        }
+        if (diff < 86400000) {
+            const hours = Math.max(1, Math.floor(diff / 3600000));
+            return `${hours}h ago`;
+        }
+        const days = Math.max(1, Math.floor(diff / 86400000));
+        return `${days}d ago`;
+    }
+
+    function escapeHtml(text = '') {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
 });
 
 // Function to show manual payment instructions
@@ -267,4 +401,101 @@ function showMessage(message, type) {
     setTimeout(() => {
         messageDiv.style.display = 'none';
     }, 3000);
+}
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'Add funds window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    window.opener.postMessage(payload, window.location.origin);
+}
+
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
+    if (!token) {
+        handleMissingAuth(reason);
+    }
+    return token;
+}
+
+function getAuthToken() {
+    try {
+        return localStorage.getItem('token');
+    } catch (error) {
+        console.warn('[ADDFUNDS] Unable to read auth token from storage.', error);
+        return null;
+    }
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'addfunds', reason };
+    if (isPopupMode) {
+        notifyOpener(payload);
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('[ADDFUNDS] Failed to close popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
 }

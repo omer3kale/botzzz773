@@ -329,10 +329,842 @@
     emit('fetchguard:ready', { config: guardConfig });
 })(typeof window !== 'undefined' ? window : undefined);
 
+function openAppPopup(path, options = {}) {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    const defaults = {
+        name: 'botzzz-popup',
+        width: 1100,
+        height: 720,
+        features: 'resizable=yes,scrollbars=yes',
+        context: {}
+    };
+
+    const settings = { ...defaults, ...options };
+    const left = Math.max(0, (window.screen.width - settings.width) / 2);
+    const top = Math.max(0, (window.screen.height - settings.height) / 2);
+    const featureList = `${settings.features},width=${settings.width},height=${settings.height},left=${left},top=${top}`;
+
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set('popup', '1');
+
+    Object.entries(settings.context || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+            url.searchParams.set(key, value);
+        }
+    });
+
+    const popupRef = window.open(url.toString(), settings.name, featureList);
+    if (!popupRef) {
+        alert('Please allow popups for BOTZZZ773 to continue.');
+        return null;
+    }
+
+    popupRef.focus();
+    return popupRef;
+}
+
+const authPopupBoundLinks = new WeakSet();
+const ticketPopupBoundLinks = new WeakSet();
+const orderPopupBoundLinks = new WeakSet();
+const addFundsPopupBoundLinks = new WeakSet();
+const servicesPopupBoundLinks = new WeakSet();
+const apiPopupBoundLinks = new WeakSet();
+const dashboardPopupBoundLinks = new WeakSet();
+const contactPopupBoundLinks = new WeakSet();
+const apiDashboardPopupBoundLinks = new WeakSet();
+
+function registerAuthPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        const intent = deriveAuthIntent(link);
+        if (!intent) {
+            return;
+        }
+        link.dataset.authPopup = intent;
+        bindAuthPopupLink(link);
+    });
+}
+
+function deriveAuthIntent(link) {
+    if (!link || link.dataset.noPopup === 'true') {
+        return null;
+    }
+
+    if (link.dataset.authPopup) {
+        return link.dataset.authPopup;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return null;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        return null;
+    }
+
+    if (!pathname || pathname.startsWith('admin/') || pathname.startsWith('../')) {
+        return null;
+    }
+
+    if (pathname.endsWith('signup.html')) {
+        return 'signup';
+    }
+
+    if (pathname.endsWith('signin.html')) {
+        return 'signin';
+    }
+
+    return null;
+}
+
+function bindAuthPopupLink(link) {
+    if (!link || authPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleAuthPopupClick);
+    authPopupBoundLinks.add(link);
+}
+
+function handleAuthPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode')) {
+        return;
+    }
+
+    event.preventDefault();
+    const trigger = event.currentTarget;
+    const intent = trigger.dataset.authPopup || 'signin';
+    const targetPath = trigger.getAttribute('href') || (intent === 'signup' ? 'signup.html' : 'signin.html');
+    const redirect = trigger.dataset.redirect || buildAuthRedirectParam();
+
+    const popupRef = openAppPopup(targetPath, {
+        name: intent === 'signup' ? 'botzzz-signup-popup' : 'botzzz-signin-popup',
+        width: 980,
+        context: { redirect }
+    });
+
+    if (!popupRef) {
+        navigateToAuthPage(targetPath, redirect);
+    }
+}
+
+function navigateToAuthPage(targetPath, redirect) {
+    try {
+        const fallbackUrl = new URL(targetPath, window.location.origin);
+        if (redirect && !fallbackUrl.searchParams.has('redirect')) {
+            fallbackUrl.searchParams.set('redirect', redirect);
+        }
+        window.location.href = fallbackUrl.toString();
+    } catch (error) {
+        window.location.href = targetPath;
+    }
+}
+
+function registerTicketsPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceTicketsLink(link)) {
+            return;
+        }
+        bindTicketsPopupLink(link);
+    });
+}
+
+function shouldEnhanceTicketsLink(link) {
+    if (!link || ticketPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'tickets.html';
+}
+
+function bindTicketsPopupLink(link) {
+    if (!link || ticketPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleTicketsPopupClick);
+    ticketPopupBoundLinks.add(link);
+}
+
+function handleTicketsPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentTicketsPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('tickets.html', {
+        name: 'botzzz-tickets-popup',
+        width: 1080,
+        height: 760
+    });
+
+    if (!popupRef) {
+        navigateToTicketsPage();
+    }
+}
+
+function isCurrentTicketsPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'tickets.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToTicketsPage() {
+    try {
+        window.location.href = new URL('tickets.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'tickets.html';
+    }
+}
+
+function registerOrderPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceOrderLink(link)) {
+            return;
+        }
+        bindOrderPopupLink(link);
+    });
+}
+
+function shouldEnhanceOrderLink(link) {
+    if (!link || orderPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'order.html';
+}
+
+function bindOrderPopupLink(link) {
+    if (!link || orderPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleOrderPopupClick);
+    orderPopupBoundLinks.add(link);
+}
+
+function handleOrderPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentOrderPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('order.html', {
+        name: 'botzzz-order-popup',
+        width: 1100,
+        height: 760
+    });
+
+    if (!popupRef) {
+        navigateToOrderPage();
+    }
+}
+
+function isCurrentOrderPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'order.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToOrderPage() {
+    try {
+        window.location.href = new URL('order.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'order.html';
+    }
+}
+
+function registerAddFundsPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceAddFundsLink(link)) {
+            return;
+        }
+        bindAddFundsPopupLink(link);
+    });
+}
+
+function shouldEnhanceAddFundsLink(link) {
+    if (!link || addFundsPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'addfunds.html';
+}
+
+function bindAddFundsPopupLink(link) {
+    if (!link || addFundsPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleAddFundsPopupClick);
+    addFundsPopupBoundLinks.add(link);
+}
+
+function handleAddFundsPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentAddFundsPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('addfunds.html', {
+        name: 'botzzz-addfunds-popup',
+        width: 960,
+        height: 740
+    });
+
+    if (!popupRef) {
+        navigateToAddFundsPage();
+    }
+}
+
+function isCurrentAddFundsPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'addfunds.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToAddFundsPage() {
+    try {
+        window.location.href = new URL('addfunds.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'addfunds.html';
+    }
+}
+
+function registerServicesPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceServicesLink(link)) {
+            return;
+        }
+        bindServicesPopupLink(link);
+    });
+}
+
+function shouldEnhanceServicesLink(link) {
+    if (!link || servicesPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'services.html';
+}
+
+function bindServicesPopupLink(link) {
+    if (!link || servicesPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleServicesPopupClick);
+    servicesPopupBoundLinks.add(link);
+}
+
+function handleServicesPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentServicesPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('services.html', {
+        name: 'botzzz-services-popup',
+        width: 1100,
+        height: 760
+    });
+
+    if (!popupRef) {
+        navigateToServicesPage();
+    }
+}
+
+function isCurrentServicesPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'services.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToServicesPage() {
+    try {
+        window.location.href = new URL('services.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'services.html';
+    }
+}
+
+function registerApiPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceApiLink(link)) {
+            return;
+        }
+        bindApiPopupLink(link);
+    });
+}
+
+function shouldEnhanceApiLink(link) {
+    if (!link || apiPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'api.html';
+}
+
+function bindApiPopupLink(link) {
+    if (!link || apiPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleApiPopupClick);
+    apiPopupBoundLinks.add(link);
+}
+
+function handleApiPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentApiPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('api.html', {
+        name: 'botzzz-api-popup',
+        width: 1100,
+        height: 760
+    });
+
+    if (!popupRef) {
+        navigateToApiPage();
+    }
+}
+
+function isCurrentApiPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'api.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToApiPage() {
+    try {
+        window.location.href = new URL('api.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'api.html';
+    }
+}
+
+function registerDashboardPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceDashboardLink(link)) {
+            return;
+        }
+        bindDashboardPopupLink(link);
+    });
+}
+
+function shouldEnhanceDashboardLink(link) {
+    if (!link || dashboardPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'dashboard.html';
+}
+
+function bindDashboardPopupLink(link) {
+    if (!link || dashboardPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleDashboardPopupClick);
+    dashboardPopupBoundLinks.add(link);
+}
+
+function handleDashboardPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentDashboardPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('dashboard.html', {
+        name: 'botzzz-dashboard-popup',
+        width: 1200,
+        height: 820
+    });
+
+    if (!popupRef) {
+        navigateToDashboardPage();
+    }
+}
+
+function isCurrentDashboardPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'dashboard.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToDashboardPage() {
+    try {
+        window.location.href = new URL('dashboard.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'dashboard.html';
+    }
+}
+
+function registerContactPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceContactLink(link)) {
+            return;
+        }
+        bindContactPopupLink(link);
+    });
+}
+
+function shouldEnhanceContactLink(link) {
+    if (!link || contactPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'contact.html';
+}
+
+function bindContactPopupLink(link) {
+    if (!link || contactPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleContactPopupClick);
+    contactPopupBoundLinks.add(link);
+}
+
+function handleContactPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentContactPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('contact.html', {
+        name: 'botzzz-contact-popup',
+        width: 960,
+        height: 760
+    });
+
+    if (!popupRef) {
+        navigateToContactPage();
+    }
+}
+
+function isCurrentContactPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'contact.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToContactPage() {
+    try {
+        window.location.href = new URL('contact.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'contact.html';
+    }
+}
+
+function registerApiDashboardPopupLinks() {
+    const anchors = document.querySelectorAll('a[href]');
+    anchors.forEach((link) => {
+        if (!shouldEnhanceApiDashboardLink(link)) {
+            return;
+        }
+        bindApiDashboardPopupLink(link);
+    });
+}
+
+function shouldEnhanceApiDashboardLink(link) {
+    if (!link || apiDashboardPopupBoundLinks.has(link) || link.dataset.noPopup === 'true') {
+        return false;
+    }
+
+    const rawHref = (link.getAttribute('href') || '').trim();
+    if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
+        return false;
+    }
+
+    if (link.target && link.target !== '_self') {
+        return false;
+    }
+
+    let pathname = '';
+    try {
+        pathname = new URL(rawHref, window.location.origin).pathname.replace(/^\/+/, '');
+    } catch (error) {
+        pathname = rawHref.replace(/^\/+/, '');
+    }
+
+    if (!pathname || pathname.startsWith('admin/')) {
+        return false;
+    }
+
+    return pathname === 'api-dashboard.html';
+}
+
+function bindApiDashboardPopupLink(link) {
+    if (!link || apiDashboardPopupBoundLinks.has(link)) {
+        return;
+    }
+    link.addEventListener('click', handleApiDashboardPopupClick);
+    apiDashboardPopupBoundLinks.add(link);
+}
+
+function handleApiDashboardPopupClick(event) {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+    }
+
+    if (document.body.classList.contains('popup-mode') || isCurrentApiDashboardPage()) {
+        return;
+    }
+
+    event.preventDefault();
+    const popupRef = openAppPopup('api-dashboard.html', {
+        name: 'botzzz-api-dashboard-popup',
+        width: 1200,
+        height: 820
+    });
+
+    if (!popupRef) {
+        navigateToApiDashboardPage();
+    }
+}
+
+function isCurrentApiDashboardPage() {
+    try {
+        const pathname = window.location.pathname.replace(/^\/+/, '');
+        return pathname === 'api-dashboard.html';
+    } catch (error) {
+        return false;
+    }
+}
+
+function navigateToApiDashboardPage() {
+    try {
+        window.location.href = new URL('api-dashboard.html', window.location.origin).toString();
+    } catch (error) {
+        window.location.href = 'api-dashboard.html';
+    }
+}
+
+function buildAuthRedirectParam() {
+    const path = window.location.pathname.replace(/^\//, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
+
+if (typeof window !== 'undefined') {
+    window.openAppPopup = openAppPopup;
+}
+
 // Mobile Navigation Toggle
 document.addEventListener('DOMContentLoaded', function() {
     // Check authentication and update navigation
     updateAuthNavigation();
+    registerAuthPopupLinks();
+    registerTicketsPopupLinks();
+    registerOrderPopupLinks();
+    registerAddFundsPopupLinks();
+    registerServicesPopupLinks();
+    registerApiPopupLinks();
+    registerDashboardPopupLinks();
+    registerContactPopupLinks();
+    registerApiDashboardPopupLinks();
     
     const mobileToggle = document.getElementById('mobileToggle');
     const navMenu = document.getElementById('navMenu');
@@ -547,6 +1379,164 @@ function hideLoading(button) {
     button.textContent = button.dataset.originalText || 'Submit';
 }
 
+(function installPopupMessageHub() {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    const trustedOrigin = window.location.origin;
+
+    function dispatchPopupEvent(name, detail) {
+        window.dispatchEvent(new CustomEvent(name, { detail }));
+    }
+
+    function formatCurrency(amount) {
+        const numeric = Number(amount);
+        if (!Number.isFinite(numeric)) {
+            return '$0.00';
+        }
+        return `$${numeric.toFixed(2)}`;
+    }
+
+    function persistAuthPayload(detail) {
+        if (detail?.token) {
+            localStorage.setItem('token', detail.token);
+        }
+        if (detail?.user) {
+            localStorage.setItem('user', JSON.stringify(detail.user));
+        }
+        if (typeof updateAuthNavigation === 'function') {
+            updateAuthNavigation();
+        }
+    }
+
+    const handlers = {
+        CONTACT_MESSAGE_SENT(detail) {
+            showMessage('Support request sent successfully.', 'success');
+            dispatchPopupEvent('popup:contact-message-sent', detail);
+        },
+        ORDER_CREATED(detail) {
+            const orderNumber = detail?.order?.order_number || detail?.order?.id;
+            const label = orderNumber ? ` #${orderNumber}` : '';
+            showMessage(`Order${label} created successfully.`, 'success');
+            dispatchPopupEvent('popup:order-created', detail);
+        },
+        ADD_FUNDS_ORDER_CREATED(detail) {
+            const orderId = detail?.orderId ? ` #${detail.orderId}` : '';
+            const amount = formatCurrency(detail?.amount);
+            showMessage(`Add-funds request${orderId} initialized for ${amount}.`, 'success');
+            dispatchPopupEvent('popup:add-funds-order-created', detail);
+        },
+        PAYMENT_SUCCESS(detail) {
+            showMessage('Payment confirmed. Your balance will refresh shortly.', 'success');
+            dispatchPopupEvent('popup:payment-success', detail);
+        },
+        PAYMENT_FAILED(detail) {
+            showMessage('Payment failed. Please try again or contact support.', 'error');
+            dispatchPopupEvent('popup:payment-failed', detail);
+        },
+        TICKET_CREATED(detail) {
+            showMessage('Ticket created successfully.', 'success');
+            dispatchPopupEvent('popup:ticket-created', detail);
+        },
+        TICKET_REPLIED(detail) {
+            showMessage('Ticket reply sent.', 'success');
+            dispatchPopupEvent('popup:ticket-replied', detail);
+        },
+        TICKET_CLOSED(detail) {
+            showMessage('Ticket closed successfully.', 'success');
+            dispatchPopupEvent('popup:ticket-closed', detail);
+        },
+        API_KEY_CREATED(detail) {
+            showMessage('API key generated.', 'success');
+            dispatchPopupEvent('popup:api-key-created', detail);
+        },
+        API_KEY_DELETED(detail) {
+            showMessage('API key deleted.', 'success');
+            dispatchPopupEvent('popup:api-key-deleted', detail);
+        },
+        PROVIDER_ADDED(detail) {
+            showMessage(`${detail?.providerName || 'Provider'} connected successfully.`, 'success');
+            dispatchPopupEvent('popup:provider-added', detail);
+        },
+        PROVIDER_DELETED(detail) {
+            showMessage('Provider removed.', 'success');
+            dispatchPopupEvent('popup:provider-deleted', detail);
+        },
+        PROVIDER_SYNCED(detail) {
+            const count = detail?.servicesCount ?? 0;
+            showMessage(`Provider sync complete (${count} services).`, 'success');
+            dispatchPopupEvent('popup:provider-synced', detail);
+        },
+        SERVICES_DIAGNOSTIC_COMPLETED(detail) {
+            const transport = detail?.transport === 'xhr' ? 'XMLHttpRequest' : 'Fetch API';
+            const duration = typeof detail?.durationMs === 'number' ? `${detail.durationMs}ms` : 'completed';
+            const services = detail?.serviceCount ?? 0;
+            const success = detail?.success === true && services > 0;
+            const tone = success ? 'success' : 'warning';
+            const message = success
+                ? `${transport} diagnostic passed in ${duration} (${services} services).`
+                : `${transport} diagnostic finished with no services. Check the response.`;
+            showMessage(message, tone);
+            dispatchPopupEvent('popup:test-services-completed', detail);
+        },
+        SERVICES_DIAGNOSTIC_FAILED(detail) {
+            const transport = detail?.transport === 'xhr' ? 'XMLHttpRequest' : 'Fetch API';
+            const reason = detail?.message || 'Diagnostic failed.';
+            showMessage(`${transport} diagnostic failed: ${reason}`, 'error');
+            dispatchPopupEvent('popup:test-services-failed', detail);
+        },
+        USER_LOGGED_OUT() {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            sessionStorage.clear();
+            if (typeof updateAuthNavigation === 'function') {
+                updateAuthNavigation();
+            }
+            showMessage('Session closed.', 'success');
+            dispatchPopupEvent('popup:user-logged-out', {});
+        },
+        USER_LOGGED_IN(detail) {
+            persistAuthPayload(detail);
+            const name = detail?.user?.username || detail?.user?.fullname || 'there';
+            showMessage(`Welcome back, ${name}!`, 'success');
+            dispatchPopupEvent('popup:user-logged-in', detail);
+        },
+        USER_SIGNED_UP(detail) {
+            persistAuthPayload(detail);
+            showMessage('Account created successfully.', 'success');
+            dispatchPopupEvent('popup:user-signed-up', detail);
+            dispatchPopupEvent('popup:user-logged-in', detail);
+        },
+        AUTH_REQUIRED(detail) {
+            showMessage('Please sign in to continue.', 'error');
+            dispatchPopupEvent('popup:auth-required', detail);
+            setTimeout(() => {
+                const currentPath = encodeURIComponent(window.location.pathname.replace(/^\//, ''));
+                window.location.href = `signin.html?redirect=${currentPath}`;
+            }, 600);
+        }
+    };
+
+    window.addEventListener('message', (event) => {
+        if (!event?.data || event.origin !== trustedOrigin) {
+            return;
+        }
+
+        const type = event.data.type;
+        if (!type || typeof type !== 'string') {
+            return;
+        }
+
+        const handler = handlers[type];
+        if (handler) {
+            handler(event.data);
+        } else {
+            dispatchPopupEvent('popup:message', event.data);
+        }
+    });
+})();
+
 // Update Navigation Based on Authentication
 function updateAuthNavigation() {
     const token = localStorage.getItem('token');
@@ -583,12 +1573,15 @@ function updateAuthNavigation() {
                     window.location.href = 'index.html';
                 });
             }
+
+            registerDashboardPopupLinks();
         } catch (error) {
             console.error('Error parsing user data:', error);
         }
     } else {
         // User is not logged in
-        authNavItem.innerHTML = '<a href="signin.html" class="nav-link btn-primary">Sign In</a>';
+        authNavItem.innerHTML = '<a href="signin.html" class="nav-link btn-primary" data-auth-popup="signin">Sign In</a>';
+        registerAuthPopupLinks();
     }
 }
 

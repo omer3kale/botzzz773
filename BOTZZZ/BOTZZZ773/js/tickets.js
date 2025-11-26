@@ -1,5 +1,9 @@
 // Tickets System
 let currentTicket = null;
+let isPopupMode = false;
+let authGuardTriggered = false;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to access support tickets. Please sign in or create an account.';
 
 // Category subcategories mapping
 const categorySubcategories = {
@@ -14,8 +18,10 @@ let tickets = [];
 // Load tickets from backend
 async function loadTickets() {
     try {
-        const token = localStorage.getItem('authToken');
-        if (!token) return;
+        const token = resolveAuthToken('load-tickets');
+        if (!token) {
+            return;
+        }
         
         const response = await fetch('/.netlify/functions/tickets', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -34,10 +40,8 @@ async function loadTickets() {
 // Save new ticket to backend
 async function saveTicket(ticketData) {
     try {
-        const token = localStorage.getItem('authToken');
+        const token = resolveAuthToken('create-ticket');
         if (!token) {
-            alert('Please login to submit tickets');
-            window.location.href = '/signin.html';
             return false;
         }
         
@@ -58,6 +62,7 @@ async function saveTicket(ticketData) {
         if (data.success) {
             // Add new ticket to local array
             tickets.unshift(data.ticket);
+            notifyOpener({ type: 'TICKET_CREATED', ticketId: data.ticket?.id });
             return true;
         } else {
             alert(data.error || 'Failed to create ticket');
@@ -71,8 +76,18 @@ async function saveTicket(ticketData) {
 }
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
-    loadTickets();
+document.addEventListener('DOMContentLoaded', async () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    if (!resolveAuthToken('initial-load')) {
+        return;
+    }
+
+    await loadTickets();
     renderTickets();
     setupCategoryChange();
     setupFilterButtons();
@@ -220,9 +235,8 @@ async function sendReply() {
     }
 
     try {
-        const token = localStorage.getItem('authToken');
+        const token = resolveAuthToken('reply-ticket');
         if (!token) {
-            alert('Please login to reply to tickets');
             return;
         }
         
@@ -260,6 +274,7 @@ async function sendReply() {
             currentTicket.updatedAt = newMessage.date;
             renderTicketDetails();
             replyMessage.value = '';
+            notifyOpener({ type: 'TICKET_REPLIED', ticketId: currentTicket.id });
         } else {
             alert(data.error || 'Failed to send reply');
         }
@@ -274,9 +289,8 @@ async function closeTicket() {
     if (!confirm('Are you sure you want to close this ticket?')) return;
     
     try {
-        const token = localStorage.getItem('authToken');
+        const token = resolveAuthToken('close-ticket');
         if (!token) {
-            alert('Please login to close tickets');
             return;
         }
         
@@ -305,6 +319,7 @@ async function closeTicket() {
             });
             renderTickets();
             renderTicketDetails();
+            notifyOpener({ type: 'TICKET_CLOSED', ticketId: currentTicket.id });
         } else {
             alert(data.error || 'Failed to close ticket');
         }
@@ -422,4 +437,97 @@ function formatDate(dateStr) {
     } else {
         return dateStr.split(' ')[0];
     }
+}
+
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
+    if (!token) {
+        handleMissingAuth(reason);
+    }
+    return token;
+}
+
+function getAuthToken() {
+    return localStorage.getItem('token');
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'tickets', reason };
+    if (isPopupMode) {
+        notifyOpener(payload);
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('Failed to close tickets popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\//, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'Support tickets window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    window.opener.postMessage(payload, window.location.origin);
 }

@@ -28,7 +28,13 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body class="admin-body">
+<body class="admin-body admin-reports-page">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin reports window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
     <!-- Admin Header -->
     <header class="admin-header">
         <button class="sidebar-toggle" onclick="toggleSidebar()">
@@ -110,7 +116,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="admin-main">
+    <section class="admin-main" role="main">
         <div class="admin-page-header">
             <h1>Reports & Analytics</h1>
             <div class="page-actions">
@@ -242,6 +248,9 @@
                     <div class="stat-change positive">+3.8% from last period</div>
                 </div>
             </div>
+        </div>
+    </section>
+
         </div>
     </main>
 

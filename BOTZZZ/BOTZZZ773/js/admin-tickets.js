@@ -1,4 +1,5 @@
 // Admin Tickets Management with Real Modals
+window.initializeAdminPopupSurface?.('Admin tickets window');
 
 let ticketsCache = [];
 const selectedTicketIds = new Set();

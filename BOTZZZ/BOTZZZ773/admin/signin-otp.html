@@ -277,7 +277,13 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body>
+<body class="admin-signin-otp-page">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin OTP window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
@@ -359,6 +365,7 @@
     <div id="notification" class="notification"></div>
 
     <script>
+        window.initializeAdminPopupSurface?.('Admin sign-in OTP window');
         let currentEmail = '';
         let otpExpiryTime = null;
         let expiryInterval = null;
@@ -588,6 +595,9 @@
     </script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
+
+        </div>
+    </main>
 
 </body>
 </html>

@@ -1,5 +1,10 @@
 // API Documentation Page JavaScript
 
+let isPopupMode = false;
+let authGuardTriggered = false;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to access the API documentation. Please sign in or create an account.';
+
 // Copy code function
 function copyCode(button) {
     const codeBlock = button.closest('.code-block');
@@ -22,7 +27,22 @@ function copyCode(button) {
 
 // Smooth scroll to sections
 document.addEventListener('DOMContentLoaded', function() {
-    // Smooth scroll for anchor links
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    const token = resolveAuthToken('initial-load');
+    if (!token) {
+        return;
+    }
+
+    initializeSmoothScroll();
+    initializeEndpointAnimations();
+});
+
+function initializeSmoothScroll() {
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', function (e) {
             const href = this.getAttribute('href');
@@ -38,8 +58,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+}
 
-    // Add animation on scroll for endpoint cards
+function initializeEndpointAnimations() {
+    const cards = document.querySelectorAll('.endpoint-card');
+    if (!cards.length) {
+        return;
+    }
+
     const observerOptions = {
         threshold: 0.1,
         rootMargin: '0px 0px -100px 0px'
@@ -54,10 +80,112 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }, observerOptions);
 
-    document.querySelectorAll('.endpoint-card').forEach(card => {
+    cards.forEach(card => {
         card.style.opacity = '0';
         card.style.transform = 'translateY(20px)';
         card.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
         observer.observe(card);
     });
-});
+}
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'API documentation window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
+    if (!token) {
+        handleMissingAuth(reason);
+    }
+    return token;
+}
+
+function getAuthToken() {
+    try {
+        return localStorage.getItem('token');
+    } catch (error) {
+        console.warn('[API] Unable to read auth token from storage.', error);
+        return null;
+    }
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'api-docs', reason };
+    notifyOpener(payload);
+
+    if (isPopupMode) {
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('[API] Failed to close popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    try {
+        window.opener.postMessage(payload, window.location.origin);
+    } catch (error) {
+        console.warn('[API] Failed to postMessage opener.', error);
+    }
+}

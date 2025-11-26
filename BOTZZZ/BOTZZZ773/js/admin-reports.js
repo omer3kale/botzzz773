@@ -1,4 +1,5 @@
 // Admin Reports and Analytics
+window.initializeAdminPopupSurface?.('Admin reports window');
 
 let currentChart = null;
 let currentReportTab = 'payments';

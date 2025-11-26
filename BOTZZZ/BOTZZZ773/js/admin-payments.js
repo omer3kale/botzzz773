@@ -1,4 +1,5 @@
 // Admin Payments Management with Real Modals
+window.initializeAdminPopupSurface?.('Admin payments window');
 
 let paymentsCache = [];
 let paymentsUserLookup = {};

@@ -74,6 +74,10 @@
         .btn-secondary:hover {
             background: #4b5563;
         }
+        .status-note {
+            color: #4b5563;
+            margin-bottom: 1.5rem;
+        }
     </style>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
@@ -94,23 +98,34 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body>
-    <div class="fail-container">
-        <div class="fail-box">
-            <div class="fail-icon">✕</div>
-            <h1 class="fail-title">Payment Failed</h1>
-            <p class="fail-message">
-                Unfortunately, your payment could not be processed.<br>
-                Please try again or contact support if the problem persists.
-            </p>
-            <div class="btn-group">
-                <a href="addfunds.html" class="btn-primary">Try Again</a>
-                <a href="contact.html" class="btn-secondary">Contact Support</a>
+<body data-payment-status="failed" data-redirect-target="addfunds.html">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close payment failed window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+            <div class="fail-container">
+                <div class="fail-box">
+                    <div class="fail-icon">✕</div>
+                    <h1 class="fail-title">Payment Failed</h1>
+                    <p class="fail-message">
+                        Unfortunately, your payment could not be processed.<br>
+                        Please try again or contact support if the problem persists.
+                    </p>
+                    <p class="status-note">This window will close in <span data-countdown>5</span> seconds.</p>
+                    <div class="btn-group">
+                        <a href="addfunds.html" class="btn-primary">Try Again</a>
+                        <a href="contact.html" class="btn-secondary">Contact Support</a>
+                        <button type="button" class="btn-secondary" data-close-window>Close Window</button>
+                    </div>
+                </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <script src="js/main.js"></script>
+    <script src="js/payment-status.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

@@ -11,6 +11,10 @@ let servicesFetchController = null;
 let pendingServiceSelection = null;
 let serviceStatusController = null;
 let networkStatusController = null;
+let isPopupMode = false;
+let authGuardTriggered = false;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to place orders. Please sign in or create an account.';
 
 const delay = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -284,6 +288,16 @@ document.addEventListener('DOMContentLoaded', function() {
     const quantityInput = document.getElementById('quantity');
     const estimatedPriceEl = document.getElementById('estimatedPrice');
 
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    if (!resolveAuthToken('initial-load')) {
+        return;
+    }
+
     serviceStatusController = createServiceStatusController();
     networkStatusController = createNetworkPillController();
 
@@ -293,7 +307,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    const urlParams = new URLSearchParams(window.location.search);
     pendingServiceSelection = urlParams.get('service');
 
     loadServices();
@@ -401,12 +414,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             // Check authentication first
-            const token = localStorage.getItem('token');
+            const token = resolveAuthToken('submit-order');
             if (!token) {
-                showMessage('Please sign in to place an order', 'error');
-                setTimeout(() => {
-                    window.location.href = 'signin.html?redirect=order.html';
-                }, 1500);
                 return;
             }
             
@@ -449,11 +458,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Scroll to top
                     window.scrollTo({ top: 0, behavior: 'smooth' });
+                    notifyOpener({ type: 'ORDER_CREATED', order: result.order });
                     
-                    // Redirect to dashboard after 2 seconds
-                    setTimeout(() => {
-                        window.location.href = 'dashboard.html';
-                    }, 2000);
+                    if (isPopupMode) {
+                        setTimeout(() => handlePopupClose(), 1200);
+                    } else {
+                        setTimeout(() => {
+                            window.location.href = 'dashboard.html';
+                        }, 2000);
+                    }
                 } else {
                     // Show detailed error
                     let errorMsg = result.error || 'Order creation failed';
@@ -589,11 +602,17 @@ async function loadServices(options = {}) {
 
     serviceStatusController?.setState(isRetry ? 'retrying' : 'loading');
 
-    const token = localStorage.getItem('token');
-    const fetchHeaders = { 'Content-Type': 'application/json' };
-    if (token) {
-        fetchHeaders['Authorization'] = `Bearer ${token}`;
+    const token = resolveAuthToken('load-services');
+    if (!token) {
+        setServiceSelectPlaceholder(serviceSelect, 'Sign in required to view services', true);
+        serviceStatusController?.setState('error');
+        return;
     }
+
+    const fetchHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+    };
 
     let lastError = null;
 
@@ -606,11 +625,8 @@ async function loadServices(options = {}) {
             if (response.status === 401 || response.status === 403) {
                 console.warn('[ORDER] Services request unauthorized. Response:', data);
                 setServiceSelectPlaceholder(serviceSelect, 'Sign in required to load services', true);
-                showMessage('Your session expired. Please sign in again to view services.', 'error');
                 serviceStatusController?.setState('error');
-                setTimeout(() => {
-                    window.location.href = 'signin.html?redirect=order.html';
-                }, 1500);
+                handleMissingAuth('services-response-unauthorized');
                 return;
             }
 
@@ -805,4 +821,101 @@ function formatNumber(num) {
         return (num / 1000).toFixed(0) + 'K';
     }
     return num.toString();
+}
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'Order creation window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
+    if (!token) {
+        handleMissingAuth(reason);
+    }
+    return token;
+}
+
+function getAuthToken() {
+    try {
+        return localStorage.getItem('token');
+    } catch (error) {
+        console.warn('[ORDER] Unable to read auth token from storage.', error);
+        return null;
+    }
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'order', reason };
+    if (isPopupMode) {
+        notifyOpener(payload);
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('[ORDER] Failed to close popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    window.opener.postMessage(payload, window.location.origin);
 }

@@ -4,13 +4,33 @@
 (function() {
   'use strict';
 
+  const DEV_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+  const isLocalDev = DEV_HOSTS.has(window.location.hostname);
+
   // Check if service workers are supported
   if ('serviceWorker' in navigator) {
-    // Register service worker when page loads
-    window.addEventListener('load', () => {
-      registerServiceWorker();
-      checkForUpdates();
-    });
+    if (isLocalDev) {
+      // In dev mode we aggressively unregister to avoid stale bundles
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.getRegistrations()
+          .then(registrations => {
+            if (registrations.length === 0) {
+              return;
+            }
+            registrations.forEach(registration => registration.unregister());
+            console.info('[PWA] Dev mode detected — service workers unregistered to prevent cached assets.');
+          })
+          .catch(error => {
+            console.warn('[PWA] Failed to inspect service workers in dev mode:', error);
+          });
+      });
+    } else {
+      // Register service worker when page loads (production / preview envs)
+      window.addEventListener('load', () => {
+        registerServiceWorker();
+        checkForUpdates();
+      });
+    }
   }
 
   async function registerServiceWorker() {

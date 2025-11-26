@@ -57,111 +57,119 @@
         </div>
     </nav>
 
-    <!-- Hero Section -->
-    <section class="tickets-hero">
-        <div class="container">
-            <h1>Support Tickets</h1>
-            <p>Get help with your orders, payments, and more</p>
-        </div>
-    </section>
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close tickets window">
+                <span aria-hidden="true">&times;</span>
+            </button>
 
-    <!-- Tickets Section -->
-    <section class="tickets-section">
-        <div class="container">
-            <div class="tickets-grid">
-                <!-- Left Side - Ticket List -->
-                <div class="tickets-list-container">
-                    <div class="tickets-header">
-                        <h2>My Tickets</h2>
-                        <button class="btn-primary" onclick="openNewTicketModal()">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="12" y1="5" x2="12" y2="19"></line>
-                                <line x1="5" y1="12" x2="19" y2="12"></line>
-                            </svg>
-                            New Ticket
-                        </button>
-                    </div>
+            <!-- Hero Section -->
+            <section class="tickets-hero">
+                <div class="container">
+                    <h1>Support Tickets</h1>
+                    <p>Get help with your orders, payments, and more</p>
+                </div>
+            </section>
 
-                    <div class="tickets-filter">
-                        <button class="filter-btn active" data-status="all">All</button>
-                        <button class="filter-btn" data-status="open">Open</button>
-                        <button class="filter-btn" data-status="pending">Pending</button>
-                        <button class="filter-btn" data-status="closed">Closed</button>
-                    </div>
+            <!-- Tickets Section -->
+            <section class="tickets-section">
+                <div class="container">
+                    <div class="tickets-grid">
+                        <!-- Left Side - Ticket List -->
+                        <div class="tickets-list-container">
+                            <div class="tickets-header">
+                                <h2>My Tickets</h2>
+                                <button class="btn-primary" onclick="openNewTicketModal()">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                    New Ticket
+                                </button>
+                            </div>
 
-                    <div class="tickets-list" id="ticketsList">
-                        <!-- Tickets will be rendered here by JavaScript -->
+                            <div class="tickets-filter">
+                                <button class="filter-btn active" data-status="all">All</button>
+                                <button class="filter-btn" data-status="open">Open</button>
+                                <button class="filter-btn" data-status="pending">Pending</button>
+                                <button class="filter-btn" data-status="closed">Closed</button>
+                            </div>
+
+                            <div class="tickets-list" id="ticketsList">
+                                <!-- Tickets will be rendered here by JavaScript -->
+                            </div>
+                        </div>
+
+                        <!-- Right Side - Ticket Details -->
+                        <div class="ticket-details-container">
+                            <div class="empty-state" id="emptyState">
+                                <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                    <line x1="12" y1="18" x2="12" y2="12"></line>
+                                    <line x1="9" y1="15" x2="15" y2="15"></line>
+                                </svg>
+                                <h3>Select a ticket to view details</h3>
+                                <p>Choose a ticket from the list or create a new one</p>
+                            </div>
+
+                            <div class="ticket-details" id="ticketDetails" style="display: none;">
+                                <!-- Ticket details will be rendered here -->
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </section>
 
-                <!-- Right Side - Ticket Details -->
-                <div class="ticket-details-container">
-                    <div class="empty-state" id="emptyState">
-                        <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="12" y1="18" x2="12" y2="12"></line>
-                            <line x1="9" y1="15" x2="15" y2="15"></line>
-                        </svg>
-                        <h3>Select a ticket to view details</h3>
-                        <p>Choose a ticket from the list or create a new one</p>
+            <!-- New Ticket Modal -->
+            <div class="modal" id="newTicketModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>Create New Ticket</h2>
+                        <button class="close-btn" onclick="closeNewTicketModal()">&times;</button>
                     </div>
+                    <form id="newTicketForm">
+                        <div class="form-group">
+                            <label for="ticketCategory">Category *</label>
+                            <select id="ticketCategory" required>
+                                <option value="">Select Category</option>
+                                <option value="orders">Orders</option>
+                                <option value="payment">Payment</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
 
-                    <div class="ticket-details" id="ticketDetails" style="display: none;">
-                        <!-- Ticket details will be rendered here -->
-                    </div>
+                        <div class="form-group" id="subcategoryGroup" style="display: none;">
+                            <label for="ticketSubcategory">Subcategory *</label>
+                            <select id="ticketSubcategory">
+                                <option value="">Select Subcategory</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ticketSubject">Subject *</label>
+                            <input type="text" id="ticketSubject" placeholder="Brief description of your issue" required>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ticketMessage">Message *</label>
+                            <textarea id="ticketMessage" rows="6" placeholder="Provide detailed information about your issue..." required></textarea>
+                        </div>
+
+                        <div class="form-group" id="orderIdGroup" style="display: none;">
+                            <label for="ticketOrderId">Order ID (Optional)</label>
+                            <input type="text" id="ticketOrderId" placeholder="e.g., 12345">
+                        </div>
+
+                        <div class="modal-footer">
+                            <button type="button" class="btn-secondary" onclick="closeNewTicketModal()">Cancel</button>
+                            <button type="submit" class="btn-primary">Submit Ticket</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
-    </section>
-
-    <!-- New Ticket Modal -->
-    <div class="modal" id="newTicketModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Create New Ticket</h2>
-                <button class="close-btn" onclick="closeNewTicketModal()">&times;</button>
-            </div>
-            <form id="newTicketForm">
-                <div class="form-group">
-                    <label for="ticketCategory">Category *</label>
-                    <select id="ticketCategory" required>
-                        <option value="">Select Category</option>
-                        <option value="orders">Orders</option>
-                        <option value="payment">Payment</option>
-                        <option value="other">Other</option>
-                    </select>
-                </div>
-
-                <div class="form-group" id="subcategoryGroup" style="display: none;">
-                    <label for="ticketSubcategory">Subcategory *</label>
-                    <select id="ticketSubcategory">
-                        <option value="">Select Subcategory</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="ticketSubject">Subject *</label>
-                    <input type="text" id="ticketSubject" placeholder="Brief description of your issue" required>
-                </div>
-
-                <div class="form-group">
-                    <label for="ticketMessage">Message *</label>
-                    <textarea id="ticketMessage" rows="6" placeholder="Provide detailed information about your issue..." required></textarea>
-                </div>
-
-                <div class="form-group" id="orderIdGroup" style="display: none;">
-                    <label for="ticketOrderId">Order ID (Optional)</label>
-                    <input type="text" id="ticketOrderId" placeholder="e.g., 12345">
-                </div>
-
-                <div class="modal-footer">
-                    <button type="button" class="btn-secondary" onclick="closeNewTicketModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Submit Ticket</button>
-                </div>
-            </form>
-        </div>
-    </div>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
@@ -205,18 +213,6 @@
     </footer>
 
     <script src="js/main.js"></script>
-    <script>
-        // Authentication check - redirect if not logged in
-        (function() {
-            const token = localStorage.getItem('token');
-            const user = localStorage.getItem('user');
-            
-            if (!token || !user) {
-                alert('You must be signed in to access support tickets. Please sign in or create an account.');
-                window.location.href = 'signin.html';
-            }
-        })();
-    </script>
     <script src="js/tickets.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>

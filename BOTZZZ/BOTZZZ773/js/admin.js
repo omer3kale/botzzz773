@@ -1,5 +1,110 @@
 // Admin Panel JavaScript - Production Ready
 
+const adminPopupSurfaceController = (() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return { init: () => {}, close: () => {} };
+    }
+
+    let initialized = false;
+    let isPopup = false;
+    let ariaLabel = 'Admin popup window';
+
+    function detachDialogAttributes(panel) {
+        if (!panel) {
+            return;
+        }
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('aria-label');
+        panel.removeAttribute('tabindex');
+    }
+
+    function closePopupSurface() {
+        if (!isPopup) {
+            return;
+        }
+
+        if (window.opener && !window.opener.closed) {
+            try {
+                window.opener.focus();
+            } catch (error) {
+                console.warn('[ADMIN] Failed to refocus opener window.', error);
+            }
+            window.close();
+            return;
+        }
+
+        document.body.classList.remove('popup-mode');
+        detachDialogAttributes(document.querySelector('[data-popup-surface]'));
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.style.display = 'none';
+        }
+    }
+
+    function mountPopupSurface() {
+        if (!isPopup) {
+            return;
+        }
+
+        document.body.classList.add('popup-mode');
+        const panel = document.querySelector('[data-popup-surface]');
+        if (panel) {
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-modal', 'true');
+            panel.setAttribute('aria-label', ariaLabel);
+            panel.setAttribute('tabindex', '-1');
+            requestAnimationFrame(() => panel.focus());
+        }
+
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.addEventListener('click', closePopupSurface);
+        }
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closePopupSurface();
+            }
+        });
+    }
+
+    function initPopupSurface(label) {
+        if (initialized) {
+            return;
+        }
+        initialized = true;
+
+        if (typeof label === 'string' && label.trim().length > 0) {
+            ariaLabel = label.trim();
+        }
+
+        const params = new URLSearchParams(window.location.search);
+        isPopup = params.get('popup') === '1';
+        if (!isPopup) {
+            return;
+        }
+
+        const boot = () => mountPopupSurface();
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', boot, { once: true });
+        } else {
+            boot();
+        }
+    }
+
+    return {
+        init: initPopupSurface,
+        close: closePopupSurface
+    };
+})();
+
+if (typeof window !== 'undefined') {
+    window.initializeAdminPopupSurface = function initializeAdminPopupSurface(label) {
+        adminPopupSurfaceController.init(label);
+    };
+}
+
 // Toggle Sidebar
 function toggleSidebar() {
     const sidebar = document.getElementById('adminSidebar');

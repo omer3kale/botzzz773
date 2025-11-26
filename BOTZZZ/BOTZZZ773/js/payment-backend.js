@@ -50,16 +50,31 @@ function renderPaymentHistory(payments) {
     const historyContainer = document.getElementById('paymentHistory');
     if (!historyContainer) return;
 
-    const rows = payments.map(payment => `
-        <tr>
-            <td>
-                <span class="history-label">${formatDate(payment.created_at)}</span>
-            </td>
-            <td>$${parseFloat(payment.amount).toFixed(2)}</td>
-            <td>${formatMethod(payment.method)}</td>
-            <td class="transaction-id" title="${payment.transaction_id}">${payment.transaction_id || '—'}</td>
-        </tr>
-    `).join('');
+    const rows = payments.map(payment => {
+        const amountValue = Number(payment.amount || 0);
+        const isRefund = amountValue < 0 || (payment.method || '').toLowerCase() === 'refund' || (payment.status || '').toLowerCase() === 'refunded';
+        const amountPrefix = isRefund ? '−' : '+';
+        const formattedAmount = `$${Math.abs(amountValue).toFixed(2)}`;
+        const amountClass = `history-amount ${isRefund ? 'refund' : 'deposit'}`;
+        const statusKey = determinePaymentStatusKey(payment.status, isRefund);
+        const statusLabel = formatStatusLabel(statusKey);
+        const memo = payment.memo
+            ? `<div class="history-memo">${escapeHtml(payment.memo)}</div>`
+            : '';
+
+        return `
+            <tr>
+                <td>
+                    <span class="history-label">${formatDate(payment.created_at)}</span>
+                    ${memo}
+                </td>
+                <td class="${amountClass}">${amountPrefix}${formattedAmount}</td>
+                <td>${escapeHtml(formatMethod(payment.method))}</td>
+                <td><span class="history-status ${statusKey}">${escapeHtml(statusLabel)}</span></td>
+                <td class="transaction-id" title="${escapeHtml(payment.transaction_id || payment.id || '—')}">${escapeHtml(payment.transaction_id || payment.id || '—')}</td>
+            </tr>
+        `;
+    }).join('');
 
     historyContainer.innerHTML = `
         <table class="payment-history-table">
@@ -68,7 +83,8 @@ function renderPaymentHistory(payments) {
                     <th>Date & Time</th>
                     <th>Amount</th>
                     <th>Method</th>
-                    <th>Transaction ID</th>
+                    <th>Status</th>
+                    <th>Reference</th>
                 </tr>
             </thead>
             <tbody>
@@ -86,10 +102,38 @@ function formatMethod(method) {
             return 'Payeer';
         case 'stripe':
             return 'Stripe';
+        case 'refund':
+            return 'Refund';
         case 'crypto':
             return 'Crypto Invoice (legacy)';
         default:
             return capitalizeFirst(normalized);
+    }
+}
+
+function determinePaymentStatusKey(status, isRefund) {
+    const normalized = typeof status === 'string' ? status.toLowerCase() : '';
+    if (isRefund && (!normalized || normalized === 'completed')) {
+        return 'refunded';
+    }
+    if (!normalized) {
+        return 'pending';
+    }
+    return normalized;
+}
+
+function formatStatusLabel(statusKey) {
+    switch (statusKey) {
+        case 'completed':
+            return 'Completed';
+        case 'pending':
+            return 'Pending';
+        case 'failed':
+            return 'Failed';
+        case 'refunded':
+            return 'Refunded';
+        default:
+            return capitalizeFirst(statusKey || 'Pending');
     }
 }
 
@@ -113,6 +157,15 @@ function formatDate(dateString) {
 function capitalizeFirst(str = '') {
     if (!str) return '';
     return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function escapeHtml(text = '') {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function showNotification(message, type) {

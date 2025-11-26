@@ -15,6 +15,7 @@ if (typeof globalThis === 'object') {
 const { supabase, supabaseAdmin } = require('./utils/supabase');
 const { withRateLimit } = require('./utils/rate-limit');
 const { createLogger, serializeError } = require('./utils/logger');
+const { randomUUID } = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 
@@ -38,7 +39,7 @@ async function markOrderFailure(orderId, {
 
   const payload = {
     status: 'failed',
-    customer_status: 'processing',
+    customer_status: 'pending',
     provider_status: 'failed',
     provider_error: message || 'Unknown failure',
     failure_source: source,
@@ -407,18 +408,20 @@ function resolveProviderOrderIdFromRecord(order) {
 }
 
 function buildStatusSummary(order) {
-  const customerRaw = order?.status
+  const customerRaw = order?.customer_status
+    ?? order?.customerStatus
+    ?? order?.status
     ?? order?.order_status
     ?? order?.status_label
-    ?? 'processing';
+    ?? 'pending';
 
   const providerRaw = order?.provider_status
     ?? order?.providerStatus
     ?? order?.provider_status_label
     ?? null;
 
-  const normalizedCustomerKey = normalizeStatusKey(customerRaw, 'processing');
-  const customerLabel = formatStatusLabelText(customerRaw, 'Processing');
+  const normalizedCustomerKey = normalizeStatusKey(customerRaw, 'pending');
+  const customerLabel = formatStatusLabelText(customerRaw, 'Pending');
 
   let providerSummary = null;
   if (providerRaw) {
@@ -982,7 +985,7 @@ async function handleCreateOrder(user, data, headers) {
       start_count: 0,
       remains: qty,
       status: 'pending',
-      customer_status: 'processing' // Customer always sees positive status
+      customer_status: 'pending' // Customer sees pending until provider confirms
     };
     
     // Add link_id now that migration is applied
@@ -1278,7 +1281,7 @@ async function handleCreateOrder(user, data, headers) {
       }
       
       order.status = 'failed';
-      order.customer_status = 'processing';
+      order.customer_status = 'pending';
       order.provider_error = providerErrorMessage;
       order.failure_source = 'provider';
       order.failure_code = 'provider_api_error';
@@ -1298,7 +1301,7 @@ async function handleCreateOrder(user, data, headers) {
             service_name: order.service_name,
             quantity: order.quantity,
             charge: order.charge,
-            status: 'processing', // Customer sees processing, not failed
+            status: 'pending', // Customer sees pending, not failed
             link: order.link,
             created_at: order.created_at
           },
@@ -1430,10 +1433,26 @@ async function handleUpdateOrder(user, data, headers) {
         quantity,
         charge,
         status,
-        providerOrderId
+        providerOrderId,
+        customerStatus
       } = data;
 
       const updates = {};
+      let normalizedCustomerStatusOverride = null;
+
+      if (typeof customerStatus === 'string') {
+        const rawCustomerStatus = customerStatus.trim().toLowerCase();
+        const normalizedCustomerStatus = rawCustomerStatus === 'cancelled' ? 'canceled' : rawCustomerStatus;
+        const allowedCustomerStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed'];
+        if (!allowedCustomerStatuses.includes(normalizedCustomerStatus)) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Invalid customer status value' })
+          };
+        }
+        normalizedCustomerStatusOverride = normalizedCustomerStatus;
+      }
 
       if (serviceId && serviceId !== order.service_id) {
         const { data: serviceRecord, error: serviceLookupError } = await supabaseAdmin
@@ -1504,7 +1523,7 @@ async function handleUpdateOrder(user, data, headers) {
 
       if (typeof status === 'string') {
         const normalizedStatus = status.toLowerCase();
-        const allowedStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+        const allowedStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting', 'cancelled'];
         if (!allowedStatuses.includes(normalizedStatus)) {
           return {
             statusCode: 400,
@@ -1514,13 +1533,19 @@ async function handleUpdateOrder(user, data, headers) {
         }
 
         updates.status = normalizedStatus;
-        if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
-          updates.customer_status = 'processing';
-        } else if (normalizedStatus === 'completed' || normalizedStatus === 'partial') {
-          updates.customer_status = normalizedStatus;
-        } else if (normalizedStatus === 'canceled') {
-          updates.customer_status = 'canceled';
+        if (!normalizedCustomerStatusOverride) {
+          if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+            updates.customer_status = order.customer_status || 'pending';
+          } else if (normalizedStatus === 'completed' || normalizedStatus === 'partial') {
+            updates.customer_status = normalizedStatus;
+          } else if (normalizedStatus === 'canceled' || normalizedStatus === 'cancelled') {
+            updates.customer_status = 'canceled';
+          }
         }
+      }
+
+      if (normalizedCustomerStatusOverride) {
+        updates.customer_status = normalizedCustomerStatusOverride;
       }
 
       if (Object.keys(updates).length === 0) {
@@ -1685,11 +1710,18 @@ async function handleCancelOrder(user, data, headers) {
       })
       .eq('id', order.user_id);
 
+    await recordRefundTransaction(order, order.charge, {
+      source: 'handleCancelOrder',
+      reason: 'order_cancelled',
+      memo: `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`
+    });
+
     // Update order status
     await supabaseAdmin
       .from('orders')
       .update({
         status: 'cancelled',
+        customer_status: 'canceled',
         provider_status: 'cancelled',
         refill_status: 'cancelled',
         refill_completed_at: cancellationTime,
@@ -1713,6 +1745,57 @@ async function handleCancelOrder(user, data, headers) {
       headers,
       body: JSON.stringify({ error: 'Internal server error' })
     };
+  }
+}
+
+function buildRefundTransactionId(orderId) {
+  const cleanOrder = typeof orderId === 'string'
+    ? orderId.replace(/[^a-z0-9]/gi, '').slice(0, 12)
+    : 'order';
+  const nonce = typeof randomUUID === 'function'
+    ? randomUUID().replace(/[^a-z0-9]/gi, '').slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  const timestamp = Date.now().toString(36);
+  const id = `refund_${cleanOrder || 'order'}_${timestamp}_${nonce}`;
+  return id.slice(0, 96);
+}
+
+async function recordRefundTransaction(order, amount, options = {}) {
+  try {
+    if (!order || !order.user_id) {
+      return;
+    }
+
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount === 0) {
+      return;
+    }
+
+    const payload = {
+      transaction_id: buildRefundTransactionId(order.id || order.order_number),
+      user_id: order.user_id,
+      amount: -Math.abs(Number(numericAmount.toFixed(2))),
+      method: 'refund',
+      status: options.status || 'refunded',
+      memo: options.memo || `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`,
+      gateway_response: {
+        source: options.source || 'orders-service',
+        reason: options.reason || 'refund',
+        order_id: order.id,
+        order_number: order.order_number || null,
+        provider_order_id: order.provider_order_id || null,
+        ...options.context
+      }
+    };
+
+    await supabaseAdmin
+      .from('payments')
+      .insert(payload);
+  } catch (error) {
+    console.error('[ORDER] Failed to record refund payment:', error, {
+      orderId: order?.id,
+      userId: order?.user_id
+    });
   }
 }
 

@@ -192,7 +192,13 @@
 
 </head>
 <body>
-    <div class="migration-container">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close security migration window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+            <div class="migration-container">
         <h1>🔐 Security Migration</h1>
         <p class="subtitle">Upgrade your data security to production-ready standards</p>
 
@@ -224,7 +230,7 @@
             </div>
         </div>
 
-        <button class="btn" id="migrateBtn" onclick="runMigration()">
+        <button class="btn" id="migrateBtn" type="button">
             Start Security Migration
         </button>
 
@@ -237,145 +243,15 @@
                 Return to Sign In
             </a>
         </div>
-    </div>
+            </div>
+        </div>
+    </main>
 
     <!-- Security Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="js/main.js"></script>
-
-    <script>
-        const ENCRYPTION_KEY = 'BOTZZZ773_SECURE_KEY_2025';
-        const SALT_ROUNDS = 10;
-
-        function log(message, type = 'info') {
-            const logBox = document.getElementById('logBox');
-            const logContent = document.getElementById('logContent');
-            logBox.style.display = 'block';
-
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            logContent.appendChild(entry);
-            logBox.scrollTop = logBox.scrollHeight;
-        }
-
-        function updateStatus() {
-            const users = JSON.parse(localStorage.getItem('USERS') || '[]');
-            const apiKeys = JSON.parse(localStorage.getItem('botzzz773_api_keys') || '[]');
-
-            document.getElementById('userCount').textContent = users.length;
-            document.getElementById('apiKeyCount').textContent = apiKeys.length;
-
-            // Check if already migrated
-            const hashedCount = users.filter(u => u.password && u.password.startsWith('$2')).length;
-            const encryptedCount = apiKeys.filter(k => {
-                try {
-                    // Check if key looks encrypted (not plain text)
-                    return k.key && k.key.includes('U2Fsd');
-                } catch (e) {
-                    return false;
-                }
-            }).length;
-
-            document.getElementById('hashedCount').textContent = hashedCount;
-            document.getElementById('encryptedCount').textContent = encryptedCount;
-
-            if (hashedCount === users.length && encryptedCount === apiKeys.length && users.length > 0) {
-                document.getElementById('migrationStatus').textContent = 'Complete ✓';
-                document.getElementById('migrationStatus').className = 'status-value success';
-                document.getElementById('migrateBtn').textContent = 'Migration Already Complete';
-                document.getElementById('migrateBtn').disabled = true;
-            } else if (hashedCount > 0 || encryptedCount > 0) {
-                document.getElementById('migrationStatus').textContent = 'Partial';
-                document.getElementById('migrationStatus').className = 'status-value warning';
-            } else {
-                document.getElementById('migrationStatus').textContent = 'Pending';
-                document.getElementById('migrationStatus').className = 'status-value error';
-            }
-        }
-
-        async function runMigration() {
-            const btn = document.getElementById('migrateBtn');
-            btn.disabled = true;
-            btn.innerHTML = 'Migrating... <span class="spinner"></span>';
-
-            log('Starting security migration...', 'info');
-
-            try {
-                // Migrate Users (Hash Passwords)
-                let users = JSON.parse(localStorage.getItem('USERS') || '[]');
-                log(`Found ${users.length} users`, 'info');
-
-                let hashedCount = 0;
-                for (let i = 0; i < users.length; i++) {
-                    const user = users[i];
-                    
-                    // Check if password is already hashed
-                    if (user.password && !user.password.startsWith('$2')) {
-                        log(`Hashing password for user: ${user.email}`, 'info');
-                        user.password = bcrypt.hashSync(user.password, SALT_ROUNDS);
-                        hashedCount++;
-                        await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
-                    } else if (user.password && user.password.startsWith('$2')) {
-                        log(`Password already hashed for: ${user.email}`, 'success');
-                    }
-                }
-
-                localStorage.setItem('USERS', JSON.stringify(users));
-                log(`Successfully hashed ${hashedCount} passwords`, 'success');
-                document.getElementById('hashedCount').textContent = users.length;
-
-                // Migrate API Keys (Encrypt)
-                let apiKeys = JSON.parse(localStorage.getItem('botzzz773_api_keys') || '[]');
-                log(`Found ${apiKeys.length} API keys`, 'info');
-
-                let encryptedCount = 0;
-                for (let i = 0; i < apiKeys.length; i++) {
-                    const key = apiKeys[i];
-                    
-                    // Check if key is already encrypted
-                    if (key.key && !key.key.includes('U2Fsd')) {
-                        log(`Encrypting API key: ${key.name}`, 'info');
-                        key.key = CryptoJS.AES.encrypt(key.key, ENCRYPTION_KEY).toString();
-                        encryptedCount++;
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                    } else if (key.key && key.key.includes('U2Fsd')) {
-                        log(`API key already encrypted: ${key.name}`, 'success');
-                    }
-                }
-
-                localStorage.setItem('botzzz773_api_keys', JSON.stringify(apiKeys));
-                log(`Successfully encrypted ${encryptedCount} API keys`, 'success');
-                document.getElementById('encryptedCount').textContent = apiKeys.length;
-
-                // Update status
-                document.getElementById('migrationStatus').textContent = 'Complete ✓';
-                document.getElementById('migrationStatus').className = 'status-value success';
-
-                log('✓ Migration completed successfully!', 'success');
-                log('Your data is now production-ready!', 'success');
-
-                btn.textContent = 'Migration Complete ✓';
-                btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-
-                setTimeout(() => {
-                    if (confirm('Migration complete! Redirect to sign in page?')) {
-                        window.location.href = 'signin.html';
-                    }
-                }, 2000);
-
-            } catch (error) {
-                log(`Error during migration: ${error.message}`, 'error');
-                btn.disabled = false;
-                btn.textContent = 'Retry Migration';
-                btn.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
-            }
-        }
-
-        // Initialize
-        window.addEventListener('DOMContentLoaded', updateStatus);
-    </script>
+    <script src="js/security-migration.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

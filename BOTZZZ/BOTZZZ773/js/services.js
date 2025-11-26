@@ -11,6 +11,10 @@ let categoriesCache = null;
 let approvedServicesCache = [];
 let fullServicesHTMLCache = '';
 let activeFilterContext = null;
+let isPopupMode = false;
+let authGuardTriggered = false;
+
+const AUTH_ALERT_MESSAGE = 'You must be signed in to view services. Please sign in or create an account.';
 
 function createServiceStatusController() {
     const container = document.querySelector('[data-service-status]');
@@ -104,33 +108,24 @@ function createNetworkPillController() {
     return { setStatus };
 }
 
-function requireAuth() {
-    const token = localStorage.getItem('token');
-    const rawUser = localStorage.getItem('user');
-
-    if (!token || !rawUser) {
-        window.location.href = 'signin.html';
-        return null;
-    }
-
-    try {
-        const user = JSON.parse(rawUser);
-        authToken = token;
-        return { token, user };
-    } catch (error) {
-        console.error('[SERVICES] Invalid cached user payload:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = 'signin.html';
-        return null;
-    }
-}
-
 document.addEventListener('DOMContentLoaded', function() {
-    const auth = requireAuth();
-    if (!auth) {
+    const hasServicesContainer = Boolean(document.getElementById('servicesContainer'));
+    if (!hasServicesContainer) {
+        initializeCategoryLoading();
         return;
     }
+
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
+    const token = resolveAuthToken('initial-load');
+    if (!token) {
+        return;
+    }
+    authToken = token;
 
     servicesStatusController = createServiceStatusController();
     servicesNetworkController = createNetworkPillController();
@@ -153,10 +148,10 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => {
             console.error('[FILTERS] Failed to load services before initialization:', error);
         });
-    
+
     // Initialize search (can work immediately)
     initializeSearch();
-    
+
     // Initialize dynamic category loading for public pages
     initializeCategoryLoading();
 });
@@ -281,6 +276,49 @@ document.head.appendChild(style);
 
 console.log('📱 Services page loaded!');
 
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'Services window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
 // ==========================================
 // Load Services from API
 // ==========================================
@@ -293,6 +331,20 @@ async function loadServicesFromAPI(options = {}) {
     }
 
     const isRetry = Boolean(options.manualRetry);
+
+    const token = resolveAuthToken('load-services');
+    if (!token) {
+        servicesStatusController?.setState('error');
+        container.innerHTML = `
+            <div style="text-align: center; padding: 80px 20px;">
+                <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
+                <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Sign In Required</h3>
+                <p style="color: #64748B; font-size: 16px;">Please sign in again to view services.</p>
+            </div>
+        `;
+        return false;
+    }
+    authToken = token;
     
     try {
         // Show loading state
@@ -303,9 +355,7 @@ async function loadServicesFromAPI(options = {}) {
             'Content-Type': 'application/json'
         };
 
-        if (authToken) {
-            headers.Authorization = `Bearer ${authToken}`;
-        }
+        headers.Authorization = `Bearer ${token}`;
 
         const response = await fetch('/.netlify/functions/services?audience=customer', {
             method: 'GET',
@@ -332,6 +382,7 @@ async function loadServicesFromAPI(options = {}) {
                 </div>
             `;
             servicesStatusController?.setState('error');
+            handleMissingAuth('services-response-unauthorized');
             return false;
         }
 
@@ -1580,12 +1631,56 @@ function initializeCategoryLoading() {
     }
 }
 
-// Initialize for public pages (no auth required)
-document.addEventListener('DOMContentLoaded', function() {
-    // Only initialize category loading if not already authenticated
-    // The authenticated DOMContentLoaded handler will handle this for logged-in users
-    const token = localStorage.getItem('token');
+function resolveAuthToken(reason) {
+    const token = getAuthToken();
     if (!token) {
-        initializeCategoryLoading();
+        handleMissingAuth(reason);
     }
-});
+    return token;
+}
+
+function getAuthToken() {
+    try {
+        return localStorage.getItem('token');
+    } catch (error) {
+        console.warn('[SERVICES] Unable to read auth token from storage.', error);
+        return null;
+    }
+}
+
+function handleMissingAuth(reason) {
+    if (authGuardTriggered) {
+        return;
+    }
+    authGuardTriggered = true;
+
+    const payload = { type: 'AUTH_REQUIRED', source: 'services', reason };
+    if (isPopupMode) {
+        notifyOpener(payload);
+        setTimeout(() => {
+            try {
+                window.close();
+            } catch (error) {
+                console.warn('[SERVICES] Failed to close popup after auth guard.', error);
+            }
+        }, 200);
+        return;
+    }
+
+    alert(AUTH_ALERT_MESSAGE);
+    const redirectTarget = buildRedirectTarget();
+    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+}
+
+function buildRedirectTarget() {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search || '';
+    return search ? `${path}${search}` : path;
+}
+
+function notifyOpener(payload) {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    window.opener.postMessage(payload, window.location.origin);
+}

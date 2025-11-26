@@ -31,6 +31,12 @@
 
 </head>
 <body class="admin-body admin-orders-page">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin orders window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
     <!-- Admin Header -->
     <header class="admin-header">
         <button class="sidebar-toggle" onclick="toggleSidebar()">
@@ -116,7 +122,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="admin-main">
+    <section class="admin-main" role="main">
         <div class="admin-page-header">
             <h1>Orders</h1>
             <div class="page-actions">
@@ -195,6 +201,24 @@
             </div>
         </div>
 
+        <div class="bulk-action-bar" id="ordersBulkActionBar">
+            <div class="bulk-action-field">
+                <label for="ordersBulkActionSelect">Bulk action</label>
+                <div class="bulk-action-controls">
+                    <select class="filter-select" id="ordersBulkActionSelect">
+                        <option value="">Select an action</option>
+                        <option value="resend_failed">Resend selected to provider</option>
+                    </select>
+                    <button class="btn-secondary" id="ordersBulkActionApply" disabled>
+                        <i class="fas fa-paper-plane"></i> Run
+                    </button>
+                </div>
+            </div>
+            <div class="bulk-action-summary">
+                <span id="bulkActionSelectionHint">Select orders to enable bulk actions</span>
+            </div>
+        </div>
+
         <div class="sync-status-bar">
             <div class="sync-status-meta">
                 <span class="sync-status-dot" id="ordersSyncDot"></span>
@@ -240,6 +264,9 @@
             <button class="btn-secondary" id="prevPage" disabled>Previous</button>
             <span class="pagination-info" id="paginationInfo">Loading...</span>
             <button class="btn-secondary" id="nextPage">Next</button>
+        </div>
+    </section>
+
         </div>
     </main>
 

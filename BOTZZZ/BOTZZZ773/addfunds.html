@@ -53,15 +53,21 @@
         </div>
     </nav>
 
-    <!-- Add Funds Section -->
-    <section class="add-funds-section">
-        <div class="container">
-            <div class="section-header">
-                <h1>Add Funds</h1>
-                <p>Add funds to your account using secure manual Payeer transfers.</p>
-            </div>
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close add funds window">
+                <span aria-hidden="true">&times;</span>
+            </button>
 
-            <div class="funds-wrapper">
+            <!-- Add Funds Section -->
+            <section class="add-funds-section">
+                <div class="container">
+                    <div class="section-header">
+                        <h1>Add Funds</h1>
+                        <p>Add funds to your account using secure manual Payeer transfers.</p>
+                    </div>
+
+                    <div class="funds-wrapper">
                 <!-- Current Balance Card -->
                 <div class="balance-card">
                     <div class="balance-icon">
@@ -76,6 +82,21 @@
                         <span class="balance-amount">$0.00</span>
                     </div>
                 </div>
+
+                    <div class="refund-summary hidden" id="refundSummary" role="status" aria-live="polite">
+                        <div class="refund-summary-icon" aria-hidden="true">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"></path>
+                                <path d="M1 20v-6h6"></path>
+                                <path d="M3.51 9a9 9 0 0 1 14.63-3.36L23 10"></path>
+                                <path d="M20.49 15A9 9 0 0 1 5.86 18.36L1 14"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="refund-summary-title">Recent Refund</p>
+                            <p class="refund-summary-message" id="refundSummaryMessage">Refund details will appear here.</p>
+                        </div>
+                    </div>
 
                 <!-- Payment Form -->
                 <div class="payment-form-container">
@@ -257,15 +278,15 @@
                         </div>
                     </div>
                 </div>
-            </div>
-        </div>
-    </section>
+                    </div>
+                </div>
+            </section>
 
-    <!-- FAQ Section -->
-    <section class="faq-section">
-        <div class="container">
-            <h2>Frequently Asked Questions</h2>
-            <div class="faq-grid">
+            <!-- FAQ Section -->
+            <section class="faq-section">
+                <div class="container">
+                    <h2>Frequently Asked Questions</h2>
+                    <div class="faq-grid">
                 <div class="faq-card">
                     <h3>What is Payeer?</h3>
                     <p>Payeer is a secure and popular e-wallet system that allows you to make instant online payments. It supports multiple currencies and offers low transaction fees.</p>
@@ -290,9 +311,11 @@
                     <h3>Can I get a refund?</h3>
                     <p>Due to the instant nature of our services, added funds are non-refundable. Please ensure you're adding the correct amount before proceeding.</p>
                 </div>
-            </div>
+                    </div>
+                </div>
+            </section>
         </div>
-    </section>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
@@ -335,18 +358,6 @@
         </div>
     </footer>
 
-    <script>
-        // Authentication check - redirect if not logged in
-        (function() {
-            const token = localStorage.getItem('token');
-            const user = localStorage.getItem('user');
-            
-            if (!token || !user) {
-                alert('You must be signed in to add funds. Please sign in or create an account.');
-                window.location.href = 'signin.html';
-            }
-        })();
-    </script>
     <script src="js/main.js"></script>
     <script src="js/addfunds.js"></script>
     <script src="js/payment-backend.js"></script>

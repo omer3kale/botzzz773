@@ -1,5 +1,9 @@
 // Admin Services Management with Real Modals
 
+if (typeof window !== 'undefined') {
+    window.initializeAdminPopupSurface?.('Admin services window');
+}
+
 // Modal Helper Functions
 function createModal(title, content, actions = '') {
     const modalHTML = `

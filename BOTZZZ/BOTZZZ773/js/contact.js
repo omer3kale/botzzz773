@@ -2,7 +2,16 @@
 // Contact Page JavaScript
 // ==========================================
 
+let isPopupMode = false;
+
 document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    isPopupMode = urlParams.get('popup') === '1';
+
+    if (isPopupMode) {
+        enablePopupSurface();
+    }
+
     const contactForm = document.getElementById('contactForm');
     
     if (contactForm) {
@@ -60,6 +69,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (response.ok && result.success) {
                     // Show success message
                     showMessage('Message sent successfully! We\'ll get back to you within 2-4 hours.', 'success');
+                    notifyOpener();
                     
                     // Reset form
                     contactForm.reset();
@@ -110,3 +120,57 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 console.log('📧 Contact page loaded!');
+
+function enablePopupSurface() {
+    document.body.classList.add('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.setAttribute('role', 'dialog');
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('aria-label', 'Contact BOTZZZ support window');
+        panel.setAttribute('tabindex', '-1');
+        requestAnimationFrame(() => panel.focus());
+    }
+
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.addEventListener('click', handlePopupClose);
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            handlePopupClose();
+        }
+    });
+}
+
+function handlePopupClose() {
+    if (window.opener && !window.opener.closed) {
+        window.opener.focus();
+        window.close();
+        return;
+    }
+
+    document.body.classList.remove('popup-mode');
+    const panel = document.querySelector('[data-popup-surface]');
+    if (panel) {
+        panel.removeAttribute('role');
+        panel.removeAttribute('aria-modal');
+        panel.removeAttribute('tabindex');
+    }
+    const closeButton = document.querySelector('[data-popup-close]');
+    if (closeButton) {
+        closeButton.style.display = 'none';
+    }
+}
+
+function notifyOpener() {
+    if (!isPopupMode || !window.opener || window.opener.closed) {
+        return;
+    }
+    try {
+        window.opener.postMessage({ type: 'CONTACT_MESSAGE_SENT' }, window.location.origin);
+    } catch (error) {
+        console.warn('Failed to notify opener about contact submission.', error);
+    }
+}

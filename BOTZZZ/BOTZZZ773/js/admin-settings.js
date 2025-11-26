@@ -1,5 +1,6 @@
 // Admin Settings Management with Full Panel Implementation
 // Note: createModal() and closeModal() are now in admin.js (shared across all pages)
+window.initializeAdminPopupSurface?.('Admin settings window');
 
 let settingsProvidersCache = [];
 let settingsProvidersLoading = false;

@@ -18,17 +18,125 @@ const servicesOptionsState = {
 };
 const failedOrdersRegistry = new Map();
 const ORDER_STATUS_OPTIONS = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+let orderIdSelectionShortcutAttached = false;
+
+const adminOrdersPopupShell = (() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return { isPopup: false, close: () => {} };
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const isPopup = params.get('popup') === '1';
+
+    function closePopupSurface() {
+        if (window.opener && !window.opener.closed) {
+            try {
+                window.opener.focus();
+            } catch (error) {
+                console.warn('[ADMIN ORDERS] Failed to refocus opener window.', error);
+            }
+            window.close();
+            return;
+        }
+
+        document.body.classList.remove('popup-mode');
+        const panel = document.querySelector('[data-popup-surface]');
+        if (panel) {
+            panel.removeAttribute('role');
+            panel.removeAttribute('aria-modal');
+            panel.removeAttribute('aria-label');
+            panel.removeAttribute('tabindex');
+        }
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.style.display = 'none';
+        }
+    }
+
+    function mountPopupSurface() {
+        if (!isPopup) {
+            return;
+        }
+
+        document.body.classList.add('popup-mode');
+        const panel = document.querySelector('[data-popup-surface]');
+        if (panel) {
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-modal', 'true');
+            panel.setAttribute('aria-label', 'Admin orders window');
+            panel.setAttribute('tabindex', '-1');
+            requestAnimationFrame(() => panel.focus());
+        }
+
+        const closeButton = document.querySelector('[data-popup-close]');
+        if (closeButton) {
+            closeButton.addEventListener('click', closePopupSurface);
+        }
+
+        window.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closePopupSurface();
+            }
+        });
+    }
+
+    if (isPopup) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', mountPopupSurface, { once: true });
+        } else {
+            mountPopupSurface();
+        }
+    }
+
+    return {
+        isPopup,
+        close: closePopupSurface
+    };
+})();
+
+function doesOrderMatchLookup(order, lookup) {
+    if (!order) {
+        return false;
+    }
+
+    const normalizedLookup = String(lookup);
+    if (String(order.id) === normalizedLookup) {
+        return true;
+    }
+
+    const formattedLookup = formatProviderOrderId(normalizedLookup);
+    const providerFormatted = formatProviderOrderId(order.provider_order_id);
+    if (providerFormatted && formattedLookup && providerFormatted === formattedLookup) {
+        return true;
+    }
+
+    if (order.provider_order_id && String(order.provider_order_id) === normalizedLookup) {
+        return true;
+    }
+
+    if (order.link && String(order.link) === normalizedLookup) {
+        return true;
+    }
+
+    return false;
+}
 
 function getOrderById(orderId) {
     if (orderId === undefined || orderId === null) return undefined;
     const lookup = String(orderId);
-    return ordersCache.find(order => {
-        if (String(order.id) === lookup) return true;
-        if (formatProviderOrderId(order.provider_order_id) === formatProviderOrderId(lookup)) return true;
-        if (order.provider_order_id && String(order.provider_order_id) === lookup) return true;
-        if (order.link && String(order.link) === lookup) return true;
-        return false;
-    });
+
+    const cached = ordersCache.find(order => doesOrderMatchLookup(order, lookup));
+    if (cached) {
+        return cached;
+    }
+
+    for (const failed of failedOrdersRegistry.values()) {
+        if (doesOrderMatchLookup(failed, lookup)) {
+            return failed;
+        }
+    }
+
+    return undefined;
 }
 
 function getOrderDisplayName(order) {
@@ -45,6 +153,26 @@ function getOrderDisplayName(order) {
         return providerRef;
     }
     return 'Order';
+}
+
+function formatOrderLabel(order) {
+    if (!order) {
+        return 'order';
+    }
+
+    if (order.order_number !== undefined && order.order_number !== null) {
+        return `#${order.order_number}`;
+    }
+
+    if (order.id !== undefined && order.id !== null) {
+        return `#${order.id}`;
+    }
+
+    if (order.link) {
+        return truncateText(order.link, 22);
+    }
+
+    return 'order';
 }
 
 function generateInternalOrderReference() {
@@ -872,26 +1000,44 @@ function pruneSelectedOrderIds() {
     if (selectedOrderIds.size === 0) {
         return;
     }
+
     const validIds = new Set();
-    ordersCache.forEach((order, index) => {
+    const registerOrderIdentifiers = (order, index = 0) => {
+        if (!order) {
+            return;
+        }
+
         if (order.id !== undefined && order.id !== null) {
             validIds.add(String(order.id));
         }
+
         const selectionKey = buildOrderSelectionKey(order, index);
         if (selectionKey) {
             validIds.add(selectionKey);
         }
+
         const providerFormatted = formatProviderOrderId(order.provider_order_id);
         if (providerFormatted) {
             validIds.add(providerFormatted);
         }
+
         if (order.provider_order_id) {
             validIds.add(String(order.provider_order_id));
         }
+
         if (order.link) {
             validIds.add(String(order.link));
         }
+    };
+
+    ordersCache.forEach((order, index) => registerOrderIdentifiers(order, index));
+
+    let failedIndex = ordersCache.length;
+    failedOrdersRegistry.forEach(order => {
+        registerOrderIdentifiers(order, failedIndex);
+        failedIndex += 1;
     });
+
     for (const id of Array.from(selectedOrderIds)) {
         if (!validIds.has(String(id))) {
             selectedOrderIds.delete(id);
@@ -923,10 +1069,22 @@ function resolveSelectedOrderIds() {
     return resolved;
 }
 
+function getSelectedOrders() {
+    const resolved = [];
+    selectedOrderIds.forEach(selectionKey => {
+        const order = getOrderById(selectionKey);
+        if (order) {
+            resolved.push(order);
+        }
+    });
+    return resolved;
+}
+
 function bindOrderSelectionEvents() {
     document.querySelectorAll('.order-checkbox').forEach(checkbox => {
         checkbox.addEventListener('change', handleOrderSelectionChange);
     });
+    ensureOrderIdSelectionShortcut();
 }
 
 function handleOrderSelectionChange(event) {
@@ -959,6 +1117,76 @@ function restoreOrderSelectionState() {
             row.classList.toggle('is-selected', isSelected);
         }
     });
+}
+
+function ensureOrderIdSelectionShortcut() {
+    if (orderIdSelectionShortcutAttached) {
+        return;
+    }
+
+    const tbody = document.getElementById('ordersTableBody');
+    if (!tbody) {
+        return;
+    }
+
+    tbody.addEventListener('click', event => {
+        const orderIdCell = event.target.closest('.order-id-cell');
+        if (!orderIdCell) {
+            return;
+        }
+
+        const row = orderIdCell.closest('tr');
+        if (!row) {
+            return;
+        }
+
+        const checkbox = row.querySelector('.order-checkbox');
+        if (!checkbox) {
+            return;
+        }
+
+        event.preventDefault();
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    orderIdSelectionShortcutAttached = true;
+}
+
+function syncBulkActionControls({ loading = false, forceMessage = null } = {}) {
+    const selectEl = document.getElementById('ordersBulkActionSelect');
+    const applyBtn = document.getElementById('ordersBulkActionApply');
+    const hintEl = document.getElementById('bulkActionSelectionHint');
+    const selectedCount = selectedOrderIds.size;
+
+    if (selectEl) {
+        selectEl.disabled = loading;
+    }
+
+    if (applyBtn) {
+        if (!applyBtn.dataset.defaultLabel) {
+            applyBtn.dataset.defaultLabel = applyBtn.innerHTML;
+        }
+
+        if (loading) {
+            applyBtn.disabled = true;
+            applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Working...';
+        } else {
+            const hasActionSelected = Boolean(selectEl && selectEl.value);
+            applyBtn.disabled = !hasActionSelected || selectedCount === 0;
+            applyBtn.innerHTML = applyBtn.dataset.defaultLabel;
+        }
+    }
+
+    if (hintEl) {
+        if (forceMessage) {
+            hintEl.textContent = forceMessage;
+        } else if (selectedCount === 0) {
+            hintEl.textContent = 'Select orders to enable bulk actions';
+        } else {
+            hintEl.textContent = `${selectedCount} order${selectedCount === 1 ? '' : 's'} selected`;
+        }
+    }
 }
 
 function updateSelectedOrdersSummary() {
@@ -996,6 +1224,7 @@ function updateSelectedOrdersSummary() {
     }
 
     syncOrdersMasterToggle();
+    syncBulkActionControls();
 }
 
 function syncOrdersMasterToggle() {
@@ -1067,6 +1296,33 @@ function initializeOrdersQuickActions() {
     attachOrderQuickActionCard(document.getElementById('syncOrdersCard'), openSyncOrdersQuickAction);
     attachOrderQuickActionCard(document.getElementById('exportOrdersCard'), openExportOrdersQuickAction);
     updateSelectedOrdersSummary();
+}
+
+async function handleBulkActionApply(event) {
+    event?.preventDefault?.();
+
+    const selectEl = document.getElementById('ordersBulkActionSelect');
+    if (!selectEl) {
+        return;
+    }
+
+    const action = selectEl.value;
+    if (!action) {
+        showNotification('Choose a bulk action first', 'error');
+        return;
+    }
+
+    if (selectedOrderIds.size === 0) {
+        showNotification('Select at least one order to continue.', 'error');
+        return;
+    }
+
+    if (action === 'resend_failed') {
+        await bulkResendSelectedOrders();
+        return;
+    }
+
+    showNotification('Selected bulk action is not available yet.', 'error');
 }
 
 function toggleAllOrders(masterCheckbox) {
@@ -1781,6 +2037,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
+    const bulkActionSelect = document.getElementById('ordersBulkActionSelect');
+    if (bulkActionSelect) {
+        bulkActionSelect.addEventListener('change', () => syncBulkActionControls());
+    }
+
+    const bulkActionApply = document.getElementById('ordersBulkActionApply');
+    if (bulkActionApply) {
+        bulkActionApply.addEventListener('click', handleBulkActionApply);
+    }
+
+    syncBulkActionControls();
+
     try {
         await initializeOrdersPage();
     } catch (error) {
@@ -2204,7 +2472,7 @@ async function loadFailedOrders() {
             <tr class="failed-orders-notice">
                 <td colspan="13" style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px;">
                     <i class="fas fa-exclamation-triangle" style="color: #ef4444; margin-right: 8px;"></i>
-                    <strong>Failed Orders View:</strong> Showing ${failedOrders.length} order(s) with provider failures. Customers see these as "processing".
+                    <strong>Failed Orders View:</strong> Showing ${failedOrders.length} order(s) with provider failures. Customers see these as "pending".
                 </td>
             </tr>
         `;
@@ -2262,12 +2530,21 @@ async function loadFailedOrders() {
                 const isSelected = selectedOrderIds.has(selectionKey);
                 const providerOrderId = resolveProviderOrderIdFromRecord(order);
                 const canRefill = Boolean(providerOrderId);
+                const ariaLabel = orderPrimaryLabel
+                    ? `Select failed order ${orderPrimaryLabel}`
+                    : 'Select failed order';
 
             const row = document.createElement('tr');
-            row.dataset.orderId = order.id || '';
+            row.dataset.orderId = selectionKey || order.id || '';
             row.dataset.status = 'failed';
             row.innerHTML = `
-                <td><input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleOrderSelection('${selectionKey}', this.checked)"></td>
+                <td>
+                    <input type="checkbox"
+                        class="order-checkbox"
+                        data-order-id="${escapeHtml(selectionKey)}"
+                        aria-label="${escapeHtml(ariaLabel)}"
+                        ${isSelected ? 'checked' : ''}>
+                </td>
                 <td>
                     <div class="order-id-cell">
                         <span class="order-id-primary">${orderPrimaryLabel}</span>
@@ -2314,6 +2591,11 @@ async function loadFailedOrders() {
             }
         });
 
+        pruneSelectedOrderIds();
+        restoreOrderSelectionState();
+        bindOrderSelectionEvents();
+        updateSelectedOrdersSummary();
+
     } catch (error) {
         console.error('[FAILED ORDERS] Error:', error);
         
@@ -2342,37 +2624,86 @@ async function loadFailedOrders() {
     }
 }
 
-// Resend failed order to provider
-async function resendFailedOrder(orderId) {
-    // Validate order ID
-    if (!orderId || (typeof orderId !== 'string' && typeof orderId !== 'number')) {
-        alert('Invalid order ID');
-        return;
-    }
-    
-    if (!confirm('Resend this order to the provider?\n\nThis will retry the order with the same details.\nMake sure the link and quantity are still valid.')) {
+async function bulkResendSelectedOrders() {
+    const resolvedOrders = getSelectedOrders();
+    if (resolvedOrders.length === 0) {
+        showNotification('Unable to resolve the selected orders. Please reload and try again.', 'error');
         return;
     }
 
-    // Show loading state
-    const button = event?.target?.closest('button');
-    const originalButtonHTML = button ? button.innerHTML : '';
-    if (button) {
-        button.disabled = true;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    const eligibleOrders = resolvedOrders.filter(order => {
+        const statusKey = getStatusKey(order.status);
+        return (statusKey === 'failed' || statusKey === 'error') && order.id !== undefined && order.id !== null;
+    });
+
+    const skippedCount = resolvedOrders.length - eligibleOrders.length;
+
+    if (eligibleOrders.length === 0) {
+        showNotification('Only failed orders can be resent. Select failed orders first.', 'error');
+        return;
     }
+
+    const confirmationLines = [
+        `Resend ${eligibleOrders.length} failed order${eligibleOrders.length === 1 ? '' : 's'} to the provider?`,
+        'We will retry the provider submission with the same link and quantity.'
+    ];
+
+    if (skippedCount > 0) {
+        confirmationLines.push(`${skippedCount} selected order${skippedCount === 1 ? '' : 's'} are not failed and will be skipped.`);
+    }
+
+    if (!confirm(confirmationLines.join('\n\n'))) {
+        return;
+    }
+
+    const results = { success: [], failed: [] };
+    syncBulkActionControls({ loading: true, forceMessage: 'Resending selected orders...' });
 
     try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            throw new Error('Not authenticated - please sign in again');
+        for (const order of eligibleOrders) {
+            try {
+                const response = await submitOrderResend(order.id);
+                results.success.push({ order, providerOrderId: response.providerOrderId });
+            } catch (error) {
+                results.failed.push({ order, message: error.message || 'Unknown error' });
+            }
         }
 
-        console.log('[RESEND ORDER] Resending order:', orderId);
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout (provider can be slow)
-        
+        if (results.success.length > 0 && results.failed.length === 0) {
+            showNotification(`${results.success.length} order${results.success.length === 1 ? '' : 's'} resent successfully.`, 'success');
+        } else if (results.success.length > 0) {
+            showNotification(`${results.success.length} order${results.success.length === 1 ? '' : 's'} resent, ${results.failed.length} failed.`, 'warning');
+        } else {
+            showNotification('Failed to resend all selected orders.', 'error');
+        }
+
+        if (results.failed.length > 0) {
+            console.warn('[BULK RESEND] Some orders failed to resend:', results.failed.map(item => ({
+                order: formatOrderLabel(item.order),
+                error: item.message
+            })));
+        }
+
+        refreshOrdersAfterAdminChange();
+    } finally {
+        syncBulkActionControls();
+    }
+}
+
+async function submitOrderResend(orderId) {
+    if (!orderId) {
+        throw new Error('Order ID is required');
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        throw new Error('Not authenticated - please sign in again');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    try {
         const response = await fetch('/.netlify/functions/orders', {
             method: 'POST',
             headers: {
@@ -2385,18 +2716,16 @@ async function resendFailedOrder(orderId) {
             }),
             signal: controller.signal
         });
-        
-        clearTimeout(timeoutId);
 
         if (response.status === 401 || response.status === 403) {
             localStorage.removeItem('token');
             window.location.href = '/signin.html';
-            return;
+            throw new Error('Session expired. Please sign in again.');
         }
 
         const contentType = response.headers.get('content-type');
         let data;
-        
+
         if (contentType && contentType.includes('application/json')) {
             data = await response.json();
         } else {
@@ -2404,31 +2733,61 @@ async function resendFailedOrder(orderId) {
             console.error('[RESEND ORDER] Non-JSON response:', text);
             throw new Error('Invalid server response format');
         }
-        
+
         if (!response.ok || data.error || !data.success) {
             const errorMsg = data.error || data.details || `Server error (${response.status})`;
             throw new Error(errorMsg);
         }
 
-        console.log('[RESEND ORDER] Success:', data);
-        
-        const providerOrderId = data.providerOrderId || data.provider_order_id || 'N/A';
-        alert(`✓ Order resent successfully!\n\nProvider Order ID: ${providerOrderId}\n\nThe order is now processing.`);
-        refreshOrdersAfterAdminChange();
+        return {
+            providerOrderId: data.providerOrderId || data.provider_order_id || 'N/A',
+            raw: data
+        };
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out. The provider may be slow or unavailable. Please try again later.');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
 
+// Resend failed order to provider
+async function resendFailedOrder(orderId, options = {}) {
+    if (!orderId || (typeof orderId !== 'string' && typeof orderId !== 'number')) {
+        alert('Invalid order ID');
+        return null;
+    }
+
+    const { skipConfirmation = false, button: providedButton = null } = options;
+
+    if (!skipConfirmation) {
+        const confirmed = confirm('Resend this order to the provider?\n\nThis will retry the order with the same details.\nMake sure the link and quantity are still valid.');
+        if (!confirmed) {
+            return null;
+        }
+    }
+
+    const button = providedButton || (typeof event !== 'undefined' ? event?.target?.closest('button') : null);
+    const originalButtonHTML = button ? button.innerHTML : '';
+    if (button) {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+
+    try {
+        console.log('[RESEND ORDER] Resending order:', orderId);
+        const result = await submitOrderResend(orderId);
+        alert(`✓ Order resent successfully!\n\nProvider Order ID: ${result.providerOrderId}\n\nThe order is now processing.`);
+        refreshOrdersAfterAdminChange();
+        return result;
     } catch (error) {
         console.error('[RESEND ORDER] Error:', error);
-        
-        let errorMessage = 'Failed to resend order';
-        if (error.name === 'AbortError') {
-            errorMessage = 'Request timed out. The provider may be slow or unavailable. Please try again later.';
-        } else if (error.message) {
-            errorMessage = error.message;
-        }
-        
+        const errorMessage = error?.message || 'Failed to resend order';
         alert(`✗ ${errorMessage}`);
+        return null;
     } finally {
-        // Restore button state
         if (button) {
             button.disabled = false;
             button.innerHTML = originalButtonHTML;

@@ -57,6 +57,12 @@
         </div>
     </nav>
 
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close API dashboard window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
     <!-- API Dashboard -->
     <section class="api-dashboard-section">
         <div class="container">
@@ -353,6 +359,8 @@
             </div>
         </div>
     </div>
+        </div>
+    </main>
 
     <!-- Footer -->
     <footer class="footer">
@@ -388,18 +396,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
     <script src="js/main.js"></script>
-    <script>
-        // Authentication check - redirect if not logged in
-        (function() {
-            const token = localStorage.getItem('token');
-            const user = localStorage.getItem('user');
-            
-            if (!token || !user) {
-                alert('You must be signed in to access the API Dashboard');
-                window.location.href = 'signin.html';
-            }
-        })();
-    </script>
     <script src="js/api-dashboard.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>

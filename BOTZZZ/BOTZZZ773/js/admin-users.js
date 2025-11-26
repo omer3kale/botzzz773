@@ -1,5 +1,9 @@
 // Admin Users Management with Real Backend Integration
 
+if (typeof window !== 'undefined') {
+    window.initializeAdminPopupSurface?.('Admin users window');
+}
+
 // Global variable to store fetched users
 let usersData = [];
 const selectedUserIds = new Set();

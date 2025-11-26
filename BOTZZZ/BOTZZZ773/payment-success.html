@@ -56,6 +56,31 @@
         .btn-primary:hover {
             background: #d90f7a;
         }
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            justify-content: center;
+        }
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            text-decoration: none;
+            display: inline-block;
+            font-weight: 600;
+            transition: background 0.3s;
+            border: none;
+            cursor: pointer;
+        }
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        .status-note {
+            color: #4b5563;
+            margin-bottom: 1.5rem;
+        }
     </style>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
@@ -76,26 +101,33 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body>
-    <div class="success-container">
-        <div class="success-box">
-            <div class="success-icon">✓</div>
-            <h1 class="success-title">Payment Successful!</h1>
-            <p class="success-message">
-                Your payment has been processed successfully.<br>
-                Your account balance will be updated shortly.
-            </p>
-            <a href="index.html" class="btn-primary">Return to Dashboard</a>
+<body data-payment-status="success" data-redirect-target="dashboard.html">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close payment success window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+            <div class="success-container">
+                <div class="success-box">
+                    <div class="success-icon">✓</div>
+                    <h1 class="success-title">Payment Successful!</h1>
+                    <p class="success-message">
+                        Your payment has been processed successfully.<br>
+                        Your account balance will be updated shortly.
+                    </p>
+                    <p class="status-note">This window will close in <span data-countdown>5</span> seconds.</p>
+                    <div class="btn-group">
+                        <a href="dashboard.html" class="btn-primary">Go to Dashboard</a>
+                        <button type="button" class="btn-secondary" data-close-window>Close Window</button>
+                    </div>
+                </div>
+            </div>
         </div>
-    </div>
+    </main>
 
     <script src="js/main.js"></script>
-    <script>
-        // Redirect to dashboard after 5 seconds
-        setTimeout(() => {
-            window.location.href = 'index.html';
-        }, 5000);
-    </script>
+    <script src="js/payment-status.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 
