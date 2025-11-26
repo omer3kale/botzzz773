@@ -905,6 +905,11 @@ function shouldEnhanceDashboardLink(link) {
         return false;
     }
 
+    // Only upgrade links that explicitly request popup behavior.
+    if (link.dataset.dashboardPopup !== 'true') {
+        return false;
+    }
+
     const rawHref = (link.getAttribute('href') || '').trim();
     if (!rawHref || rawHref.startsWith('#') || rawHref.startsWith('mailto:') || rawHref.startsWith('tel:') || rawHref.startsWith('javascript:')) {
         return false;
