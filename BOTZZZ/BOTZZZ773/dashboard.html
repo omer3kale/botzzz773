@@ -461,6 +461,14 @@
                 </div>
 
                 <div class="payments-card">
+                    <div class="refund-broadcast hidden" data-refund-banner>
+                        <div class="refund-broadcast-icon" aria-hidden="true">💸</div>
+                        <div class="refund-broadcast-body">
+                            <p class="refund-broadcast-label">Recent Refund</p>
+                            <p class="refund-broadcast-text" data-refund-message>Completed refunds will be announced here.</p>
+                        </div>
+                        <button type="button" class="refund-broadcast-close" data-refund-dismiss aria-label="Dismiss refund update">&times;</button>
+                    </div>
                     <div class="payments-table-wrapper">
                         <table class="payments-table" aria-live="polite">
                             <thead>
@@ -569,6 +577,8 @@
         <button class="toast-close">×</button>
     </div>
 
+    <script src="js/refund-state.js"></script>
+    <script src="js/refund-banner.js"></script>
     <script src="js/main.js"></script>
     <script src="js/dashboard.js"></script>
     <!-- PWA Registration -->

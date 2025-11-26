@@ -1870,6 +1870,12 @@ async function confirmCancelOrder(orderId) {
             throw new Error(data.error || 'Failed to cancel order');
         }
 
+        if (typeof data.newBalance === 'number') {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            user.balance = data.newBalance;
+            localStorage.setItem('user', JSON.stringify(user));
+        }
+
         showNotification(data.message || `Order #${orderId} cancelled`, 'success');
         closeModal();
         refreshOrdersAfterAdminChange();

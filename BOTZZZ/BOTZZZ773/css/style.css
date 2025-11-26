@@ -2917,6 +2917,67 @@ body.popup-mode .page-header {
 .no-services-message i {
     font-size: 3rem;
     color: var(--primary-pink);
+
+/* Refund broadcast banner */
+.refund-broadcast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, rgba(236, 72, 153, 0.12), rgba(14, 165, 233, 0.12));
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+    margin-bottom: 20px;
+}
+
+.refund-broadcast.hidden {
+    display: none !important;
+}
+
+.refund-broadcast-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.refund-broadcast-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.refund-broadcast-label {
+    font-weight: 600;
+    margin: 0;
+    color: #0f172a;
+}
+
+.refund-broadcast-text {
+    margin: 4px 0 0;
+    color: #475569;
+    font-size: 0.95rem;
+}
+
+.refund-broadcast-close {
+    background: transparent;
+    border: none;
+    color: #0f172a;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0 6px;
+    line-height: 1;
+}
+
+.refund-broadcast-close:hover {
+    color: #ef4444;
+}
     margin-bottom: 20px;
 }
 

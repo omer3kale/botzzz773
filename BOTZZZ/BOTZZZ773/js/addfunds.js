@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const refundSummary = document.getElementById('refundSummary');
     const refundSummaryMessage = document.getElementById('refundSummaryMessage');
 
+    initializeRefundSnapshotBridge();
+
     if (!form) {
         console.warn('[ADDFUNDS] Form element not found.');
         return;
@@ -269,13 +271,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            const formattedAmount = `$${amountValue.toFixed(2)}`;
-            const relativeTime = formatRelativeTimestamp(refundPayment.created_at);
-            const reference = refundPayment.transaction_id || refundPayment.id || '';
-            const referenceText = reference ? ` (Ref: ${escapeHtml(reference)})` : '';
+            const refundSnapshot = {
+                amount: amountValue,
+                currency: refundPayment.currency || 'USD',
+                label: refundPayment.memo || 'Order refund',
+                reference: refundPayment.transaction_id || refundPayment.id || '',
+                orderId: refundPayment.order_id || refundPayment.reference || '',
+                timestamp: refundPayment.created_at,
+                source: 'addfunds-history'
+            };
 
-            refundSummaryMessage.innerHTML = `<strong>${formattedAmount}</strong> was returned to your balance ${relativeTime}${referenceText}.`;
-            refundSummary.classList.remove('hidden');
+            applyRefundSnapshotToSummary(refundSnapshot, { allowHtml: true });
+
+            if (window.RefundState) {
+                window.RefundState.recordLatestRefundEvent({
+                    ...refundSnapshot,
+                    message: `${formatCurrencyValue(refundSnapshot.amount, refundSnapshot.currency)} returned to balance`
+                });
+            }
         } catch (error) {
             console.warn('[ADDFUNDS] Failed to load refund summary:', error);
             refundSummary.classList.add('hidden');
@@ -290,6 +303,65 @@ document.addEventListener('DOMContentLoaded', function() {
         const method = typeof payment.method === 'string' ? payment.method.toLowerCase() : '';
         const status = typeof payment.status === 'string' ? payment.status.toLowerCase() : '';
         return method === 'refund' || status === 'refunded';
+    }
+
+    function initializeRefundSnapshotBridge() {
+        if (!refundSummary || !refundSummaryMessage) {
+            return;
+        }
+
+        if (window.RefundState) {
+            const snapshot = window.RefundState.getLatestRefundEvent();
+            if (snapshot) {
+                applyRefundSnapshotToSummary(snapshot, { allowHtml: true });
+            }
+        }
+
+        window.addEventListener('refund:updated', (event) => {
+            if (event?.detail) {
+                applyRefundSnapshotToSummary(event.detail, { allowHtml: true });
+            }
+        });
+    }
+
+    function applyRefundSnapshotToSummary(snapshot, options = {}) {
+        if (!snapshot || !refundSummary || !refundSummaryMessage) {
+            return false;
+        }
+
+        const amountLabel = formatCurrencyValue(snapshot.amount, snapshot.currency || 'USD');
+        const relativeLabel = formatRelativeTimestamp(snapshot.timestamp);
+        const reference = snapshot.reference ? ` (Ref: ${escapeHtml(snapshot.reference)})` : '';
+        const amountHtml = `<strong>${escapeHtml(amountLabel)}</strong>`;
+        const messageHtml = `${amountHtml} was returned to your balance ${escapeHtml(relativeLabel)}${reference}.`;
+
+        if (options.allowHtml) {
+            refundSummaryMessage.innerHTML = messageHtml;
+        } else {
+            const referenceText = snapshot.reference ? ` (Ref: ${snapshot.reference})` : '';
+            refundSummaryMessage.textContent = `${amountLabel} was returned to your balance ${relativeLabel}${referenceText}.`;
+        }
+
+        refundSummary.classList.remove('hidden');
+        return true;
+    }
+
+    function formatCurrencyValue(amount, currency = 'USD') {
+        const numeric = Number(amount);
+        if (Number.isFinite(numeric)) {
+            try {
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency,
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }).format(numeric);
+            } catch (error) {
+                // Fallback handled below
+            }
+            return `$${numeric.toFixed(2)}`;
+        }
+        return '$0.00';
     }
 
     function formatRelativeTimestamp(dateInput) {

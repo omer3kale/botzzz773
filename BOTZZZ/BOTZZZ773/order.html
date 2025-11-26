@@ -68,6 +68,14 @@
                 <div class="container">
                     <h1 class="page-title">Place Your <span class="gradient-text">Order</span></h1>
                     <p class="page-subtitle">Fill out the form below to get started</p>
+                    <div class="refund-broadcast hidden" data-refund-banner>
+                        <div class="refund-broadcast-icon" aria-hidden="true">💸</div>
+                        <div class="refund-broadcast-body">
+                            <p class="refund-broadcast-label">Refund Confirmation</p>
+                            <p class="refund-broadcast-text" data-refund-message>We will surface your latest refund here once it is issued.</p>
+                        </div>
+                        <button type="button" class="refund-broadcast-close" data-refund-dismiss aria-label="Dismiss refund update">&times;</button>
+                    </div>
                 </div>
             </section>
 
@@ -227,6 +235,8 @@
         </div>
     </footer>
 
+    <script src="js/refund-state.js"></script>
+    <script src="js/refund-banner.js"></script>
     <script src="js/main.js"></script>
     <script src="js/order.js"></script>
     <!-- PWA Registration -->

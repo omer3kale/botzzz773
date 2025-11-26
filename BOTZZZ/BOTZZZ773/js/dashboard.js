@@ -1264,16 +1264,30 @@
         }
 
         const latestRefund = refundedOrders[0];
-        const amount = formatCurrencyDisplay(
-            latestRefund.charge ?? latestRefund.customer_charge ?? latestRefund.retail_charge ?? latestRefund.amount ?? 0,
-            latestRefund.currency || latestRefund.customer_currency || latestRefund.retail_currency || 'USD'
-        );
+        const numericAmount = Math.abs(Number(
+            latestRefund.charge ?? latestRefund.customer_charge ?? latestRefund.retail_charge ?? latestRefund.amount ?? 0
+        ));
+        const currencyCode = latestRefund.currency || latestRefund.customer_currency || latestRefund.retail_currency || 'USD';
+        const amount = formatCurrencyDisplay(numericAmount, currencyCode);
         const label = resolveOrderDisplayLabel(latestRefund);
         const updatedAgo = formatRelativeTimestamp(latestRefund.updated_at || latestRefund.last_status_sync || Date.now());
         const message = `${label} refunded ${amount} back to your balance ${updatedAgo}.`;
 
         orderRefundAlert.textContent = message;
         orderRefundAlert.classList.add('show');
+
+        if (window.RefundState && Number.isFinite(numericAmount)) {
+            window.RefundState.recordLatestRefundEvent({
+                amount: numericAmount,
+                currency: currencyCode,
+                label,
+                reference: latestRefund.transaction_id || latestRefund.payment_reference || latestRefund.provider_order_id,
+                orderId: latestRefund.id || latestRefund.public_id || latestRefund.order_id,
+                timestamp: latestRefund.updated_at || latestRefund.last_status_sync || latestRefund.created_at,
+                source: 'dashboard-orders',
+                message
+            });
+        }
     }
 
     async function handleRefundRequest(orderId, triggerButton = null) {
@@ -1312,6 +1326,12 @@
 
             if (!response.ok || !result.success) {
                 throw new Error(result.error || result.message || 'Unable to cancel this order right now.');
+            }
+
+            if (typeof result.newBalance === 'number') {
+                user.balance = Number(result.newBalance);
+                localStorage.setItem('user', JSON.stringify(user));
+                updateUserDisplay();
             }
 
             showToast('Order cancelled and refunded', 'success');

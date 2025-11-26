@@ -1703,14 +1703,18 @@ async function handleCancelOrder(user, data, headers) {
       .eq('id', order.user_id)
       .single();
 
+    const previousBalance = Number(userData?.balance ?? 0);
+    const refundAmount = Math.abs(Number(order.charge ?? 0));
+    const updatedBalance = Number((previousBalance + refundAmount).toFixed(2));
+
     await supabaseAdmin
       .from('users')
       .update({ 
-        balance: (parseFloat(userData.balance) + parseFloat(order.charge)).toFixed(2)
+        balance: updatedBalance
       })
       .eq('id', order.user_id);
 
-    await recordRefundTransaction(order, order.charge, {
+    const refundRecord = await recordRefundTransaction(order, order.charge, {
       source: 'handleCancelOrder',
       reason: 'order_cancelled',
       memo: `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`
@@ -1735,7 +1739,9 @@ async function handleCancelOrder(user, data, headers) {
       headers,
       body: JSON.stringify({
         success: true,
-        message: 'Order cancelled and refunded'
+        message: 'Order cancelled and refunded',
+        newBalance: updatedBalance,
+        refund: refundRecord || null
       })
     };
   } catch (error) {
@@ -1768,7 +1774,7 @@ async function recordRefundTransaction(order, amount, options = {}) {
 
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount === 0) {
-      return;
+      return null;
     }
 
     const payload = {
@@ -1788,14 +1794,23 @@ async function recordRefundTransaction(order, amount, options = {}) {
       }
     };
 
-    await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('payments')
-      .insert(payload);
+      .insert(payload)
+      .select('id, transaction_id, amount, created_at')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data;
   } catch (error) {
     console.error('[ORDER] Failed to record refund payment:', error, {
       orderId: order?.id,
       userId: order?.user_id
     });
+    return null;
   }
 }
 

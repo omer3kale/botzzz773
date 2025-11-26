@@ -1082,10 +1082,14 @@ async function loadCategoriesFromAPI() {
         }
         
         // Fallback to default categories if API fails
-        return getDefaultCategories();
+        const defaults = getDefaultCategories();
+        categoriesCache = defaults;
+        return defaults;
     } catch (error) {
         console.warn('Failed to load categories from API, using defaults:', error);
-        return getDefaultCategories();
+        const defaults = getDefaultCategories();
+        categoriesCache = defaults;
+        return defaults;
     }
 }
 
@@ -1104,6 +1108,80 @@ function getDefaultCategories() {
         hierarchical: defaultParents,
         children: []
     };
+}
+
+function normalizeCategorySlug(value) {
+    if (value === undefined || value === null) {
+        return '';
+    }
+
+    const slug = String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    return slug;
+}
+
+function getCategoryCollections() {
+    const parents = categoriesCache?.hierarchical || categoriesCache?.flat || [];
+    const children = categoriesCache?.children || [];
+    return { parents, children };
+}
+
+function findCategoryBySlug(slug) {
+    const normalizedSlug = normalizeCategorySlug(slug);
+    if (!normalizedSlug) {
+        return null;
+    }
+
+    const { parents, children } = getCategoryCollections();
+    const combined = [...parents, ...children];
+    return combined.find(cat => normalizeCategorySlug(cat.slug || cat.name) === normalizedSlug) || null;
+}
+
+function resolveParentCategory(category) {
+    if (!category) {
+        return null;
+    }
+
+    if (!category.parent_id) {
+        return category;
+    }
+
+    const { parents } = getCategoryCollections();
+    return parents.find(parent => parent.id === category.parent_id) || null;
+}
+
+function collectChildSlugSet(parentCategory) {
+    const slugs = new Set();
+    if (!parentCategory) {
+        return slugs;
+    }
+
+    const directChildren = Array.isArray(parentCategory.subcategories) && parentCategory.subcategories.length
+        ? parentCategory.subcategories
+        : (categoriesCache?.children || []).filter(child => child.parent_id === parentCategory.id);
+
+    directChildren.forEach(child => {
+        const slug = normalizeCategorySlug(child.slug || child.name);
+        if (slug) {
+            slugs.add(slug);
+        }
+    });
+
+    return slugs;
+}
+
+function getServiceCategorySlug(service) {
+    const rawValue = service?.category_slug
+        || service?.categorySlug
+        || service?.category
+        || '';
+    return normalizeCategorySlug(rawValue);
 }
 
 // Create category icons mapping for services display
@@ -1340,7 +1418,7 @@ function closeSubcategoryModal() {
 }
 
 async function filterServices(filterSlug) {
-    const normalizedSlug = (filterSlug || 'all').toLowerCase();
+    const normalizedSlug = normalizeCategorySlug(filterSlug) || 'all';
     if (normalizedSlug === 'all') {
         await resetFiltersToAll();
         return;
@@ -1353,14 +1431,43 @@ async function filterServices(filterSlug) {
         }
     }
 
-    const filteredServices = approvedServicesCache.filter(service => (service.category || '').toLowerCase() === normalizedSlug);
-    const parentCategory = categoriesCache?.hierarchical?.find(cat => cat.slug === normalizedSlug) ||
-        categoriesCache?.flat?.find(cat => cat.slug === normalizedSlug);
+    if (!categoriesCache) {
+        categoriesCache = await loadCategoriesFromAPI();
+    }
+
+    const selectedCategory = findCategoryBySlug(normalizedSlug);
+    const parentCategory = selectedCategory?.parent_id
+        ? resolveParentCategory(selectedCategory)
+        : selectedCategory;
+
+    const slugsToMatch = new Set([normalizedSlug]);
+    const parentSlug = normalizeCategorySlug(parentCategory?.slug || parentCategory?.name);
+    if (parentSlug) {
+        slugsToMatch.add(parentSlug);
+    }
+
+    collectChildSlugSet(parentCategory).forEach(slug => slugsToMatch.add(slug));
+
+    let filteredServices = approvedServicesCache.filter(service => {
+        const serviceSlug = getServiceCategorySlug(service);
+        return serviceSlug && slugsToMatch.has(serviceSlug);
+    });
+
+    if (filteredServices.length === 0) {
+        const fallbackTerms = normalizedSlug.split('-').filter(Boolean);
+        filteredServices = approvedServicesCache.filter(service => {
+            const serviceName = String(service.name || '').toLowerCase();
+            const serviceCategory = (service.category || '').toLowerCase();
+            return fallbackTerms.some(term =>
+                serviceName.includes(term) || serviceCategory.includes(term)
+            );
+        });
+    }
 
     await displayFilteredServices(filteredServices, {
         slug: normalizedSlug,
         label: parentCategory?.name || formatCategoryLabel(normalizedSlug),
-        parentSlug: normalizedSlug
+        parentSlug: parentSlug || normalizedSlug
     });
 
     const currentUrl = new URL(window.location);
@@ -1468,6 +1575,23 @@ async function restoreFullServicesView() {
     await loadServicesFromAPI();
 }
 
+function buildSubcategorySearchTerms(name = '') {
+    const normalized = String(name || '').toLowerCase();
+    if (!normalized) {
+        return [];
+    }
+
+    const terms = new Set(normalized.split(/[^a-z0-9]+/).filter(Boolean));
+
+    if (normalized.includes('followers')) terms.add('follower');
+    if (normalized.includes('likes')) terms.add('like');
+    if (normalized.includes('views')) terms.add('view');
+    if (normalized.includes('comments')) terms.add('comment');
+    if (normalized.includes('shares')) terms.add('share');
+
+    return Array.from(terms);
+}
+
 // Load services for a specific subcategory
 async function loadServicesForSubcategory(categoryId, categorySlug) {
     servicesStatusController?.setState('loading');
@@ -1481,50 +1605,58 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
             }
         }
 
-        const categoriesData = categoriesCache;
-        let filteredServices = [];
-        let selectedCategory = null;
-        let parentCategory = null;
-
-        if (categoriesData) {
-            const allCategories = [
-                ...(categoriesData.hierarchical || []),
-                ...(categoriesData.children || [])
-            ];
-            selectedCategory = allCategories.find(cat => cat.slug === categorySlug) || null;
-
-            if (selectedCategory) {
-                if (selectedCategory.parent_id) {
-                    parentCategory = categoriesData.hierarchical?.find(cat => cat.id === selectedCategory.parent_id) || null;
-                } else {
-                    parentCategory = selectedCategory;
-                }
-            }
+        if (!categoriesCache) {
+            categoriesCache = await loadCategoriesFromAPI();
         }
 
-        const parentSlug = (parentCategory?.slug || categorySlug || '').toLowerCase();
+        const normalizedSlug = normalizeCategorySlug(categorySlug);
+        const { parents, children } = getCategoryCollections();
+        const allCategories = [...parents, ...children];
 
-        if (selectedCategory && selectedCategory.parent_id && parentCategory) {
-            const subCatName = selectedCategory.name.toLowerCase();
-            const subCatTerms = [];
+        let selectedCategory = allCategories.find(cat => {
+            if (categoryId && Number(cat.id) === Number(categoryId)) {
+                return true;
+            }
+            return normalizeCategorySlug(cat.slug || cat.name) === normalizedSlug;
+        }) || null;
 
-            if (subCatName.includes('followers')) subCatTerms.push('follower');
-            if (subCatName.includes('likes')) subCatTerms.push('like');
-            if (subCatName.includes('views')) subCatTerms.push('view');
-            if (subCatName.includes('comments')) subCatTerms.push('comment');
-            if (subCatName.includes('shares')) subCatTerms.push('share');
+        if (!selectedCategory && normalizedSlug) {
+            selectedCategory = findCategoryBySlug(normalizedSlug);
+        }
 
+        let parentCategory = selectedCategory
+            ? (selectedCategory.parent_id ? resolveParentCategory(selectedCategory) : selectedCategory)
+            : findCategoryBySlug(normalizedSlug);
+
+        const parentSlug = normalizeCategorySlug(parentCategory?.slug || parentCategory?.name || normalizedSlug);
+        const targetSlug = normalizeCategorySlug(selectedCategory?.slug || selectedCategory?.name || normalizedSlug);
+        const slugTargets = new Set([parentSlug, targetSlug].filter(Boolean));
+        const subcategoryTerms = buildSubcategorySearchTerms(selectedCategory?.name || categorySlug);
+
+        let filteredServices = approvedServicesCache.filter(service => {
+            const serviceSlug = getServiceCategorySlug(service);
+            if (!serviceSlug) {
+                return false;
+            }
+
+            if (slugTargets.has(serviceSlug)) {
+                if (selectedCategory?.parent_id && serviceSlug === parentSlug && subcategoryTerms.length) {
+                    const serviceName = String(service.name || '').toLowerCase();
+                    return subcategoryTerms.some(term => serviceName.includes(term));
+                }
+                return true;
+            }
+
+            return false;
+        });
+
+        if (filteredServices.length === 0 && subcategoryTerms.length) {
             filteredServices = approvedServicesCache.filter(service => {
-                const serviceCat = (service.category || '').toLowerCase();
+                const serviceSlug = getServiceCategorySlug(service);
                 const serviceName = String(service.name || '').toLowerCase();
-                const parentMatches = serviceCat === parentSlug;
-                const subCatMatches = subCatTerms.length > 0
-                    ? subCatTerms.some(term => serviceName.includes(term))
-                    : false;
-                return parentMatches && subCatMatches;
+                const belongsToParent = parentSlug ? serviceSlug === parentSlug : true;
+                return belongsToParent && subcategoryTerms.some(term => serviceName.includes(term));
             });
-        } else {
-            filteredServices = approvedServicesCache.filter(service => (service.category || '').toLowerCase() === parentSlug);
         }
 
         if (filteredServices.length === 0) {
@@ -1539,10 +1671,10 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
         }
 
         await displayFilteredServices(filteredServices, {
-            slug: parentSlug || categorySlug,
-            label: parentCategory?.name || formatCategoryLabel(parentSlug || categorySlug),
+            slug: targetSlug || parentSlug || normalizedSlug,
+            label: parentCategory?.name || formatCategoryLabel(targetSlug || parentSlug || normalizedSlug),
             subcategoryLabel: selectedCategory && selectedCategory.parent_id ? selectedCategory.name : '',
-            parentSlug: parentSlug || categorySlug
+            parentSlug: parentSlug || normalizedSlug
         });
 
         const currentUrl = new URL(window.location);
@@ -1554,68 +1686,6 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
         console.error('Error loading subcategory services:', error);
         servicesStatusController?.setState('error');
     }
-}
-
-// Display filtered services in the UI
-function displayFilteredServices(services, categoryName) {
-    const container = document.getElementById('servicesContainer');
-    if (!container) return;
-    
-    if (services.length === 0) {
-        container.innerHTML = `
-            <div class="no-services-message">
-                <i class="fas fa-search"></i>
-                <h3>No services found for ${categoryName.replace(/-/g, ' ')}</h3>
-                <p>Try selecting a different category or check back later.</p>
-            </div>
-        `;
-        return;
-    }
-    
-    let servicesHTML = `<div class="services-category-header">
-        <h2><i class="fas fa-layer-group"></i> ${categoryName.replace(/-/g, ' ').toUpperCase()} Services (${services.length})</h2>
-    </div>`;
-    
-    services.forEach(service => {
-        const rate = service.rate || service.price || 0;
-        const minQty = service.min_quantity || service.minimum || 1;
-        const maxQty = service.max_quantity || service.maximum || 999999;
-        const providerName = service.provider?.name || 'Provider';
-        
-        servicesHTML += `
-            <div class="service-card" data-service-id="${service.id}">
-                <div class="service-header">
-                    <h3 class="service-name">${service.name}</h3>
-                    <div class="service-price">$${rate.toFixed(3)}</div>
-                </div>
-                <div class="service-details">
-                    <div class="service-range">
-                        <span class="range-label">Range:</span>
-                        <span class="range-value">${minQty.toLocaleString()} - ${maxQty.toLocaleString()}</span>
-                    </div>
-                    <div class="service-provider">
-                        <span class="provider-label">Provider:</span>
-                        <span class="provider-name">${providerName}</span>
-                    </div>
-                </div>
-                <div class="service-actions">
-                    <button class="btn btn-primary order-service-btn" 
-                            data-service-id="${service.id}"
-                            data-service-name="${service.name}"
-                            data-rate="${rate}"
-                            data-min="${minQty}"
-                            data-max="${maxQty}">
-                        <i class="fas fa-shopping-cart"></i> Order Now
-                    </button>
-                </div>
-            </div>
-        `;
-    });
-    
-    container.innerHTML = servicesHTML;
-    
-    // Re-initialize order buttons
-    initializeOrderButtons();
 }
 
 // Check if we're on the index page or services page and load appropriate content
