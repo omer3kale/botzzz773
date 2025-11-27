@@ -417,16 +417,150 @@
                         console.log('[SIGNIN] Login response:', data);
                         
                         if (data.requiresOtp) {
-                            // Admin OTP required - try to use auth-backend modal
-                            if (typeof openAdminOtpModal === 'function') {
-                                // Store credentials for OTP verification
-                                if (typeof adminOtpState !== 'undefined') {
-                                    adminOtpState.email = email;
-                                    adminOtpState.password = password;
-                                    adminOtpState.rememberMe = rememberMe;
+                            // Admin OTP required - open the OTP modal directly
+                            console.log('[SIGNIN] OTP required, opening modal...');
+                            
+                            // Store credentials for OTP verification
+                            window._otpCredentials = {
+                                email: email,
+                                password: password,
+                                rememberMe: rememberMe
+                            };
+                            
+                            // Open the OTP modal
+                            const modal = document.getElementById('adminOtpModal');
+                            const otpInput = document.getElementById('adminOtpInput');
+                            const otpForm = document.getElementById('adminOtpForm');
+                            const otpFeedback = document.getElementById('adminOtpFeedback');
+                            const countdown = document.getElementById('otpCountdown');
+                            
+                            if (modal && otpInput) {
+                                // Show the modal
+                                modal.style.display = 'flex';
+                                modal.classList.add('active');
+                                modal.setAttribute('aria-hidden', 'false');
+                                document.body.style.overflow = 'hidden';
+                                
+                                // Clear and focus input
+                                otpInput.value = '';
+                                setTimeout(() => otpInput.focus(), 100);
+                                
+                                // Show success message
+                                if (otpFeedback) {
+                                    otpFeedback.textContent = data.message || 'OTP sent to your admin email.';
+                                    otpFeedback.className = 'otp-feedback success';
                                 }
-                                openAdminOtpModal(data.message, data.expiresIn || 600);
+                                
+                                // Start countdown (10 minutes)
+                                let timeLeft = data.expiresIn || 600;
+                                const updateCountdown = () => {
+                                    const mins = Math.floor(timeLeft / 60);
+                                    const secs = timeLeft % 60;
+                                    if (countdown) {
+                                        countdown.textContent = `Code expires in ${mins}:${secs.toString().padStart(2, '0')}`;
+                                    }
+                                    if (timeLeft > 0) {
+                                        timeLeft--;
+                                        setTimeout(updateCountdown, 1000);
+                                    }
+                                };
+                                updateCountdown();
+                                
+                                // Handle OTP form submission
+                                if (otpForm && !otpForm.dataset.fallbackWired) {
+                                    otpForm.dataset.fallbackWired = 'true';
+                                    otpForm.addEventListener('submit', async function(otpEvent) {
+                                        otpEvent.preventDefault();
+                                        
+                                        const otpCode = otpInput.value.trim();
+                                        if (!/^[0-9]{6}$/.test(otpCode)) {
+                                            if (otpFeedback) {
+                                                otpFeedback.textContent = 'Please enter a valid 6-digit code';
+                                                otpFeedback.className = 'otp-feedback error';
+                                            }
+                                            return;
+                                        }
+                                        
+                                        const otpSubmitBtn = otpForm.querySelector('button[type="submit"]');
+                                        const otpOriginalText = otpSubmitBtn.textContent;
+                                        otpSubmitBtn.disabled = true;
+                                        otpSubmitBtn.textContent = 'Verifying...';
+                                        
+                                        try {
+                                            const creds = window._otpCredentials;
+                                            const verifyResponse = await fetch('/.netlify/functions/auth', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    action: 'login',
+                                                    email: creds.email,
+                                                    password: creds.password,
+                                                    adminOtp: otpCode
+                                                })
+                                            });
+                                            
+                                            const verifyData = await verifyResponse.json();
+                                            console.log('[SIGNIN] OTP verification response:', verifyData);
+                                            
+                                            if (verifyData.success && verifyData.token) {
+                                                // Success! Store and redirect
+                                                localStorage.setItem('token', verifyData.token);
+                                                localStorage.setItem('user', JSON.stringify(verifyData.user));
+                                                if (creds.rememberMe) {
+                                                    localStorage.setItem('rememberMe', 'true');
+                                                }
+                                                
+                                                if (otpFeedback) {
+                                                    otpFeedback.textContent = 'Verified! Redirecting...';
+                                                    otpFeedback.className = 'otp-feedback success';
+                                                }
+                                                
+                                                const destination = verifyData.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                                                setTimeout(() => window.location.href = destination, 500);
+                                            } else {
+                                                if (otpFeedback) {
+                                                    otpFeedback.textContent = verifyData.error || 'Invalid OTP code';
+                                                    otpFeedback.className = 'otp-feedback error';
+                                                }
+                                                otpInput.value = '';
+                                                otpInput.focus();
+                                            }
+                                        } catch (err) {
+                                            console.error('[SIGNIN] OTP verification error:', err);
+                                            if (otpFeedback) {
+                                                otpFeedback.textContent = 'Verification failed. Please try again.';
+                                                otpFeedback.className = 'otp-feedback error';
+                                            }
+                                        } finally {
+                                            otpSubmitBtn.disabled = false;
+                                            otpSubmitBtn.textContent = otpOriginalText;
+                                        }
+                                    });
+                                }
+                                
+                                // Handle close button
+                                const closeBtn = document.getElementById('closeAdminOtpModal');
+                                if (closeBtn && !closeBtn.dataset.fallbackWired) {
+                                    closeBtn.dataset.fallbackWired = 'true';
+                                    closeBtn.addEventListener('click', function() {
+                                        modal.style.display = 'none';
+                                        modal.classList.remove('active');
+                                        document.body.style.overflow = '';
+                                        window._otpCredentials = null;
+                                    });
+                                }
+                                
+                                // Handle backdrop click
+                                modal.addEventListener('click', function(e) {
+                                    if (e.target === modal) {
+                                        modal.style.display = 'none';
+                                        modal.classList.remove('active');
+                                        document.body.style.overflow = '';
+                                        window._otpCredentials = null;
+                                    }
+                                });
                             } else {
+                                // Fallback if modal not found
                                 alert('Admin OTP required. ' + (data.message || 'Check your email for the code.'));
                             }
                             return;
