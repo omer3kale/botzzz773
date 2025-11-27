@@ -47,7 +47,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (Number.isFinite(balance)) {
                 renderBalanceAmount(balance);
             }
-        }, { immediate: true });
+        });
     }
 
     if (!form) {

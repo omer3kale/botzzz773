@@ -14,7 +14,12 @@ async function checkAuthStatus() {
     const token = localStorage.getItem('token');
     
     if (!token) {
-        updateNavigation(false);
+        // Don't update navigation on signin/signup pages to preserve form
+        const isAuthPage = window.location.pathname.includes('signin') || 
+                          window.location.pathname.includes('signup');
+        if (!isAuthPage) {
+            updateNavigation(false);
+        }
         return false;
     }
 
@@ -516,18 +521,23 @@ function updateNavigation(isLoggedIn, user = null) {
     }
 }
 
+// Only subscribe to BalanceSync on non-auth pages to prevent interference
 if (window.BalanceSync) {
-    window.BalanceSync.subscribe(({ user, balance }) => {
-        if (!user) {
-            updateNavigation(false, null);
-            return;
-        }
-        const hydrated = { ...user };
-        if (Number.isFinite(balance)) {
-            hydrated.balance = balance;
-        }
-        updateNavigation(true, hydrated);
-    }, { immediate: true });
+    const isAuthPage = window.location.pathname.includes('signin') || 
+                      window.location.pathname.includes('signup');
+    
+    if (!isAuthPage) {
+        window.BalanceSync.subscribe(({ user, balance }) => {
+            if (!user) {
+                return;
+            }
+            const hydrated = { ...user };
+            if (Number.isFinite(balance)) {
+                hydrated.balance = balance;
+            }
+            updateNavigation(true, hydrated);
+        });
+    }
 }
 
 // Helper function to escape HTML

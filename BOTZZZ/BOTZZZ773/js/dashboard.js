@@ -87,24 +87,6 @@
 
     const { token, user } = auth;
 
-    if (window.BalanceSync) {
-        window.BalanceSync.configure({
-            fetcher: (context = {}) => refreshUserSnapshot({ reason: context.reason || 'balance-sync' })
-        });
-
-        window.BalanceSync.setUser(user, { reason: 'dashboard-init' });
-        window.BalanceSync.subscribe(({ user: syncedUser, balance }) => {
-            if (!syncedUser) {
-                return;
-            }
-            Object.assign(user, syncedUser);
-            if (Number.isFinite(balance)) {
-                user.balance = balance;
-            }
-            updateUserDisplay();
-        }, { immediate: true });
-    }
-
     // Update UI with user data
     function updateUserDisplay() {
         const userNameEl = document.getElementById('userName');
@@ -1790,6 +1772,25 @@
 
     // Initialize
     updateUserDisplay();
+
+    if (window.BalanceSync) {
+        window.BalanceSync.configure({
+            fetcher: (context = {}) => refreshUserSnapshot({ reason: context.reason || 'balance-sync' })
+        });
+
+        window.BalanceSync.setUser(user, { reason: 'dashboard-init' });
+        window.BalanceSync.subscribe(({ user: syncedUser, balance }) => {
+            if (!syncedUser) {
+                return;
+            }
+            Object.assign(user, syncedUser);
+            if (Number.isFinite(balance)) {
+                user.balance = balance;
+            }
+            updateUserDisplay();
+        });
+    }
+
     loadOrders({ silent: true, reason: 'initial-load' });
     
     // Load services from database on page load
