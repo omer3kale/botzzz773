@@ -363,6 +363,114 @@
             const type = passwordInput.type === 'password' ? 'text' : 'password';
             passwordInput.type = type;
         }
+        
+        // Fallback form handler - ensures form works even if auth-backend.js has issues
+        (function() {
+            console.log('[SIGNIN] Initializing fallback form handler');
+            
+            function initFallbackHandler() {
+                const form = document.getElementById('signinForm');
+                if (!form) {
+                    console.warn('[SIGNIN] Form not found');
+                    return;
+                }
+                
+                // Check if auth-backend.js already attached a handler
+                if (form.dataset.handlerAttached === 'true') {
+                    console.log('[SIGNIN] Handler already attached by auth-backend.js');
+                    return;
+                }
+                
+                console.log('[SIGNIN] Attaching fallback submit handler');
+                
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    console.log('[SIGNIN] Form submitted via fallback handler');
+                    
+                    const email = document.getElementById('email')?.value.trim();
+                    const password = document.getElementById('password')?.value;
+                    const rememberMe = document.getElementById('remember')?.checked;
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    
+                    if (!email || !password) {
+                        alert('Please fill in all fields');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Signing in...';
+                    
+                    try {
+                        const response = await fetch('/.netlify/functions/auth', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: 'login',
+                                email: email,
+                                password: password
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        console.log('[SIGNIN] Login response:', data);
+                        
+                        if (data.requiresOtp) {
+                            // Admin OTP required - try to use auth-backend modal
+                            if (typeof openAdminOtpModal === 'function') {
+                                // Store credentials for OTP verification
+                                if (typeof adminOtpState !== 'undefined') {
+                                    adminOtpState.email = email;
+                                    adminOtpState.password = password;
+                                    adminOtpState.rememberMe = rememberMe;
+                                }
+                                openAdminOtpModal(data.message, data.expiresIn || 600);
+                            } else {
+                                alert('Admin OTP required. ' + (data.message || 'Check your email for the code.'));
+                            }
+                            return;
+                        }
+                        
+                        if (data.success && data.token && data.user) {
+                            // Store auth data
+                            localStorage.setItem('token', data.token);
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            if (rememberMe) {
+                                localStorage.setItem('rememberMe', 'true');
+                            }
+                            
+                            // Redirect based on role
+                            const destination = data.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                            console.log('[SIGNIN] Success! Redirecting to:', destination);
+                            window.location.href = destination;
+                            return;
+                        }
+                        
+                        // Show error
+                        alert(data.error || 'Login failed. Please check your credentials.');
+                        
+                    } catch (error) {
+                        console.error('[SIGNIN] Login error:', error);
+                        alert('Login failed. Please check your connection and try again.');
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+                
+                // Mark that we've attached a handler
+                form.dataset.fallbackHandler = 'true';
+            }
+            
+            // Initialize when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initFallbackHandler);
+            } else {
+                // DOM already loaded
+                setTimeout(initFallbackHandler, 100);
+            }
+        })();
     </script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>

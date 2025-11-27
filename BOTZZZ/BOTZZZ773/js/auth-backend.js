@@ -735,6 +735,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (signinForm) {
         signinForm.addEventListener('submit', handleSignIn);
+        signinForm.dataset.handlerAttached = 'true';
         console.log('[AUTH] Sign-in form listener attached successfully');
     } else {
         console.log('[AUTH] No signinForm found on this page');
@@ -742,6 +743,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (signupForm) {
         signupForm.addEventListener('submit', handleSignUp);
+        signupForm.dataset.handlerAttached = 'true';
         console.log('[AUTH] Sign-up form listener attached successfully');
     } else {
         console.log('[AUTH] No signupForm found on this page');

@@ -360,6 +360,110 @@
             const type = passwordInput.type === 'password' ? 'text' : 'password';
             passwordInput.type = type;
         }
+        
+        // Fallback form handler - ensures form works even if auth-backend.js has issues
+        (function() {
+            console.log('[SIGNUP] Initializing fallback form handler');
+            
+            function initFallbackHandler() {
+                const form = document.getElementById('signupForm');
+                if (!form) {
+                    console.warn('[SIGNUP] Form not found');
+                    return;
+                }
+                
+                // Check if auth-backend.js already attached a handler
+                if (form.dataset.handlerAttached === 'true') {
+                    console.log('[SIGNUP] Handler already attached by auth-backend.js');
+                    return;
+                }
+                
+                console.log('[SIGNUP] Attaching fallback submit handler');
+                
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    console.log('[SIGNUP] Form submitted via fallback handler');
+                    
+                    const email = document.getElementById('email')?.value.trim();
+                    const password = document.getElementById('password')?.value;
+                    const confirmPassword = document.getElementById('confirmPassword')?.value;
+                    const username = document.getElementById('username')?.value.trim();
+                    const firstName = document.getElementById('firstName')?.value.trim();
+                    const lastName = document.getElementById('lastName')?.value.trim();
+                    const submitBtn = form.querySelector('button[type="submit"]');
+                    
+                    if (!email || !password || !username) {
+                        alert('Please fill in all required fields');
+                        return;
+                    }
+                    
+                    if (password !== confirmPassword) {
+                        alert('Passwords do not match');
+                        return;
+                    }
+                    
+                    if (password.length < 8) {
+                        alert('Password must be at least 8 characters long');
+                        return;
+                    }
+                    
+                    // Show loading state
+                    const originalText = submitBtn.textContent;
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Creating account...';
+                    
+                    try {
+                        const response = await fetch('/.netlify/functions/auth', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: 'signup',
+                                email: email,
+                                password: password,
+                                username: username,
+                                firstName: firstName,
+                                lastName: lastName
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        console.log('[SIGNUP] Signup response:', data);
+                        
+                        if (data.success && data.token && data.user) {
+                            // Store auth data
+                            localStorage.setItem('token', data.token);
+                            localStorage.setItem('user', JSON.stringify(data.user));
+                            
+                            // Redirect to dashboard
+                            console.log('[SIGNUP] Success! Redirecting to dashboard');
+                            window.location.href = '/dashboard.html';
+                            return;
+                        }
+                        
+                        // Show error
+                        alert(data.error || 'Signup failed. Please try again.');
+                        
+                    } catch (error) {
+                        console.error('[SIGNUP] Signup error:', error);
+                        alert('Signup failed. Please check your connection and try again.');
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                });
+                
+                // Mark that we've attached a handler
+                form.dataset.fallbackHandler = 'true';
+            }
+            
+            // Initialize when DOM is ready
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initFallbackHandler);
+            } else {
+                // DOM already loaded
+                setTimeout(initFallbackHandler, 100);
+            }
+        })();
     </script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
