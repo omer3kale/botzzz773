@@ -177,7 +177,9 @@ async function handleSignIn(e) {
 function openAdminOtpModal(message, expiresIn = ADMIN_OTP_DEFAULT_EXPIRY) {
     const modal = ensureAdminOtpModalStructure();
     if (!modal) {
-        console.warn('Admin OTP modal not found in DOM.');
+        console.warn('Admin OTP modal not found in DOM, using prompt fallback.');
+        // Fallback: use prompt to get OTP code
+        promptForOtpCode(message);
         return;
     }
 
@@ -203,6 +205,43 @@ function openAdminOtpModal(message, expiresIn = ADMIN_OTP_DEFAULT_EXPIRY) {
         clearInterval(adminOtpCountdownInterval);
     }
     adminOtpCountdownInterval = setInterval(updateAdminOtpCountdown, 1000);
+}
+
+// Fallback OTP input using browser prompt
+async function promptForOtpCode(message) {
+    const otpCode = prompt(message + '\n\nEnter your 6-digit OTP code:');
+    
+    if (!otpCode) {
+        alert('OTP verification cancelled.');
+        return;
+    }
+    
+    if (!/^[0-9]{6}$/.test(otpCode.trim())) {
+        alert('Invalid code. Please enter exactly 6 digits.');
+        promptForOtpCode(message); // Try again
+        return;
+    }
+    
+    try {
+        // Verify OTP with backend
+        const data = await api.login(
+            adminOtpState.email, 
+            adminOtpState.password, 
+            otpCode.trim()
+        );
+        
+        if (data.success && data.token && data.user) {
+            // Success! Login and redirect
+            finalizeLogin(data, adminOtpState.rememberMe);
+        } else {
+            alert(data.error || 'Invalid OTP code. Please try again.');
+            promptForOtpCode(message); // Try again
+        }
+    } catch (error) {
+        console.error('OTP verification error:', error);
+        alert('Verification failed. Please try again.');
+        promptForOtpCode(message); // Try again
+    }
 }
 
 function closeAdminOtpModal({ clearCredentials = false } = {}) {
