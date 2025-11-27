@@ -14,6 +14,14 @@
     --sidebar-width: 280px;
 }
 
+/* Global Reset for Admin */
+html.admin-html,
+body.admin-body {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+}
+
 *,
 *::before,
 *::after {
@@ -2017,10 +2025,70 @@ body.sidebar-collapsed .admin-main {
     }
 }
 
+/* MacBook screens (13" and 14" Retina) - 1280px to 1600px effective width */
+@media (min-width: 1280px) and (max-width: 1600px) {
+    :root {
+        --sidebar-width: 240px; /* Slightly narrower sidebar */
+    }
+    
+    .admin-main {
+        padding: 24px;
+    }
+    
+    .admin-table {
+        min-width: 1400px !important; /* Reduced for MacBook screens */
+    }
+    
+    /* Reduce column widths proportionally */
+    .admin-table th:nth-child(2),
+    .admin-table td:nth-child(2) {
+        width: 180px;
+        min-width: 180px;
+    }
+    
+    .admin-table th:nth-child(5),
+    .admin-table td:nth-child(5) {
+        width: 150px;
+        min-width: 150px;
+    }
+    
+    .orders-layout,
+    .users-layout,
+    .services-layout,
+    .payments-layout,
+    .tickets-layout {
+        grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+        gap: 20px;
+    }
+    
+    /* Ensure table container scrolls properly */
+    .table-container {
+        overflow-x: auto !important;
+        max-width: calc(100vw - var(--sidebar-width) - 48px);
+    }
+    
+    .orders-table-panel,
+    .users-table-panel,
+    .services-table-panel,
+    .payments-table-panel,
+    .tickets-table-panel {
+        max-width: 100%;
+        overflow-x: auto !important;
+    }
+}
+
 /* Large screens - ensure table still scrolls if needed */
 @media (min-width: 1920px) {
     .admin-table {
         min-width: 1600px;
+    }
+}
+
+/* Fix for high-DPI Retina displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .table-container {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
     }
 }
 

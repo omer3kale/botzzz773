@@ -2183,6 +2183,17 @@ async function loadOrders({ skipSync = false } = {}) {
         ordersCache = Array.isArray(data.orders) ? data.orders : [];
         pruneSelectedOrderIds();
 
+        // Debug logging for orders loaded
+        console.log('[ORDERS] Total orders received:', ordersCache.length);
+        if (ordersCache.length > 0) {
+            const statusBreakdown = ordersCache.reduce((acc, order) => {
+                const status = order.status || 'unknown';
+                acc[status] = (acc[status] || 0) + 1;
+                return acc;
+            }, {});
+            console.log('[ORDERS] Status breakdown:', statusBreakdown);
+        }
+
         if (ordersCache.length > 0) {
             tbody.innerHTML = '';
 
