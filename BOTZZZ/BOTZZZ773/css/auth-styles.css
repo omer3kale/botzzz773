@@ -585,9 +585,27 @@ body.modal-open {
     border: 1px solid rgba(255, 20, 148, 0.3);
     border-radius: 16px;
     padding: 32px;
+    padding-top: 100px;
     position: relative;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     animation: fadeInUp 0.35s ease;
+}
+
+/* Logo centered at top of OTP modal */
+.otp-modal::before {
+    content: '';
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 80px;
+    background-image: url('/img/icons/BOTZZZ773.logo.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    border-radius: 12px;
+    filter: drop-shadow(0 4px 12px rgba(255, 20, 148, 0.3));
 }
 
 .otp-modal-close {
