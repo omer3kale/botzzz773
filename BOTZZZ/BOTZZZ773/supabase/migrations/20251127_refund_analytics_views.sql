@@ -46,9 +46,38 @@ WHERE r.status IN ('refunded', 'completed', 'success', 'succeeded')
 GROUP BY DATE(r.created_at)
 ORDER BY refund_date DESC;
 
--- Function: Get user refund history
+DROP FUNCTION IF EXISTS resolve_user_id(TEXT);
+CREATE OR REPLACE FUNCTION resolve_user_id(target_identifier TEXT)
+RETURNS UUID AS $$
+DECLARE
+    resolved UUID;
+BEGIN
+    IF target_identifier IS NULL OR trim(target_identifier) = '' THEN
+        RETURN NULL;
+    END IF;
+
+    BEGIN
+        resolved := target_identifier::UUID;
+        RETURN resolved;
+    EXCEPTION WHEN others THEN
+        resolved := NULL;
+    END;
+
+    SELECT id
+    INTO resolved
+    FROM users
+    WHERE lower(email) = lower(target_identifier)
+       OR lower(username) = lower(target_identifier)
+    LIMIT 1;
+
+    RETURN resolved;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_user_refund_history(UUID, INTEGER);
+DROP FUNCTION IF EXISTS get_user_refund_history(TEXT, INTEGER);
 CREATE OR REPLACE FUNCTION get_user_refund_history(
-    target_user_id UUID,
+    target_identifier TEXT,
     limit_count INTEGER DEFAULT 50
 )
 RETURNS TABLE (
@@ -60,7 +89,15 @@ RETURNS TABLE (
     created_at TIMESTAMP WITH TIME ZONE,
     status TEXT
 ) AS $$
+DECLARE
+    target_user_id UUID;
 BEGIN
+    target_user_id := resolve_user_id(target_identifier);
+
+    IF target_user_id IS NULL THEN
+        RAISE EXCEPTION 'Unable to resolve user identifier: %', target_identifier;
+    END IF;
+
     RETURN QUERY
     SELECT 
         r.id,
@@ -78,9 +115,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function: Calculate refund rate (useful for fraud detection)
+DROP FUNCTION IF EXISTS calculate_refund_rate(UUID, INTEGER);
+DROP FUNCTION IF EXISTS calculate_refund_rate(TEXT, INTEGER);
 CREATE OR REPLACE FUNCTION calculate_refund_rate(
-    target_user_id UUID DEFAULT NULL,
+    target_identifier TEXT DEFAULT NULL,
     days_back INTEGER DEFAULT 30
 )
 RETURNS TABLE (
@@ -91,7 +129,11 @@ RETURNS TABLE (
     total_spent DECIMAL(10, 2),
     total_refunded DECIMAL(10, 2)
 ) AS $$
+DECLARE
+    target_user_id UUID;
 BEGIN
+    target_user_id := resolve_user_id(target_identifier);
+
     RETURN QUERY
     WITH user_stats AS (
         SELECT 
