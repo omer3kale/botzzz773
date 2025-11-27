@@ -2162,8 +2162,11 @@ async function loadOrders({ skipSync = false } = {}) {
             throw new Error('Not authenticated');
         }
 
-        console.log('[ORDERS] Fetching orders from API...');
-        const response = await fetch('/.netlify/functions/orders', {
+        console.log('[ORDERS] Fetching ALL orders from API (no status filter)...');
+        const apiUrl = '/.netlify/functions/orders';
+        console.log('[ORDERS] Request URL:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2172,6 +2175,7 @@ async function loadOrders({ skipSync = false } = {}) {
         });
 
         console.log('[ORDERS] API response status:', response.status);
+        console.log('[ORDERS] Response headers:', Object.fromEntries(response.headers.entries()));
         
         if (!response.ok) {
             const errorText = await response.text();

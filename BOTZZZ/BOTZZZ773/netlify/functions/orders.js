@@ -674,6 +674,17 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     const statusFilter = queryParams?.status ? String(queryParams.status).toLowerCase().trim() : null;
     const orderIdFilter = queryParams?.orderId ? String(queryParams.orderId).trim() : null;
     
+    // DEBUG: Log what we're actually querying
+    console.log('[GET ORDERS] Query params received:', JSON.stringify({
+      role: user.role,
+      userId: user.userId,
+      statusFilter,
+      orderIdFilter,
+      limit,
+      offset,
+      rawQueryParams: queryParams
+    }));
+    
     // Validate status filter if provided
     const validStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
     if (statusFilter && !validStatuses.includes(statusFilter)) {
@@ -716,14 +727,31 @@ async function handleGetOrders(user, headers, queryParams = {}) {
 
     // Admin can filter by status (for failed orders view)
     if (user.role === 'admin' && statusFilter) {
+      console.log('[GET ORDERS] Admin filtering by status:', statusFilter);
       if (statusFilter === 'failed') {
         query = query.in('status', ['failed', 'error']);
       } else {
         query = query.eq('status', statusFilter);
       }
+    } else if (user.role === 'admin' && !statusFilter) {
+      console.log('[GET ORDERS] Admin requesting ALL orders (no status filter)');
     }
 
     const { data: orders, error } = await query;
+    
+    // DEBUG: Log the query result
+    const statusCounts = {};
+    if (Array.isArray(orders)) {
+      orders.forEach(o => {
+        const s = o.status || 'unknown';
+        statusCounts[s] = (statusCounts[s] || 0) + 1;
+      });
+    }
+    console.log('[GET ORDERS] Result summary:', {
+      totalOrders: orders?.length || 0,
+      statusBreakdown: statusCounts,
+      hasError: !!error
+    });
 
     if (error) {
       logOrderError('Get orders error', error, { userId: user.userId });
