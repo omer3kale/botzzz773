@@ -20,6 +20,9 @@ const failedOrdersRegistry = new Map();
 const ORDER_STATUS_OPTIONS = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
 let orderIdSelectionShortcutAttached = false;
 
+// Track current view state explicitly
+let currentOrdersView = 'all'; // 'all' | 'failed' | 'provider-errors'
+
 const adminOrdersPopupShell = (() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
         return { isPopup: false, close: () => {} };
@@ -653,9 +656,11 @@ async function resolveOrderForManagement(orderId) {
 }
 
 function refreshOrdersAfterAdminChange() {
-    const isFailedView = Boolean(document.querySelector('.failed-orders-notice'));
-    if (isFailedView) {
+    console.log('[ORDERS] Refreshing after admin change, current view:', currentOrdersView);
+    if (currentOrdersView === 'failed') {
         loadFailedOrders();
+    } else if (currentOrdersView === 'provider-errors') {
+        showProviderErrors();
     } else {
         loadOrders({ skipSync: true });
     }
@@ -1488,7 +1493,8 @@ async function manualOrdersSync() {
         return;
     }
 
-    await loadOrders({ skipSync: true });
+    // Refresh based on current view
+    refreshOrdersAfterAdminChange();
 }
 
 function startOrdersAutoRefresh() {
@@ -1498,11 +1504,25 @@ function startOrdersAutoRefresh() {
 
     ordersAutoRefreshTimer = setInterval(async () => {
         await syncOrderStatuses({ silent: true });
-        await loadOrders({ skipSync: true });
+        // Refresh based on current view state
+        if (currentOrdersView === 'failed') {
+            await loadFailedOrders();
+        } else if (currentOrdersView !== 'provider-errors') {
+            await loadOrders({ skipSync: true });
+        }
     }, ORDERS_AUTO_REFRESH_INTERVAL);
 }
 
 async function initializeOrdersPage() {
+    console.log('[ORDERS] Initializing orders page - loading ALL orders');
+    // Reset to all view on page load
+    currentOrdersView = 'all';
+    
+    // Ensure All tab is active
+    const tabs = document.querySelectorAll('.filter-tab');
+    tabs.forEach(tab => tab.classList.remove('active'));
+    document.querySelector('[data-status="all"]')?.classList.add('active');
+    
     updateOrdersSyncStatus('Provider sync pending...');
     await syncOrderStatuses({ silent: true, force: true });
     await loadOrders({ skipSync: true });
@@ -1543,6 +1563,7 @@ function closeModal() {
 
 // Filter orders by status
 function filterOrders(status) {
+    console.log('[ORDERS] filterOrders called with status:', status);
     const rows = document.querySelectorAll('#ordersTableBody tr');
     const tabs = document.querySelectorAll('.filter-tab');
     
@@ -1551,19 +1572,25 @@ function filterOrders(status) {
     
     // Handle 'failed' filter separately - load from API with status=failed
     if (status === 'failed') {
+        currentOrdersView = 'failed';
         loadFailedOrders();
         return;
     }
     
+    // Reset to all view
+    currentOrdersView = 'all';
+    
     if (status === 'all') {
-        // Reload all orders if coming from failed view
-        if (document.querySelector('.failed-orders-notice')) {
-            loadOrders({ skipSync: true });
-        } else {
-            rows.forEach(row => row.style.display = '');
-        }
+        // Always reload all orders when clicking All tab
+        console.log('[ORDERS] Reloading ALL orders');
+        loadOrders({ skipSync: true });
     } else {
+        // Client-side filter for other statuses
         rows.forEach(row => {
+            if (row.classList.contains('failed-orders-notice')) {
+                row.remove(); // Remove any lingering failed notice
+                return;
+            }
             if (row.dataset.status === status) {
                 row.style.display = '';
             } else {
@@ -2501,6 +2528,8 @@ function buildServicesOptionsHTML(services, selectedServiceId = null) {
 
 // Load failed orders from API
 async function loadFailedOrders() {
+    console.log('[FAILED ORDERS] Loading failed orders view');
+    currentOrdersView = 'failed';
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) {
         console.error('[FAILED ORDERS] Table body element not found!');
@@ -2988,6 +3017,9 @@ async function loadProviderErrorCount() {
  * Show provider errors view
  */
 async function showProviderErrors() {
+    console.log('[ORDERS] Switching to provider errors view');
+    currentOrdersView = 'provider-errors';
+    
     // Hide orders view
     const ordersLayout = document.querySelector('.orders-layout');
     const filtersBar = document.querySelector('.filter-bar');
@@ -3018,6 +3050,9 @@ async function showProviderErrors() {
  * Hide provider errors view and return to orders
  */
 function hideProviderErrors() {
+    console.log('[ORDERS] Hiding provider errors, returning to all orders view');
+    currentOrdersView = 'all';
+    
     // Show orders view
     const ordersLayout = document.querySelector('.orders-layout');
     const filtersBar = document.querySelector('.filter-bar');
@@ -3039,6 +3074,9 @@ function hideProviderErrors() {
     document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
     const allTab = document.querySelector('.filter-tab[data-status="all"]');
     if (allTab) allTab.classList.add('active');
+    
+    // Reload all orders
+    loadOrders({ skipSync: true });
 }
 
 /**

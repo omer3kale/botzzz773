@@ -316,6 +316,7 @@ async function handleGetHistory(user, headers) {
     let query = supabaseAdmin
       .from('payments')
       .select('*')
+      .neq('method', 'refund')  // Exclude refunds - they're shown in refunds section
       .order('created_at', { ascending: false });
 
     // Non-admins can only see their own payments
