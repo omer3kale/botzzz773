@@ -415,6 +415,15 @@
     gap: var(--spacing-md);
 }
 
+.stat-card.highlight {
+    background: linear-gradient(135deg, rgba(255, 20, 148, 0.15), rgba(255, 20, 148, 0.05));
+    border-color: rgba(255, 20, 148, 0.3);
+}
+
+.stat-card.highlight .stat-value {
+    color: var(--primary-pink);
+}
+
 .stat-icon {
     width: 48px;
     height: 48px;

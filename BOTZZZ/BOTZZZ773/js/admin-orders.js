@@ -1428,6 +1428,26 @@ async function syncOrderStatuses({ silent = false, force = false, orderIds = nul
                 if (failureCount > 0) {
                     message += ` (${failureCount} failed)`;
                 }
+                
+                // Check if any orders were refunded during sync (provider cancelled them)
+                const refundedOrders = Array.isArray(result.results) 
+                    ? result.results.filter(entry => entry.refunded && entry.refundAmount > 0)
+                    : [];
+                if (refundedOrders.length > 0) {
+                    const totalRefunded = refundedOrders.reduce((sum, entry) => sum + (entry.refundAmount || 0), 0);
+                    message += ` | ${refundedOrders.length} refunded ($${totalRefunded.toFixed(2)})`;
+                    
+                    // Dispatch refund events for cross-tab sync
+                    refundedOrders.forEach(entry => {
+                        window.dispatchEvent(new CustomEvent('refund:updated', {
+                            detail: { 
+                                amount: entry.refundAmount || 0,
+                                orderId: entry.orderId,
+                                source: 'provider-sync'
+                            }
+                        }));
+                    });
+                }
             }
 
             const level = failureCount > 0 ? 'warning' : 'success';
@@ -1719,7 +1739,33 @@ async function submitEditOrder(event, orderId) {
             throw new Error(data.error || 'Failed to update order');
         }
 
-        showNotification(`Order #${orderId} updated`, 'success');
+        // Handle refund balance update if status was changed to cancelled
+        if (data.refunded && typeof data.newBalance === 'number') {
+            console.log('[ADMIN ORDERS] Status update triggered refund, updating balance:', data.newBalance);
+            
+            // Dispatch refund event for cross-tab sync (customer's tabs)
+            window.dispatchEvent(new CustomEvent('refund:updated', {
+                detail: { 
+                    amount: data.refundAmount || 0,
+                    newBalance: data.newBalance,
+                    userId: data.userId,
+                    source: 'admin-status-update'
+                }
+            }));
+            
+            // Also trigger BalanceSync if admin is logged in as same user (unlikely but handle it)
+            if (window.BalanceSync) {
+                const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+                if (currentUser.id === data.userId) {
+                    window.BalanceSync.setBalance(data.newBalance, { reason: 'admin-status-refund' });
+                }
+            }
+            
+            showNotification(`Order #${orderId} cancelled and $${data.refundAmount?.toFixed(2) || '0.00'} refunded`, 'success');
+        } else {
+            showNotification(`Order #${orderId} updated`, 'success');
+        }
+        
         closeModal();
         refreshOrdersAfterAdminChange();
     } catch (error) {
@@ -1870,13 +1916,28 @@ async function confirmCancelOrder(orderId) {
             throw new Error(data.error || 'Failed to cancel order');
         }
 
+        // Update user balance in localStorage and trigger BalanceSync
         if (typeof data.newBalance === 'number') {
             const user = JSON.parse(localStorage.getItem('user') || '{}');
             user.balance = data.newBalance;
             localStorage.setItem('user', JSON.stringify(user));
+            
+            // Trigger BalanceSync to update all customer-facing pages
+            if (window.BalanceSync) {
+                window.BalanceSync.setBalance(data.newBalance, { reason: 'admin-cancel-refund' });
+            }
+            
+            // Dispatch custom event for cross-tab sync
+            window.dispatchEvent(new CustomEvent('refund:updated', {
+                detail: { 
+                    amount: data.refundAmount || 0,
+                    newBalance: data.newBalance,
+                    source: 'admin-cancel'
+                }
+            }));
         }
 
-        showNotification(data.message || `Order #${orderId} cancelled`, 'success');
+        showNotification(data.message || `Order #${orderId} cancelled and refunded`, 'success');
         closeModal();
         refreshOrdersAfterAdminChange();
     } catch (error) {
@@ -2139,6 +2200,28 @@ async function loadOrders({ skipSync = false } = {}) {
                     mostRecentSync = lastSync;
                 }
 
+                // Extract error reason for failed orders (from API response)
+                const isFailedOrder = orderStatusKey === 'failed' || orderStatusKey === 'error' || order.status === 'failed' || order.status === 'error';
+                const errorReason = order.provider_error 
+                    || order.failure_reason 
+                    || order.failure_log?.error_message
+                    || order.provider_response?.error
+                    || order.provider_response?.message
+                    || null;
+                
+                // Get provider info for error display
+                const errorProviderName = order.failure_log?.provider?.name 
+                    || orderService?.provider?.name 
+                    || order.provider_name 
+                    || null;
+                const errorFailureSource = order.failure_source 
+                    || order.failure_log?.failure_source 
+                    || null;
+                const errorFailureCode = order.failure_code 
+                    || order.failure_log?.failure_code 
+                    || null;
+                const errorRetryCount = order.failure_log?.retry_count || 0;
+
                 const orderUser = order.user || order.users || null;
                 const orderService = order.service || order.services || null;
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
@@ -2235,6 +2318,16 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>
                             <div class="cell-stack">
                                 <span class="status-badge ${orderStatusKey}">${escapeHtml(orderStatusLabel)}</span>
+                                ${isFailedOrder && errorReason ? `
+                                    <div class="error-reason" onclick="showOrderErrorDetails('${orderIdString}')" title="Click for full error details">
+                                        ${errorProviderName ? `<span class="error-provider"><i class="fas fa-server"></i> ${escapeHtml(errorProviderName)}</span>` : ''}
+                                        <div style="display: flex; align-items: flex-start; gap: 6px;">
+                                            <i class="fas fa-exclamation-triangle"></i>
+                                            <span>${escapeHtml(truncateText(errorReason, 50))}</span>
+                                        </div>
+                                        ${errorRetryCount > 0 ? `<span style="font-size: 9px; opacity: 0.7; margin-top: 2px;">${errorRetryCount} retries</span>` : ''}
+                                    </div>
+                                ` : ''}
                                 ${statusChipsMarkup}
                                 ${providerStatusMarkup}
                             </div>
@@ -2822,6 +2915,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     badge.textContent = failedCount;
                 }
             }
+
+            // Also load provider error count
+            loadProviderErrorCount();
         }
     } catch (error) {
         console.error('[FAILED ORDERS COUNT] Error:', error);
@@ -2834,3 +2930,563 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ============= PROVIDER ERRORS TRACKING UI =============
+
+let providerErrorsCache = [];
+
+/**
+ * Load provider error count for the badge
+ */
+async function loadProviderErrorCount() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'get-provider-errors', limit: 1 })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const badge = document.getElementById('providerErrorCount');
+            if (badge && typeof data.totalUnresolved === 'number') {
+                badge.textContent = data.totalUnresolved;
+                // Highlight tab if there are errors
+                const tab = document.querySelector('.provider-errors-tab');
+                if (tab && data.totalUnresolved > 0) {
+                    tab.style.animation = 'pulse 2s infinite';
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[PROVIDER ERRORS] Count load error:', error);
+    }
+}
+
+/**
+ * Show provider errors view
+ */
+async function showProviderErrors() {
+    // Hide orders view
+    const ordersLayout = document.querySelector('.orders-layout');
+    const filtersBar = document.querySelector('.filter-bar');
+    const bulkBar = document.getElementById('ordersBulkActionBar');
+    const syncBar = document.querySelector('.sync-status-bar');
+    const pagination = document.querySelector('.pagination');
+    
+    if (ordersLayout) ordersLayout.style.display = 'none';
+    if (filtersBar) filtersBar.style.display = 'none';
+    if (bulkBar) bulkBar.style.display = 'none';
+    if (syncBar) syncBar.style.display = 'none';
+    if (pagination) pagination.style.display = 'none';
+
+    // Show provider errors view
+    const errorsView = document.getElementById('providerErrorsView');
+    if (errorsView) errorsView.style.display = 'block';
+
+    // Update active tab
+    document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
+    const errorsTab = document.querySelector('.provider-errors-tab');
+    if (errorsTab) errorsTab.classList.add('active');
+
+    // Load provider errors
+    await loadProviderErrors();
+}
+
+/**
+ * Hide provider errors view and return to orders
+ */
+function hideProviderErrors() {
+    // Show orders view
+    const ordersLayout = document.querySelector('.orders-layout');
+    const filtersBar = document.querySelector('.filter-bar');
+    const bulkBar = document.getElementById('ordersBulkActionBar');
+    const syncBar = document.querySelector('.sync-status-bar');
+    const pagination = document.querySelector('.pagination');
+    
+    if (ordersLayout) ordersLayout.style.display = '';
+    if (filtersBar) filtersBar.style.display = '';
+    if (bulkBar) bulkBar.style.display = '';
+    if (syncBar) syncBar.style.display = '';
+    if (pagination) pagination.style.display = '';
+
+    // Hide provider errors view
+    const errorsView = document.getElementById('providerErrorsView');
+    if (errorsView) errorsView.style.display = 'none';
+
+    // Update active tab
+    document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
+    const allTab = document.querySelector('.filter-tab[data-status="all"]');
+    if (allTab) allTab.classList.add('active');
+}
+
+/**
+ * Load provider errors from API
+ */
+async function loadProviderErrors() {
+    const tbody = document.getElementById('providerErrorsTableBody');
+    const summary = document.getElementById('providerErrorSummary');
+    const filterSelect = document.getElementById('providerErrorFilter');
+    
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Loading provider errors...</td></tr>';
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Not authenticated');
+
+        const providerId = filterSelect?.value || null;
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                action: 'get-provider-errors',
+                providerId,
+                resolved: false,
+                limit: 100
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to load provider errors');
+        }
+
+        const data = await response.json();
+        providerErrorsCache = data.errors || [];
+
+        // Update filter dropdown with providers
+        if (filterSelect && data.providerSummary) {
+            const currentValue = filterSelect.value;
+            filterSelect.innerHTML = '<option value="">All Providers</option>';
+            data.providerSummary.forEach(p => {
+                const opt = document.createElement('option');
+                opt.value = p.provider_id;
+                opt.textContent = `${p.provider_name} (${p.count} errors)`;
+                filterSelect.appendChild(opt);
+            });
+            filterSelect.value = currentValue;
+        }
+
+        // Update summary cards
+        if (summary && data.providerSummary) {
+            summary.innerHTML = data.providerSummary.map(p => `
+                <div class="provider-error-card" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: white; padding: 16px 20px; border-radius: 12px; min-width: 180px;">
+                    <div style="font-size: 28px; font-weight: 700;">${p.count}</div>
+                    <div style="opacity: 0.9;">${escapeHtml(p.provider_name)}</div>
+                    <div style="font-size: 12px; opacity: 0.7; margin-top: 4px;">unresolved errors</div>
+                </div>
+            `).join('');
+
+            if (data.providerSummary.length === 0) {
+                summary.innerHTML = `
+                    <div style="background: linear-gradient(135deg, #22c55e 0%, #15803d 100%); color: white; padding: 16px 20px; border-radius: 12px;">
+                        <div style="font-size: 20px; font-weight: 600;"><i class="fas fa-check-circle"></i> All Clear!</div>
+                        <div style="opacity: 0.9;">No unresolved provider errors</div>
+                    </div>
+                `;
+            }
+        }
+
+        // Render errors table
+        if (providerErrorsCache.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="8" style="text-align: center; padding: 40px; color: #22c55e;">
+                        <i class="fas fa-check-circle" style="font-size: 48px; margin-bottom: 12px;"></i>
+                        <div style="font-size: 18px; font-weight: 600;">No provider errors!</div>
+                        <div style="color: #94a3b8;">All provider APIs are working correctly</div>
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = providerErrorsCache.map(err => {
+            const order = err.order || {};
+            const service = order.service || {};
+            const provider = err.provider || service.provider || {};
+            const user = order.user || {};
+            
+            const orderId = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';
+            const providerName = provider.name || 'Unknown';
+            const serviceName = service.name || 'Unknown Service';
+            const customerEmail = user.email || user.username || 'Unknown';
+            const errorTime = err.error_timestamp ? new Date(err.error_timestamp).toLocaleString() : 'N/A';
+            const retryCount = err.retry_count || 0;
+
+            return `
+                <tr data-error-id="${err.id}">
+                    <td>
+                        <div style="font-weight: 600; color: #dc2626;">${escapeHtml(providerName)}</div>
+                        <div style="font-size: 11px; color: #64748b;">${escapeHtml(provider.api_url?.substring(0, 30) || 'N/A')}...</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 500;">#${escapeHtml(orderId)}</div>
+                        <div style="font-size: 11px; color: #64748b;">Provider ID: ${escapeHtml(order.provider_order_id || 'N/A')}</div>
+                    </td>
+                    <td style="max-width: 250px;">
+                        <div style="color: #dc2626; font-size: 13px; word-break: break-word;">${escapeHtml(err.error_message || 'Unknown error')}</div>
+                    </td>
+                    <td>
+                        <div style="font-size: 13px;">${escapeHtml(serviceName.substring(0, 40))}${serviceName.length > 40 ? '...' : ''}</div>
+                        <div style="font-size: 11px; color: #64748b;">${escapeHtml(service.category || 'N/A')}</div>
+                    </td>
+                    <td>
+                        <div style="font-size: 13px;">${escapeHtml(customerEmail)}</div>
+                        <div style="font-size: 11px; color: #64748b;">$${Number(order.charge || 0).toFixed(2)}</div>
+                    </td>
+                    <td style="text-align: center;">
+                        <span style="background: ${retryCount > 2 ? '#dc2626' : '#f59e0b'}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${retryCount}</span>
+                    </td>
+                    <td style="font-size: 12px; color: #64748b;">${errorTime}</td>
+                    <td>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn-secondary btn-sm" onclick="showProviderErrorDetailsFromList('${err.id}')" title="View Details" style="background: #1e40af;">
+                                <i class="fas fa-info-circle"></i>
+                            </button>
+                            <button class="btn-secondary btn-sm" onclick="retryProviderOrder('${order.id}')" title="Retry Order">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                            <button class="btn-secondary btn-sm" onclick="resolveProviderError('${err.id}')" title="Mark Resolved">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <button class="btn-secondary btn-sm" onclick="viewOrderDetails('${order.id}')" title="View Order">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+
+        // Update badge
+        const badge = document.getElementById('providerErrorCount');
+        if (badge) badge.textContent = data.totalUnresolved || 0;
+
+    } catch (error) {
+        console.error('[PROVIDER ERRORS] Load error:', error);
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="8" style="text-align: center; padding: 40px; color: #dc2626;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 48px; margin-bottom: 12px;"></i>
+                    <div>Failed to load provider errors</div>
+                    <button class="btn-secondary" onclick="loadProviderErrors()" style="margin-top: 12px;">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                </td>
+            </tr>
+        `;
+    }
+}
+
+/**
+ * Resolve/dismiss a provider error
+ */
+async function resolveProviderError(errorId) {
+    if (!errorId) return;
+
+    const notes = prompt('Add resolution notes (optional):');
+    if (notes === null) return; // User cancelled
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Not authenticated');
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'resolve-provider-error',
+                errorId,
+                notes
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to resolve error');
+        }
+
+        showNotification('Error marked as resolved', 'success');
+        await loadProviderErrors();
+        await loadProviderErrorCount();
+
+    } catch (error) {
+        console.error('[PROVIDER ERRORS] Resolve error:', error);
+        showNotification(error.message || 'Failed to resolve error', 'error');
+    }
+}
+
+/**
+ * Retry a failed order with provider
+ */
+async function retryProviderOrder(orderId) {
+    if (!orderId) return;
+
+    if (!confirm('Resend this order to the provider?')) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) throw new Error('Not authenticated');
+
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'resend_order',
+                orderId
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.error || 'Failed to resend order');
+        }
+
+        showNotification(data.message || 'Order resent to provider', 'success');
+        await loadProviderErrors();
+
+    } catch (error) {
+        console.error('[PROVIDER ERRORS] Retry error:', error);
+        showNotification(error.message || 'Failed to retry order', 'error');
+    }
+}
+
+// Current error being displayed in modal
+let currentErrorOrderId = null;
+let currentErrorId = null;
+
+/**
+ * Show detailed error modal for an order
+ */
+function showOrderErrorDetails(orderId) {
+    if (!orderId) return;
+    
+    // Find the order in cache
+    const order = ordersCache.find(o => String(o.id) === String(orderId));
+    if (!order) {
+        console.error('[ERROR MODAL] Order not found:', orderId);
+        showNotification('Order not found', 'error');
+        return;
+    }
+
+    currentErrorOrderId = orderId;
+    currentErrorId = order.failure_log?.id || null;
+
+    // Get order details
+    const orderService = order.service || order.services || {};
+    const orderUser = order.user || order.users || {};
+    const provider = order.failure_log?.provider || orderService.provider || {};
+    
+    // Populate modal fields
+    const modal = document.getElementById('providerErrorModal');
+    if (!modal) {
+        console.error('[ERROR MODAL] Modal element not found');
+        return;
+    }
+
+    // Provider info
+    document.getElementById('errorProviderName').textContent = provider.name || orderService.provider?.name || 'Unknown Provider';
+    document.getElementById('errorProviderUrl').textContent = provider.api_url || orderService.provider?.api_url || 'N/A';
+
+    // Error details
+    const errorMessage = order.provider_error 
+        || order.failure_reason 
+        || order.failure_log?.error_message 
+        || order.provider_response?.error 
+        || 'Unknown error';
+    document.getElementById('errorMessageFull').textContent = errorMessage;
+    document.getElementById('errorCode').textContent = order.failure_code || order.failure_log?.failure_code || 'N/A';
+    document.getElementById('errorRetryCount').textContent = order.failure_log?.retry_count || 0;
+    document.getElementById('errorTimestamp').textContent = order.failure_log?.error_timestamp 
+        ? new Date(order.failure_log.error_timestamp).toLocaleString()
+        : order.updated_at 
+            ? new Date(order.updated_at).toLocaleString()
+            : 'N/A';
+
+    // Order info
+    const orderId_display = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';
+    document.getElementById('errorOrderId').textContent = `#${orderId_display}`;
+    document.getElementById('errorProviderOrderId').textContent = order.provider_order_id || 'N/A';
+    document.getElementById('errorServiceName').textContent = orderService.name || 'Unknown Service';
+    document.getElementById('errorCustomer').textContent = orderUser.email || orderUser.username || 'Unknown';
+    document.getElementById('errorCharge').textContent = `$${Number(order.charge || 0).toFixed(2)}`;
+    document.getElementById('errorLink').innerHTML = order.link 
+        ? `<a href="${order.link}" target="_blank" rel="noopener" style="color: #60a5fa;">${truncateText(order.link, 40)}</a>`
+        : 'N/A';
+
+    // Raw API response (if available)
+    const rawResponseSection = document.getElementById('errorModalResponse');
+    const rawResponsePre = document.getElementById('errorRawResponse');
+    if (order.provider_response || order.failure_log?.failure_context || order.failure_metadata) {
+        rawResponseSection.style.display = 'block';
+        const responseData = order.provider_response || order.failure_log?.failure_context || order.failure_metadata;
+        rawResponsePre.textContent = typeof responseData === 'string' 
+            ? responseData 
+            : JSON.stringify(responseData, null, 2);
+    } else {
+        rawResponseSection.style.display = 'none';
+    }
+
+    // Update modal title with provider name
+    const titleSpan = document.getElementById('errorModalTitle');
+    if (titleSpan) {
+        titleSpan.textContent = provider.name 
+            ? `${provider.name} API Error` 
+            : 'Provider API Error Details';
+    }
+
+    // Show modal
+    modal.style.display = 'flex';
+}
+
+/**
+ * Show error details for a provider error from the errors table
+ */
+function showProviderErrorDetailsFromList(errorId) {
+    if (!errorId) return;
+    
+    const error = providerErrorsCache.find(e => String(e.id) === String(errorId));
+    if (!error) {
+        console.error('[ERROR MODAL] Error not found:', errorId);
+        return;
+    }
+
+    currentErrorId = errorId;
+    currentErrorOrderId = error.order?.id || null;
+
+    const order = error.order || {};
+    const service = order.service || {};
+    const provider = error.provider || service.provider || {};
+    const user = order.user || {};
+
+    // Populate modal
+    const modal = document.getElementById('providerErrorModal');
+    if (!modal) return;
+
+    document.getElementById('errorProviderName').textContent = provider.name || 'Unknown Provider';
+    document.getElementById('errorProviderUrl').textContent = provider.api_url || 'N/A';
+    document.getElementById('errorMessageFull').textContent = error.error_message || 'Unknown error';
+    document.getElementById('errorCode').textContent = error.failure_code || 'N/A';
+    document.getElementById('errorRetryCount').textContent = error.retry_count || 0;
+    document.getElementById('errorTimestamp').textContent = error.error_timestamp 
+        ? new Date(error.error_timestamp).toLocaleString() 
+        : 'N/A';
+
+    const orderId_display = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';
+    document.getElementById('errorOrderId').textContent = `#${orderId_display}`;
+    document.getElementById('errorProviderOrderId').textContent = order.provider_order_id || 'N/A';
+    document.getElementById('errorServiceName').textContent = service.name || 'Unknown Service';
+    document.getElementById('errorCustomer').textContent = user.email || user.username || 'Unknown';
+    document.getElementById('errorCharge').textContent = `$${Number(order.charge || 0).toFixed(2)}`;
+    document.getElementById('errorLink').innerHTML = order.link 
+        ? `<a href="${order.link}" target="_blank" rel="noopener" style="color: #60a5fa;">${truncateText(order.link, 40)}</a>`
+        : 'N/A';
+
+    // Show failure context if available
+    const rawResponseSection = document.getElementById('errorModalResponse');
+    const rawResponsePre = document.getElementById('errorRawResponse');
+    if (error.failure_context) {
+        rawResponseSection.style.display = 'block';
+        rawResponsePre.textContent = typeof error.failure_context === 'string'
+            ? error.failure_context
+            : JSON.stringify(error.failure_context, null, 2);
+    } else {
+        rawResponseSection.style.display = 'none';
+    }
+
+    document.getElementById('errorModalTitle').textContent = provider.name 
+        ? `${provider.name} API Error`
+        : 'Provider API Error Details';
+
+    modal.style.display = 'flex';
+}
+
+/**
+ * Close provider error modal
+ */
+function closeProviderErrorModal() {
+    const modal = document.getElementById('providerErrorModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    currentErrorOrderId = null;
+    currentErrorId = null;
+}
+
+/**
+ * Retry order from error modal
+ */
+async function retryErrorOrder() {
+    if (!currentErrorOrderId) {
+        showNotification('No order selected', 'error');
+        return;
+    }
+    
+    closeProviderErrorModal();
+    await retryProviderOrder(currentErrorOrderId);
+}
+
+/**
+ * Resolve error from modal
+ */
+async function resolveErrorFromModal() {
+    if (!currentErrorId) {
+        showNotification('No error ID available', 'error');
+        return;
+    }
+    
+    closeProviderErrorModal();
+    await resolveProviderError(currentErrorId);
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('providerErrorModal');
+    if (modal && e.target === modal) {
+        closeProviderErrorModal();
+    }
+});
+
+// Close modal with Escape key
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        closeProviderErrorModal();
+    }
+});
+
+// Add CSS animation for pulsing badge
+const pulseStyle = document.createElement('style');
+pulseStyle.textContent = `
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+    }
+    .provider-errors-tab:hover {
+        background: #b91c1c !important;
+    }
+    .btn-sm {
+        padding: 4px 8px !important;
+        font-size: 12px !important;
+    }
+`;
+document.head.appendChild(pulseStyle);

@@ -3019,3 +3019,234 @@ select option:checked {
         width: 100%;
     }
 }
+
+/* ==========================================
+   PROVIDER ERROR STYLES
+   ========================================== */
+
+/* Error badge in order row */
+.order-error-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    max-width: 100%;
+    margin-top: 6px;
+}
+
+.order-error-badge:hover {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+
+.order-error-badge i {
+    font-size: 10px;
+}
+
+.order-error-badge .error-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+}
+
+/* Provider error inline display */
+.provider-error-inline {
+    background: rgba(220, 38, 38, 0.1);
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-top: 8px;
+}
+
+.provider-error-inline .error-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.provider-error-inline .provider-name {
+    font-weight: 600;
+    color: #dc2626;
+    font-size: 12px;
+}
+
+.provider-error-inline .error-message {
+    color: #fca5a5;
+    font-size: 12px;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.provider-error-inline .error-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 6px;
+    font-size: 10px;
+    color: #94a3b8;
+}
+
+/* Provider error modal */
+#providerErrorModal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+#providerErrorModal .modal-content {
+    background: var(--admin-dark-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 16px;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 100%;
+    max-width: 700px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+#providerErrorModal .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#providerErrorModal .modal-close {
+    transition: all 0.2s ease;
+}
+
+#providerErrorModal .modal-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.error-modal-section {
+    border-bottom: 1px solid var(--admin-border);
+    padding-bottom: 16px;
+}
+
+.error-modal-section:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* Provider error summary cards */
+.provider-error-summary {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.provider-error-card {
+    background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 12px;
+    min-width: 180px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.provider-error-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(220, 38, 38, 0.4);
+}
+
+.provider-error-card .count {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.provider-error-card .provider-name {
+    opacity: 0.9;
+    margin-top: 4px;
+}
+
+.provider-error-card .label {
+    font-size: 12px;
+    opacity: 0.7;
+    margin-top: 4px;
+}
+
+/* Error reason display in status column */
+.error-reason {
+    color: #ef4444;
+    font-size: 11px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: rgba(239, 68, 68, 0.1);
+    border-radius: 6px;
+    border-left: 3px solid #ef4444;
+    max-width: 220px;
+    word-break: break-word;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.error-reason:hover {
+    background: rgba(239, 68, 68, 0.15);
+}
+
+.error-reason i {
+    flex-shrink: 0;
+    margin-top: 1px;
+}
+
+.error-reason .error-provider {
+    display: block;
+    font-weight: 600;
+    color: #fca5a5;
+    font-size: 10px;
+    margin-bottom: 2px;
+}
+
+/* Provider error filter tab highlight */
+.filter-tab.provider-errors-tab {
+    background: #dc2626 !important;
+    color: white !important;
+    border-color: #dc2626 !important;
+}
+
+.filter-tab.provider-errors-tab:hover {
+    background: #ef4444 !important;
+}
+
+.filter-tab.provider-errors-tab .tab-badge {
+    background: white;
+    color: #dc2626;
+}
+
+/* Failed order row highlight */
+tr[data-status="failed"],
+tr[data-status="error"] {
+    background: rgba(220, 38, 38, 0.05);
+}
+
+tr[data-status="failed"]:hover,
+tr[data-status="error"]:hover {
+    background: rgba(220, 38, 38, 0.1);
+}

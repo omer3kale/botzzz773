@@ -1239,7 +1239,7 @@
                             <p class="eligible-order-meta">Placed ${escapeHtml(createdAgo)} · ${escapeHtml(amount)}</p>
                         </div>
                         <button type="button" class="btn-refund" data-refund-order-id="${escapeHtml(order.id)}" data-order-label="${escapeHtml(label)}" data-order-amount="${escapeHtml(amount)}">
-                            Cancel &amp; Refund
+                            Request Refund
                         </button>
                     </li>
                 `;
@@ -1298,66 +1298,25 @@
         }
     }
 
+    // Customer refund requests - now shows contact support message since only admins can process refunds
     async function handleRefundRequest(orderId, triggerButton = null) {
         if (!orderId) {
             return;
         }
 
         const orderLabel = triggerButton?.dataset.orderLabel || `Order ${orderId}`;
-        const orderAmount = triggerButton?.dataset.orderAmount || '';
-        const confirmMessage = orderAmount
-            ? `Cancel ${orderLabel} and refund ${orderAmount} back to your balance?`
-            : `Cancel ${orderLabel} and refund the full charge back to your balance?`;
-
-        const confirmed = window.confirm(confirmMessage);
-        if (!confirmed) {
-            return;
+        
+        // Inform customer to contact support for refunds
+        const message = `To cancel ${orderLabel} and request a refund, please contact our support team.\n\nOnly administrators can process order cancellations and refunds.`;
+        
+        const contactSupport = window.confirm(message + '\n\nWould you like to open a support ticket?');
+        
+        if (contactSupport) {
+            // Redirect to tickets page or contact page
+            window.location.href = 'tickets.html?subject=' + encodeURIComponent(`Refund Request for ${orderLabel}`);
         }
-
-        if (triggerButton) {
-            triggerButton.disabled = true;
-            triggerButton.dataset.originalLabel = triggerButton.textContent;
-            triggerButton.textContent = 'Cancelling…';
-        }
-
-        try {
-            const response = await fetch('/.netlify/functions/orders', {
-                method: 'DELETE',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ orderId })
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.success) {
-                throw new Error(result.error || result.message || 'Unable to cancel this order right now.');
-            }
-
-            if (typeof result.newBalance === 'number') {
-                user.balance = Number(result.newBalance);
-                localStorage.setItem('user', JSON.stringify(user));
-                updateUserDisplay();
-                if (window.BalanceSync) {
-                    window.BalanceSync.setBalance(user.balance, { reason: 'refund-success' });
-                }
-            }
-
-            showToast('Order cancelled and refunded', 'success');
-            loadOrders({ reason: 'refund-request' });
-            loadPayments();
-        } catch (error) {
-            console.error('Refund request failed:', error);
-            showToast(error.message || 'Unable to process refund. Please try again later.', 'error');
-        } finally {
-            if (triggerButton) {
-                triggerButton.disabled = false;
-                triggerButton.textContent = triggerButton.dataset.originalLabel || 'Cancel & Refund';
-                delete triggerButton.dataset.originalLabel;
-            }
-        }
+        
+        return; // Customer cannot directly cancel - must go through admin
     }
 
     function stopOrdersAutoRefresh() {
@@ -1750,6 +1709,13 @@
 
         window.addEventListener('popup:add-funds-order-created', () => {
             refreshUserSnapshot();
+            loadPayments();
+        });
+
+        // Listen for payment success to refresh balance and payments
+        window.addEventListener('popup:payment-success', () => {
+            console.log('[DASHBOARD] Payment success event received, refreshing balance and payments');
+            refreshUserSnapshot({ reason: 'payment-success' });
             loadPayments();
         });
     }

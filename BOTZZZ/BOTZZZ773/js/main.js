@@ -567,6 +567,53 @@
 
     globalObject.BalanceSync = api;
 
+    // ============= AUTO-UPDATE ALL BALANCE ELEMENTS ON PAGE =============
+    // This ensures that whenever balance changes, ALL balance displays update
+    function updateAllBalanceDisplays(balance) {
+        if (!Number.isFinite(balance)) return;
+        
+        const formattedBalance = `$${balance.toFixed(2)}`;
+        
+        // Update all common balance element selectors
+        const balanceSelectors = [
+            '.balance',                    // User menu balance
+            '.balance-amount',             // Add funds page & API dashboard
+            '#balanceAmount',              // Dashboard
+            '#currentBalance',             // API Dashboard current balance card
+            '#orderPageBalance',           // Order page balance card
+            '[data-balance]',              // Generic data attribute
+            '.user-balance',               // Alternative class
+            '.wallet-balance',             // Wallet displays
+            '.account-balance'             // Account displays
+        ];
+        
+        balanceSelectors.forEach(selector => {
+            const elements = globalObject.document?.querySelectorAll(selector);
+            if (elements) {
+                elements.forEach(el => {
+                    if (el && el.textContent !== undefined) {
+                        el.textContent = formattedBalance;
+                    }
+                });
+            }
+        });
+    }
+
+    // Subscribe to balance changes and auto-update DOM
+    subscribe(({ balance }) => {
+        if (Number.isFinite(balance)) {
+            updateAllBalanceDisplays(balance);
+        }
+    });
+
+    // Also expose manual update function
+    api.updateDisplays = () => {
+        const balance = getBalanceValue();
+        if (Number.isFinite(balance)) {
+            updateAllBalanceDisplays(balance);
+        }
+    };
+
     if (typeof globalObject.addEventListener === 'function') {
         globalObject.addEventListener('refund:updated', handleRefundUpdate);
         globalObject.addEventListener('storage', handleStorageSync);
@@ -1669,6 +1716,15 @@ function hideLoading(button) {
             const label = orderNumber ? ` #${orderNumber}` : '';
             showMessage(`Order${label} created successfully.`, 'success');
             dispatchPopupEvent('popup:order-created', detail);
+            // Trigger balance refresh across all tabs after order created (deducts balance)
+            if (window.BalanceSync) {
+                // If new balance is included in detail, set it directly
+                if (detail?.order?.user_balance !== undefined) {
+                    window.BalanceSync.setBalance(detail.order.user_balance, { reason: 'order-created' });
+                } else {
+                    window.BalanceSync.refresh({ reason: 'order-created' });
+                }
+            }
         },
         ADD_FUNDS_ORDER_CREATED(detail) {
             const orderId = detail?.orderId ? ` #${detail.orderId}` : '';
@@ -1679,6 +1735,10 @@ function hideLoading(button) {
         PAYMENT_SUCCESS(detail) {
             showMessage('Payment confirmed. Your balance will refresh shortly.', 'success');
             dispatchPopupEvent('popup:payment-success', detail);
+            // Trigger balance refresh across all tabs after payment success
+            if (window.BalanceSync) {
+                window.BalanceSync.refresh({ reason: 'payment-success' });
+            }
         },
         PAYMENT_FAILED(detail) {
             showMessage('Payment failed. Please try again or contact support.', 'error');

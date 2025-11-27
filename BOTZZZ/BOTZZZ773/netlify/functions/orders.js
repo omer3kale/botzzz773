@@ -449,6 +449,106 @@ function buildStatusSummary(order) {
   };
 }
 
+// ============= UNIFIED REFUND PROCESSING =============
+/**
+ * Process a refund for an order - updates user balance and records transaction
+ * This is the SINGLE source of truth for all refund operations
+ * @param {Object} order - The order being refunded (must have id, user_id, charge)
+ * @param {Object} options - Additional options
+ * @returns {Object} - { success, newBalance, refundAmount, error }
+ */
+async function processOrderRefund(order, options = {}) {
+  const {
+    source = 'unknown',
+    reason = 'refund',
+    skipIfAlreadyRefunded = true
+  } = options;
+
+  const orderId = order?.id;
+  const userId = order?.user_id;
+  const chargeAmount = Number(order?.charge ?? 0);
+
+  console.log(`[REFUND] Processing refund for order ${orderId}`, { userId, chargeAmount, source, reason });
+
+  if (!orderId || !userId) {
+    console.error(`[REFUND] Missing order ID or user ID`, { orderId, userId });
+    return { success: false, error: 'Missing order or user ID' };
+  }
+
+  if (chargeAmount <= 0) {
+    console.log(`[REFUND] Order ${orderId} has no charge to refund (${chargeAmount})`);
+    return { success: true, newBalance: null, refundAmount: 0, message: 'No charge to refund' };
+  }
+
+  // Check if order was already refunded (has refund payment record)
+  if (skipIfAlreadyRefunded) {
+    const { data: existingRefund } = await supabaseAdmin
+      .from('payments')
+      .select('id')
+      .eq('order_id', orderId)
+      .eq('method', 'refund')
+      .single();
+
+    if (existingRefund) {
+      console.log(`[REFUND] Order ${orderId} already has a refund record, skipping`);
+      return { success: true, alreadyRefunded: true, message: 'Already refunded' };
+    }
+  }
+
+  // Get user's current balance
+  const { data: userData, error: userFetchError } = await supabaseAdmin
+    .from('users')
+    .select('id, balance, email')
+    .eq('id', userId)
+    .single();
+
+  if (userFetchError || !userData) {
+    console.error(`[REFUND] Failed to fetch user ${userId}:`, userFetchError);
+    return { success: false, error: 'User not found' };
+  }
+
+  const previousBalance = Number(userData.balance ?? 0);
+  const refundAmount = Math.abs(chargeAmount);
+  const newBalance = Number((previousBalance + refundAmount).toFixed(2));
+
+  console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount} = $${newBalance}`);
+
+  // Update user balance
+  const { data: balanceResult, error: balanceError } = await supabaseAdmin
+    .from('users')
+    .update({ 
+      balance: newBalance,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', userId)
+    .select('id, balance')
+    .single();
+
+  if (balanceError) {
+    console.error(`[REFUND] Failed to update balance for user ${userId}:`, balanceError);
+    return { success: false, error: 'Failed to update balance', details: balanceError.message };
+  }
+
+  console.log(`[REFUND] Balance updated successfully:`, balanceResult);
+
+  // Record refund transaction
+  const refundRecord = await recordRefundTransaction(order, chargeAmount, {
+    source,
+    reason,
+    memo: `Refund for ${order.order_number || order.order_reference || order.public_id || orderId}`
+  });
+
+  return {
+    success: true,
+    previousBalance,
+    newBalance: balanceResult.balance,
+    refundAmount,
+    refundRecord,
+    userId,
+    userEmail: userData.email
+  };
+}
+
 const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -498,6 +598,12 @@ const baseHandler = async (event) => {
       case 'POST':
         if (body && body.action === 'sync-status') {
           return await handleSyncOrderStatuses(user, body, headers);
+        }
+        if (body && body.action === 'get-provider-errors') {
+          return await handleGetProviderErrors(user, body, headers);
+        }
+        if (body && body.action === 'resolve-provider-error') {
+          return await handleResolveProviderError(user, body, headers);
         }
         if (body && body.action === 'get_link_management_data') {
           return await handleGetLinkManagementData(user, headers);
@@ -1303,8 +1409,10 @@ async function handleCreateOrder(user, data, headers) {
             charge: order.charge,
             status: 'pending', // Customer sees pending, not failed
             link: order.link,
-            created_at: order.created_at
+            created_at: order.created_at,
+            user_balance: newBalance // Include new balance for frontend sync
           },
+          newBalance, // Top-level for easy access
           message: 'Order submitted successfully'
         })
       };
@@ -1331,8 +1439,10 @@ async function handleCreateOrder(user, data, headers) {
           provider_status: order.provider_status,
           last_status_sync: order.last_status_sync,
           link: order.link,
-          created_at: order.created_at
+          created_at: order.created_at,
+          user_balance: newBalance // Include new balance for frontend sync
         },
+        newBalance, // Top-level for easy access
         message: 'Order created and submitted successfully'
       })
     };
@@ -1521,6 +1631,9 @@ async function handleUpdateOrder(user, data, headers) {
         updates.provider_order_id = providerOrderId.trim() || null;
       }
 
+      // Track refund result at this scope level for response
+      let adminRefundResult = null;
+
       if (typeof status === 'string') {
         const normalizedStatus = status.toLowerCase();
         const allowedStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting', 'cancelled'];
@@ -1540,6 +1653,25 @@ async function handleUpdateOrder(user, data, headers) {
             updates.customer_status = normalizedStatus;
           } else if (normalizedStatus === 'canceled' || normalizedStatus === 'cancelled') {
             updates.customer_status = 'canceled';
+          }
+        }
+
+        // Process refund if status is being changed to cancelled and wasn't already cancelled
+        const wasAlreadyCancelled = order.status === 'cancelled' || order.status === 'canceled';
+        const isBeingCancelled = normalizedStatus === 'canceled' || normalizedStatus === 'cancelled';
+        
+        if (isBeingCancelled && !wasAlreadyCancelled) {
+          console.log(`[ADMIN UPDATE] Status changing to cancelled for order ${orderId}, processing refund...`);
+          adminRefundResult = await processOrderRefund(order, {
+            source: 'admin_status_update',
+            reason: 'status_changed_to_cancelled',
+            skipIfAlreadyRefunded: true
+          });
+          
+          if (adminRefundResult.success) {
+            console.log(`[ADMIN UPDATE] Refund processed:`, adminRefundResult);
+          } else {
+            console.warn(`[ADMIN UPDATE] Refund failed but continuing:`, adminRefundResult.error);
           }
         }
       }
@@ -1574,10 +1706,24 @@ async function handleUpdateOrder(user, data, headers) {
         };
       }
 
+      // Build response with refund info if applicable
+      const response = { 
+        success: true, 
+        order: updatedOrder 
+      };
+      
+      // Include refund info so frontend can update balance displays
+      if (adminRefundResult?.success && adminRefundResult.newBalance !== undefined) {
+        response.refunded = true;
+        response.newBalance = adminRefundResult.newBalance;
+        response.refundAmount = adminRefundResult.refundAmount;
+        response.userId = adminRefundResult.userId;
+      }
+
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: true, order: updatedOrder })
+        body: JSON.stringify(response)
       };
     }
 
@@ -1648,6 +1794,19 @@ async function handleCancelOrder(user, data, headers) {
       };
     }
 
+    // ============= ADMIN-ONLY: Only admins can cancel orders and process refunds =============
+    if (user.role !== 'admin') {
+      console.log(`[CANCEL] Non-admin user ${user.userId} attempted to cancel order ${orderId}`);
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Only administrators can cancel orders and process refunds',
+          message: 'Please contact support if you need to cancel an order.'
+        })
+      };
+    }
+
     // Get order
     const { data: order, error } = await supabaseAdmin
       .from('orders')
@@ -1663,14 +1822,14 @@ async function handleCancelOrder(user, data, headers) {
       };
     }
 
-    // Check permissions
-    if (order.user_id !== user.userId && user.role !== 'admin') {
-      return {
-        statusCode: 403,
-        headers,
-        body: JSON.stringify({ error: 'Forbidden' })
-      };
-    }
+    // Log order details for debugging
+    console.log(`[CANCEL] Admin ${user.userId} cancelling order ${orderId}:`, {
+      order_id: order.id,
+      user_id: order.user_id,
+      status: order.status,
+      charge: order.charge,
+      order_number: order.order_number
+    });
 
     // Can only cancel pending orders
     if (order.status !== 'pending' && order.status !== 'processing') {
@@ -1696,29 +1855,24 @@ async function handleCancelOrder(user, data, headers) {
 
     const cancellationTime = new Date().toISOString();
 
-    // Refund user
-    const { data: userData } = await supabaseAdmin
-      .from('users')
-      .select('balance')
-      .eq('id', order.user_id)
-      .single();
-
-    const previousBalance = Number(userData?.balance ?? 0);
-    const refundAmount = Math.abs(Number(order.charge ?? 0));
-    const updatedBalance = Number((previousBalance + refundAmount).toFixed(2));
-
-    await supabaseAdmin
-      .from('users')
-      .update({ 
-        balance: updatedBalance
-      })
-      .eq('id', order.user_id);
-
-    const refundRecord = await recordRefundTransaction(order, order.charge, {
+    // Process refund using unified refund function
+    const refundResult = await processOrderRefund(order, {
       source: 'handleCancelOrder',
       reason: 'order_cancelled',
-      memo: `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`
+      skipIfAlreadyRefunded: false // Always refund on explicit cancel
     });
+
+    if (!refundResult.success) {
+      console.error(`[CANCEL] Refund failed for order ${orderId}:`, refundResult.error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to process refund',
+          details: refundResult.error 
+        })
+      };
+    }
 
     // Update order status
     await supabaseAdmin
@@ -1740,8 +1894,9 @@ async function handleCancelOrder(user, data, headers) {
       body: JSON.stringify({
         success: true,
         message: 'Order cancelled and refunded',
-        newBalance: updatedBalance,
-        refund: refundRecord || null
+        newBalance: refundResult.newBalance,
+        refundAmount: refundResult.refundAmount,
+        refund: refundResult.refundRecord || null
       })
     };
   } catch (error) {
@@ -2037,6 +2192,37 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         updatePayload.completed_at = nowIso;
       }
 
+      // Process refund if provider status changed to cancelled
+      const wasAlreadyCancelled = order.status === 'cancelled' || order.status === 'canceled';
+      const isBeingCancelled = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+      let refundResult = null;
+      
+      if (isBeingCancelled && !wasAlreadyCancelled) {
+        console.log(`[ORDER SYNC] Provider cancelled order ${order.id}, processing refund...`);
+        
+        // Need to get full order data with charge for refund
+        const { data: fullOrder } = await supabaseAdmin
+          .from('orders')
+          .select('id, user_id, charge, order_number, order_reference, public_id')
+          .eq('id', order.id)
+          .single();
+        
+        if (fullOrder) {
+          refundResult = await processOrderRefund(fullOrder, {
+            source: 'provider_sync',
+            reason: 'provider_cancelled',
+            skipIfAlreadyRefunded: true
+          });
+          
+          if (refundResult.success) {
+            console.log(`[ORDER SYNC] Refund processed for order ${order.id}:`, refundResult);
+            updatePayload.customer_status = 'canceled';
+          } else {
+            console.warn(`[ORDER SYNC] Refund failed for order ${order.id}:`, refundResult.error);
+          }
+        }
+      }
+
       const { error: updateError } = await supabaseAdmin
         .from('orders')
         .update(updatePayload)
@@ -2061,7 +2247,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         providerStatus: providerStatusRaw,
         startCount: startCountFromResponse,
         remains: remainsFromResponse,
-        providerCost: providerChargeFromResponse
+        providerCost: providerChargeFromResponse,
+        refunded: refundResult?.success || false,
+        refundAmount: refundResult?.refundAmount || null
       });
     } catch (syncError) {
       console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
@@ -2800,6 +2988,181 @@ async function findOrCreateLink(url, serviceId) {
 */
 
 // End of disabled Link Management functions
+
+// ============= PROVIDER ERRORS TRACKING =============
+
+/**
+ * Get provider errors for admin dashboard
+ * Shows which providers are having issues so admin can track and fix
+ */
+async function handleGetProviderErrors(user, body, headers) {
+  try {
+    // Only allow admin users
+    if (!user || user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { 
+      providerId = null, 
+      resolved = false, 
+      limit = 100,
+      offset = 0 
+    } = body || {};
+
+    // Build query for provider errors with related data
+    let query = supabaseAdmin
+      .from('provider_errors')
+      .select(`
+        *,
+        order:orders(
+          id,
+          order_number,
+          public_id,
+          link,
+          quantity,
+          charge,
+          status,
+          provider_status,
+          provider_order_id,
+          created_at,
+          user:users(id, email, username),
+          service:services(id, name, category, provider_id, provider:providers(id, name, api_url))
+        ),
+        provider:providers(id, name, api_url, status)
+      `)
+      .eq('resolved', resolved)
+      .order('error_timestamp', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    // Filter by specific provider if requested
+    if (providerId) {
+      query = query.eq('provider_id', providerId);
+    }
+
+    const { data: errors, error: fetchError } = await query;
+
+    if (fetchError) {
+      console.error('[PROVIDER ERRORS] Failed to fetch:', fetchError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch provider errors' })
+      };
+    }
+
+    // Get summary stats per provider
+    const { data: providerStats, error: statsError } = await supabaseAdmin
+      .from('provider_errors')
+      .select('provider_id, providers(id, name)')
+      .eq('resolved', false);
+
+    // Calculate error counts per provider
+    const errorCounts = {};
+    if (providerStats && !statsError) {
+      providerStats.forEach(err => {
+        const pid = err.provider_id || 'unknown';
+        const pname = err.providers?.name || 'Unknown Provider';
+        if (!errorCounts[pid]) {
+          errorCounts[pid] = { provider_id: pid, provider_name: pname, count: 0 };
+        }
+        errorCounts[pid].count++;
+      });
+    }
+
+    // Get total unresolved count
+    const { count: totalUnresolved } = await supabaseAdmin
+      .from('provider_errors')
+      .select('*', { count: 'exact', head: true })
+      .eq('resolved', false);
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        errors: errors || [],
+        providerSummary: Object.values(errorCounts),
+        totalUnresolved: totalUnresolved || 0,
+        filters: { providerId, resolved, limit, offset }
+      })
+    };
+  } catch (error) {
+    console.error('[PROVIDER ERRORS] Error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to fetch provider errors' })
+    };
+  }
+}
+
+/**
+ * Mark a provider error as resolved
+ */
+async function handleResolveProviderError(user, body, headers) {
+  try {
+    // Only allow admin users
+    if (!user || user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { errorId, notes = '' } = body || {};
+
+    if (!errorId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Error ID is required' })
+      };
+    }
+
+    const { data: updated, error: updateError } = await supabaseAdmin
+      .from('provider_errors')
+      .update({
+        resolved: true,
+        resolved_at: new Date().toISOString(),
+        resolved_by: user.userId,
+        notes: notes || null
+      })
+      .eq('id', errorId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('[PROVIDER ERRORS] Failed to resolve:', updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to resolve error' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: 'Error marked as resolved',
+        error: updated
+      })
+    };
+  } catch (error) {
+    console.error('[PROVIDER ERRORS] Resolve error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Failed to resolve error' })
+    };
+  }
+}
 
 // ============= RESEND FAILED ORDER HANDLER =============
 async function handleResendOrder(user, body, headers) {

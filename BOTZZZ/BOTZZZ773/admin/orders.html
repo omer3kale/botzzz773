@@ -164,6 +164,9 @@
             <button class="filter-tab" data-status="failed" onclick="filterOrders('failed')">
                 Failed <span class="tab-badge" id="failedOrderCount">0</span>
             </button>
+            <button class="filter-tab provider-errors-tab" data-status="provider-errors" onclick="showProviderErrors()" style="background: #dc2626; color: white;">
+                <i class="fas fa-exclamation-triangle"></i> Provider Errors <span class="tab-badge" id="providerErrorCount">0</span>
+            </button>
         </div>
 
         <!-- Additional Filters -->
@@ -264,6 +267,148 @@
             <button class="btn-secondary" id="prevPage" disabled>Previous</button>
             <span class="pagination-info" id="paginationInfo">Loading...</span>
             <button class="btn-secondary" id="nextPage">Next</button>
+        </div>
+
+        <!-- Provider Errors View (hidden by default) -->
+        <div id="providerErrorsView" style="display: none;">
+            <div class="provider-errors-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 style="margin: 0; color: #dc2626;"><i class="fas fa-exclamation-triangle"></i> Provider API Errors</h2>
+                <div>
+                    <select id="providerErrorFilter" class="filter-select" onchange="loadProviderErrors()" style="margin-right: 8px;">
+                        <option value="">All Providers</option>
+                    </select>
+                    <button class="btn-secondary" onclick="loadProviderErrors()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button class="btn-secondary" onclick="hideProviderErrors()" style="margin-left: 8px;">
+                        <i class="fas fa-times"></i> Back to Orders
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Provider Error Summary Cards -->
+            <div id="providerErrorSummary" class="provider-error-summary" style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;">
+                <!-- Summary cards will be injected here -->
+            </div>
+
+            <div class="table-container">
+                <table class="admin-table" id="providerErrorsTable">
+                    <thead>
+                        <tr>
+                            <th>Provider</th>
+                            <th>Order</th>
+                            <th>Error Message</th>
+                            <th>Service</th>
+                            <th>Customer</th>
+                            <th>Retries</th>
+                            <th>Time</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="providerErrorsTableBody">
+                        <tr><td colspan="8" style="text-align: center; padding: 40px;">Loading provider errors...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Provider Error Details Modal -->
+        <div id="providerErrorModal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: white; padding: 20px; border-radius: 12px 12px 0 0;">
+                    <h2 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span id="errorModalTitle">Provider API Error Details</span>
+                    </h2>
+                    <button class="modal-close" onclick="closeProviderErrorModal()" style="background: rgba(255,255,255,0.2); border: none; color: white; font-size: 24px; cursor: pointer; border-radius: 50%; width: 36px; height: 36px;">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 24px;">
+                    <!-- Provider Info -->
+                    <div id="errorModalProvider" class="error-modal-section">
+                        <h4 style="color: #64748b; font-size: 12px; text-transform: uppercase; margin-bottom: 8px;">Provider Information</h4>
+                        <div class="error-info-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Provider Name</label>
+                                <div id="errorProviderName" style="font-weight: 600;">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">API URL</label>
+                                <div id="errorProviderUrl" style="font-size: 12px; color: #64748b; word-break: break-all;">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Error Details -->
+                    <div id="errorModalDetails" class="error-modal-section" style="margin-top: 20px;">
+                        <h4 style="color: #64748b; font-size: 12px; text-transform: uppercase; margin-bottom: 8px;">Error Details</h4>
+                        <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 16px; border-radius: 8px;">
+                            <div id="errorMessageFull" style="color: #dc2626; font-family: monospace; font-size: 13px; white-space: pre-wrap; word-break: break-word;">-</div>
+                        </div>
+                        <div class="error-meta-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 12px;">
+                            <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
+                                <label style="font-size: 11px; color: #94a3b8;">Error Code</label>
+                                <div id="errorCode" style="font-weight: 600; color: #dc2626;">-</div>
+                            </div>
+                            <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
+                                <label style="font-size: 11px; color: #94a3b8;">Retry Count</label>
+                                <div id="errorRetryCount" style="font-weight: 600;">0</div>
+                            </div>
+                            <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; text-align: center;">
+                                <label style="font-size: 11px; color: #94a3b8;">Timestamp</label>
+                                <div id="errorTimestamp" style="font-size: 12px;">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Order Info -->
+                    <div id="errorModalOrder" class="error-modal-section" style="margin-top: 20px;">
+                        <h4 style="color: #64748b; font-size: 12px; text-transform: uppercase; margin-bottom: 8px;">Affected Order</h4>
+                        <div class="error-info-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; background: #f8fafc; padding: 16px; border-radius: 8px;">
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Order ID</label>
+                                <div id="errorOrderId" style="font-weight: 600;">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Provider Order ID</label>
+                                <div id="errorProviderOrderId" style="font-family: monospace;">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Service</label>
+                                <div id="errorServiceName" style="font-size: 13px;">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Customer</label>
+                                <div id="errorCustomer">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Charge</label>
+                                <div id="errorCharge" style="color: #22c55e; font-weight: 600;">-</div>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #94a3b8;">Link</label>
+                                <div id="errorLink" style="font-size: 12px; word-break: break-all;">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Response (if available) -->
+                    <div id="errorModalResponse" class="error-modal-section" style="margin-top: 20px; display: none;">
+                        <h4 style="color: #64748b; font-size: 12px; text-transform: uppercase; margin-bottom: 8px;">Raw API Response</h4>
+                        <pre id="errorRawResponse" style="background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 8px; font-size: 12px; overflow-x: auto; max-height: 200px;"></pre>
+                    </div>
+                </div>
+                <div class="modal-footer" style="padding: 16px 24px; border-top: 1px solid #e2e8f0; display: flex; gap: 12px; justify-content: flex-end;">
+                    <button class="btn-secondary" onclick="closeProviderErrorModal()">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button class="btn-secondary" id="errorRetryBtn" onclick="retryErrorOrder()">
+                        <i class="fas fa-redo"></i> Retry Order
+                    </button>
+                    <button class="btn-primary" id="errorResolveBtn" onclick="resolveErrorFromModal()" style="background: #22c55e;">
+                        <i class="fas fa-check"></i> Mark Resolved
+                    </button>
+                </div>
+            </div>
         </div>
     </section>
 

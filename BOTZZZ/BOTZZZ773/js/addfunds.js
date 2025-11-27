@@ -76,6 +76,12 @@ document.addEventListener('DOMContentLoaded', function() {
     updatePaymentMethodHint();
     updateSubmitButtonLabel();
 
+    // Listen for payment success event to refresh balance
+    window.addEventListener('popup:payment-success', () => {
+        console.log('[ADDFUNDS] Payment success event received, refreshing balance');
+        loadUserBalance({ reason: 'payment-success' });
+    });
+
     // Amount button selection
     amountButtons.forEach(btn => {
         btn.addEventListener('click', function() {

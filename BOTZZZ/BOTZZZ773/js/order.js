@@ -224,6 +224,56 @@ function createNetworkPillController() {
     return { setStatus };
 }
 
+// ============= BALANCE DISPLAY FOR ORDER PAGE =============
+async function initializeBalanceDisplay() {
+    const balanceDisplay = document.getElementById('orderPageBalance');
+    if (!balanceDisplay) return;
+
+    // Configure BalanceSync for order page
+    if (window.BalanceSync) {
+        window.BalanceSync.configure({
+            element: balanceDisplay,
+            key: 'botzzz773-balance'
+        });
+
+        // Subscribe to balance changes
+        window.BalanceSync.subscribe(({ balance }) => {
+            if (Number.isFinite(balance)) {
+                balanceDisplay.textContent = `$${balance.toFixed(2)}`;
+            }
+        });
+
+        // Try to get cached balance first
+        const cached = window.BalanceSync.getBalance();
+        if (Number.isFinite(cached)) {
+            balanceDisplay.textContent = `$${cached.toFixed(2)}`;
+        }
+    }
+
+    // Load fresh balance from server
+    try {
+        const token = resolveAuthToken('balance-load');
+        if (!token) return;
+
+        const response = await fetch('/.netlify/functions/user-profile', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const balance = Number(data?.balance ?? data?.user?.balance);
+            if (Number.isFinite(balance)) {
+                balanceDisplay.textContent = `$${balance.toFixed(2)}`;
+                if (window.BalanceSync) {
+                    window.BalanceSync.setBalance(balance, { reason: 'order-page-load' });
+                }
+            }
+        }
+    } catch (err) {
+        console.warn('[ORDER] Failed to load balance:', err.message);
+    }
+}
+
 // Show message to user
 function showMessage(message, type = 'info') {
     // Create message element if it doesn't exist
@@ -310,6 +360,9 @@ document.addEventListener('DOMContentLoaded', function() {
     pendingServiceSelection = urlParams.get('service');
 
     loadServices();
+    
+    // Initialize balance display for order page
+    initializeBalanceDisplay();
     
     // Update estimated price on input change
     function updatePrice() {
@@ -455,6 +508,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     showMessage(`Order #${result.order.order_number || result.order.id} created successfully!`, 'success');
                     orderForm.reset();
                     updatePrice();
+                    
+                    // Update balance via BalanceSync (order deducts balance)
+                    if (window.BalanceSync && result.newBalance !== undefined) {
+                        window.BalanceSync.setBalance(result.newBalance, { reason: 'order-created' });
+                        console.log('[ORDER] Balance updated via BalanceSync:', result.newBalance);
+                    } else if (window.BalanceSync) {
+                        // Fallback: refresh balance from server
+                        window.BalanceSync.refresh({ reason: 'order-created' });
+                    }
                     
                     // Scroll to top
                     window.scrollTo({ top: 0, behavior: 'smooth' });

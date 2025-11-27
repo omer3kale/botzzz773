@@ -1764,6 +1764,36 @@ body.popup-mode .page-header {
     margin: 0;
 }
 
+/* Balance Card (Order Page) */
+.info-card.balance-card {
+    background: linear-gradient(135deg, rgba(255, 20, 148, 0.2) 0%, rgba(255, 105, 180, 0.1) 100%);
+    border: 1px solid var(--primary-pink);
+    position: relative;
+}
+
+.info-card.balance-card .balance-amount {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--primary-pink);
+    margin: var(--spacing-sm) 0;
+    text-shadow: 0 0 20px rgba(255, 20, 148, 0.5);
+}
+
+.info-card.balance-card .balance-add-link {
+    display: inline-block;
+    margin-top: var(--spacing-xs);
+    color: var(--primary-pink);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: var(--transition-fast);
+}
+
+.info-card.balance-card .balance-add-link:hover {
+    color: var(--secondary-pink);
+    text-decoration: underline;
+}
+
 /* Payment History */
 .payment-history-card {
     margin-top: var(--spacing-xl);

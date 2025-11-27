@@ -139,6 +139,55 @@ function copyApiKey() {
     });
 }
 
+// Update balance display element
+function updateBalanceDisplay(balance) {
+    const balanceEl = document.getElementById('currentBalance');
+    if (balanceEl && Number.isFinite(balance)) {
+        balanceEl.textContent = '$' + balance.toFixed(2);
+    }
+}
+
+// Load user balance from backend
+async function loadUserBalance(context = {}) {
+    try {
+        const token = resolveAuthToken('load-balance');
+        if (!token) {
+            return null;
+        }
+        
+        const response = await fetch('/.netlify/functions/users?action=me', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch user data');
+        }
+        
+        const data = await response.json();
+        
+        if (data.success && data.user) {
+            const balance = Number(data.user.balance);
+            if (Number.isFinite(balance)) {
+                updateBalanceDisplay(balance);
+                
+                // Update BalanceSync
+                if (window.BalanceSync) {
+                    window.BalanceSync.setUser(data.user, { reason: context.reason || 'api-dashboard-refresh' });
+                }
+                
+                // Update local storage
+                userProfile = data.user;
+                localStorage.setItem('user', JSON.stringify(data.user));
+            }
+            return data.user;
+        }
+        return null;
+    } catch (error) {
+        console.error('Failed to load user balance:', error);
+        return null;
+    }
+}
+
 // Update dashboard stats from backend
 async function updateDashboardStats() {
     try {
@@ -158,6 +207,11 @@ async function updateDashboardStats() {
             document.getElementById('totalOrders').textContent = (data.totalOrders || 0).toLocaleString();
             document.getElementById('activeProviders').textContent = (data.activeProviders || 0);
             document.getElementById('totalSpent').textContent = '$' + (data.totalSpent || 0).toFixed(2);
+            
+            // Also update balance if returned from dashboard endpoint
+            if (Number.isFinite(data.balance)) {
+                updateBalanceDisplay(data.balance);
+            }
         }
     } catch (error) {
         console.error('Failed to load dashboard stats:', error);
@@ -494,8 +548,29 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
+    // Initialize BalanceSync for real-time balance updates
+    if (window.BalanceSync) {
+        window.BalanceSync.configure({
+            fetcher: (context = {}) => loadUserBalance(context)
+        });
+        
+        // Subscribe to balance changes
+        window.BalanceSync.subscribe(({ balance }) => {
+            if (Number.isFinite(balance)) {
+                updateBalanceDisplay(balance);
+            }
+        });
+        
+        // Set initial balance from user profile
+        if (userProfile && Number.isFinite(userProfile.balance)) {
+            window.BalanceSync.setUser(userProfile, { reason: 'api-dashboard-init' });
+            updateBalanceDisplay(userProfile.balance);
+        }
+    }
+
     // Initialize dashboard
     updateDashboardStats();
+    loadUserBalance({ reason: 'page-load' }); // Load fresh balance
     renderApiKeys();
     renderProviders();
     
