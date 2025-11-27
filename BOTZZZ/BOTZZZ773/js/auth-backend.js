@@ -427,8 +427,31 @@ function finalizeLogin(data, rememberMe, context = {}) {
         return;
     }
 
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
+    console.log('[AUTH] Saving token to localStorage...');
+    console.log('[AUTH] Token length:', data.token?.length);
+    console.log('[AUTH] User:', data.user?.email, data.user?.role);
+    
+    try {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        
+        // Verify the token was saved
+        const savedToken = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+        console.log('[AUTH] Token saved successfully:', !!savedToken);
+        console.log('[AUTH] User saved successfully:', !!savedUser);
+        
+        if (!savedToken) {
+            console.error('[AUTH] CRITICAL: Token was not saved to localStorage!');
+            showError('Failed to save login. Please check your browser settings.');
+            return;
+        }
+    } catch (error) {
+        console.error('[AUTH] Failed to save to localStorage:', error);
+        showError('Failed to save login. Please check your browser settings allow localStorage.');
+        return;
+    }
+    
     if (window.BalanceSync) {
         window.BalanceSync.setUser(data.user, { reason: 'auth-login' });
     }
@@ -453,6 +476,8 @@ function finalizeLogin(data, rememberMe, context = {}) {
 
     setTimeout(() => {
         const isAdmin = data.user.role === 'admin';
+        console.log('[AUTH] Redirecting to:', isAdmin ? 'admin/index.html' : 'dashboard.html');
+        console.log('[AUTH] Final token check before redirect:', !!localStorage.getItem('token'));
         window.location.href = isAdmin ? 'admin/index.html' : 'dashboard.html';
     }, 1000);
 }

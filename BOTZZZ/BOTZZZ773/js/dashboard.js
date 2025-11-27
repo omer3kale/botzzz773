@@ -1769,8 +1769,11 @@
     });
 
     function resolveAuthToken(reason) {
+        console.log('[DASHBOARD] Checking auth token, reason:', reason);
         const token = getAuthToken();
+        console.log('[DASHBOARD] Token found:', !!token, token ? `(${token.length} chars)` : '');
         if (!token) {
+            console.warn('[DASHBOARD] No token found, triggering auth guard');
             handleMissingAuth(reason || 'token-missing');
         }
         return token;
@@ -1778,7 +1781,9 @@
 
     function getAuthToken() {
         try {
-            return localStorage.getItem('token');
+            const token = localStorage.getItem('token');
+            console.log('[DASHBOARD] localStorage.getItem("token"):', !!token);
+            return token;
         } catch (error) {
             console.warn('[DASHBOARD] Unable to read auth token from storage.', error);
             return null;
@@ -1786,8 +1791,11 @@
     }
 
     function resolveUserProfile(reason) {
+        console.log('[DASHBOARD] Checking user profile, reason:', reason);
         const userData = getStoredUser();
+        console.log('[DASHBOARD] User found:', !!userData, userData?.email);
         if (!userData) {
+            console.warn('[DASHBOARD] No user found, triggering auth guard');
             handleMissingAuth(reason || 'user-missing');
         }
         return userData;
@@ -1796,6 +1804,7 @@
     function getStoredUser() {
         try {
             const raw = localStorage.getItem('user');
+            console.log('[DASHBOARD] localStorage.getItem("user"):', !!raw);
             if (!raw) {
                 return null;
             }

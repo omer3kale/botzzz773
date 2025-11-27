@@ -331,13 +331,18 @@
 (function() {
     'use strict';
 
+    console.log('[ADMIN-AUTH] Checking admin authentication...');
+    
     // Check authentication
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
+    console.log('[ADMIN-AUTH] Token found:', !!token, token ? `(${token.length} chars)` : '');
+    console.log('[ADMIN-AUTH] User string found:', !!userStr);
+    
     // No token or user - redirect to admin login
     if (!token || !userStr) {
-        console.warn('Admin access denied: No authentication token');
+        console.warn('[ADMIN-AUTH] Admin access denied: No authentication token');
         window.location.href = '/admin/signin.html';
         return;
     }
@@ -346,8 +351,9 @@
     let user;
     try {
         user = JSON.parse(userStr);
+        console.log('[ADMIN-AUTH] User parsed:', user?.email, user?.role);
     } catch (error) {
-        console.error('Admin access denied: Invalid user data', error);
+        console.error('[ADMIN-AUTH] Admin access denied: Invalid user data', error);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/admin/signin.html';
@@ -356,7 +362,7 @@
 
     // Check if user has admin role
     if (user.role !== 'admin') {
-        console.warn('Admin access denied: User is not an admin', user);
+        console.warn('[ADMIN-AUTH] Admin access denied: User is not an admin', user);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/admin/signin.html';
@@ -373,24 +379,25 @@
         
         // Decode payload (middle part)
         const payload = JSON.parse(atob(tokenParts[1]));
+        console.log('[ADMIN-AUTH] Token payload exp:', payload.exp, 'current:', Math.floor(Date.now() / 1000));
         
         // Check expiration
         if (payload.exp && payload.exp * 1000 < Date.now()) {
-            console.warn('Admin access denied: Token expired');
+            console.warn('[ADMIN-AUTH] Admin access denied: Token expired');
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/admin/signin.html';
             return;
         }
     } catch (error) {
-        console.error('Admin access denied: Token validation failed', error);
+        console.error('[ADMIN-AUTH] Admin access denied: Token validation failed', error);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         window.location.href = '/admin/signin.html';
         return;
     }
 
-    console.log('✅ Admin authentication verified:', user.username);
+    console.log('✅ [ADMIN-AUTH] Admin authentication verified:', user.username);
 
     // Add logout handler when DOM is ready
     document.addEventListener('DOMContentLoaded', function() {
