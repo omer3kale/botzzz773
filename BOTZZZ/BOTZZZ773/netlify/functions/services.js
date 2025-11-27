@@ -142,6 +142,77 @@ function sanitizeSlugValue(value, fallback = '') {
   return sanitized || fallback;
 }
 
+// Normalize category slug for consistency
+function normalizeCategorySlug(value) {
+  if (value === undefined || value === null) {
+    return 'other';
+  }
+
+  const str = String(value).trim().toLowerCase();
+  if (!str) {
+    return 'other';
+  }
+
+  return str
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'other';
+}
+
+// Cache for category validation
+let categorySlugCache = null;
+let categoryCacheTimestamp = 0;
+const CATEGORY_CACHE_TTL = 60000; // 1 minute
+
+async function getValidCategorySlugs() {
+  const now = Date.now();
+  if (categorySlugCache && (now - categoryCacheTimestamp) < CATEGORY_CACHE_TTL) {
+    return categorySlugCache;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('service_categories')
+      .select('slug')
+      .eq('status', 'active');
+
+    if (error) {
+      logger.warn('Failed to fetch category slugs for validation', { error });
+      return categorySlugCache || new Set(['instagram', 'tiktok', 'youtube', 'twitter', 'facebook', 'other']);
+    }
+
+    categorySlugCache = new Set((data || []).map(cat => cat.slug).filter(Boolean));
+    // Always include 'other' as fallback
+    categorySlugCache.add('other');
+    categoryCacheTimestamp = now;
+    return categorySlugCache;
+  } catch (err) {
+    logger.warn('Error fetching category slugs', { error: err.message });
+    return categorySlugCache || new Set(['instagram', 'tiktok', 'youtube', 'twitter', 'facebook', 'other']);
+  }
+}
+
+async function validateAndNormalizeCategory(categoryInput) {
+  const normalized = normalizeCategorySlug(categoryInput);
+  const validSlugs = await getValidCategorySlugs();
+  
+  // If exact match, use it
+  if (validSlugs.has(normalized)) {
+    return { valid: true, category: normalized };
+  }
+  
+  // Try to find a partial match (e.g., "instagram-followers" -> "instagram")
+  for (const slug of validSlugs) {
+    if (normalized.startsWith(slug + '-') || normalized.startsWith(slug)) {
+      return { valid: true, category: slug, suggested: slug };
+    }
+  }
+  
+  // Return as-is but flag it might need a new category
+  return { valid: false, category: normalized, needsCategory: true };
+}
+
 function isValidUuid(value) {
   if (typeof value !== 'string') {
     return false;

@@ -1747,7 +1747,7 @@ function hideLoading(button) {
         },
         USER_LOGGED_IN(detail) {
             persistAuthPayload(detail);
-            const name = detail?.user?.username || detail?.user?.fullname || 'there';
+            const name = detail?.user?.username || detail?.user?.full_name || 'there';
             showMessage(`Welcome back, ${name}!`, 'success');
             dispatchPopupEvent('popup:user-logged-in', detail);
         },

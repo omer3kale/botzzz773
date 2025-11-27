@@ -6,15 +6,31 @@ CREATE TABLE IF NOT EXISTS public.service_categories (
     description TEXT,
     icon TEXT DEFAULT 'fas fa-folder',
     display_order INTEGER DEFAULT 0,
+    parent_id UUID REFERENCES public.service_categories(id) ON DELETE SET NULL,
     status TEXT DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Add parent_id column if table exists but column is missing (idempotent)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+        AND table_name = 'service_categories'
+        AND column_name = 'parent_id'
+    ) THEN
+        ALTER TABLE public.service_categories
+        ADD COLUMN parent_id UUID REFERENCES public.service_categories(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
 -- Add indexes for faster lookups
 CREATE INDEX IF NOT EXISTS idx_service_categories_slug ON public.service_categories(slug);
 CREATE INDEX IF NOT EXISTS idx_service_categories_status ON public.service_categories(status);
 CREATE INDEX IF NOT EXISTS idx_service_categories_display_order ON public.service_categories(display_order);
+CREATE INDEX IF NOT EXISTS idx_service_categories_parent ON public.service_categories(parent_id);
 
 -- Enable Row Level Security
 ALTER TABLE public.service_categories ENABLE ROW LEVEL SECURITY;

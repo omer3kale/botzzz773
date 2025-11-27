@@ -301,9 +301,86 @@ function buildCategoryOptions(categories, includePlaceholder = true) {
     
     const options = categories.map(category => {
         const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
-        return `<option value="${escapeHtml(slug)}">${escapeHtml(category.name)}</option>`;
+        const serviceCount = category.service_count ? ` (${category.service_count})` : '';
+        return `<option value="${escapeHtml(slug)}">${escapeHtml(category.name)}${serviceCount}</option>`;
     }).join('');
     return placeholder + options;
+}
+
+// Validate and suggest category based on service name
+function suggestCategoryFromServiceName(serviceName, categories = []) {
+    if (!serviceName) return null;
+    
+    const nameLower = serviceName.toLowerCase();
+    const categoryKeywords = {
+        'instagram': ['instagram', 'ig ', 'insta'],
+        'tiktok': ['tiktok', 'tik tok', 'tt '],
+        'youtube': ['youtube', 'yt ', 'subscriber'],
+        'twitter': ['twitter', 'tweet', 'x.com'],
+        'facebook': ['facebook', 'fb ', 'meta'],
+        'telegram': ['telegram', 'tg '],
+        'spotify': ['spotify'],
+        'discord': ['discord'],
+        'linkedin': ['linkedin'],
+        'reddit': ['reddit'],
+        'twitch': ['twitch']
+    };
+    
+    // First check for exact category match
+    for (const [slug, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(kw => nameLower.includes(kw))) {
+            // Verify this category exists in our list
+            const matchingCategory = categories.find(c => 
+                (c.slug || '').toLowerCase() === slug || 
+                (c.name || '').toLowerCase() === slug
+            );
+            if (matchingCategory) {
+                return matchingCategory.slug || slug;
+            }
+            return slug; // Return suggested even if not in DB yet
+        }
+    }
+    
+    return null;
+}
+
+// Show category suggestion when entering service name
+function setupCategorySuggestion(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    
+    const nameInput = form.querySelector('input[name="serviceName"]');
+    const categorySelect = form.querySelector('select[name="category"]');
+    
+    if (!nameInput || !categorySelect) return;
+    
+    let debounceTimer = null;
+    
+    nameInput.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(async () => {
+            const categories = await fetchCategoriesList();
+            const suggested = suggestCategoryFromServiceName(this.value, categories);
+            
+            if (suggested && categorySelect.value === '') {
+                // Auto-select the suggested category
+                const option = categorySelect.querySelector(`option[value="${suggested}"]`);
+                if (option) {
+                    categorySelect.value = suggested;
+                    // Show a subtle notification
+                    const hint = form.querySelector('.category-hint');
+                    if (!hint) {
+                        const hintEl = document.createElement('small');
+                        hintEl.className = 'category-hint';
+                        hintEl.style.cssText = 'color: #10b981; display: block; margin-top: 4px;';
+                        hintEl.textContent = `Auto-selected "${option.textContent}" based on service name`;
+                        categorySelect.parentNode.appendChild(hintEl);
+                        setTimeout(() => hintEl.remove(), 3000);
+                    }
+                }
+            }
+        }, 500);
+    });
 }
 
 function buildProviderOptionsWithSelected(providers, selectedId) {
@@ -843,6 +920,7 @@ async function addService() {
     
     createModal('Add New Service', content, actions);
     setupPricingInteraction('addServiceForm');
+    setupCategorySuggestion('addServiceForm');
 }
 
 async function submitAddService(event) {

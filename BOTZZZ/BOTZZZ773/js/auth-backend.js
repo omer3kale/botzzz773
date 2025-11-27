@@ -5,18 +5,27 @@ let authPopupMode = false;
 let popupSurfaceEl = null;
 
 // Check if user is already logged in on page load
-document.addEventListener('DOMContentLoaded', async () => {
-    await checkAuthStatus();
+document.addEventListener('DOMContentLoaded', () => {
+    // Don't await on auth pages to prevent blocking form attachment
+    const isAuthPage = window.location.pathname.includes('signin') || 
+                       window.location.pathname.includes('signup');
+    if (isAuthPage) {
+        // Run auth check in background for auth pages
+        checkAuthStatus().catch(err => console.warn('[AUTH] Auth check failed:', err));
+    } else {
+        // Wait for auth check on other pages
+        checkAuthStatus();
+    }
 });
 
 // Check authentication status
 async function checkAuthStatus() {
     const token = localStorage.getItem('token');
+    const isAuthPage = window.location.pathname.includes('signin') || 
+                       window.location.pathname.includes('signup');
     
     if (!token) {
         // Don't update navigation on signin/signup pages to preserve form
-        const isAuthPage = window.location.pathname.includes('signin') || 
-                          window.location.pathname.includes('signup');
         if (!isAuthPage) {
             updateNavigation(false);
         }
@@ -33,14 +42,31 @@ async function checkAuthStatus() {
             updateNavigation(true, data.user);
             return true;
         } else {
-            // Token invalid, clear and logout
-            handleLogout();
+            // Token invalid - clear storage but don't redirect on auth pages
+            clearAuthStorage();
+            if (!isAuthPage) {
+                window.location.href = 'signin.html';
+            }
             return false;
         }
     } catch (error) {
         console.error('Auth verification failed:', error);
-        handleLogout();
+        // Clear storage but don't redirect on auth pages (user is already there)
+        clearAuthStorage();
+        if (!isAuthPage) {
+            window.location.href = 'signin.html';
+        }
         return false;
+    }
+}
+
+// Helper to clear auth storage without redirecting
+function clearAuthStorage() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('rememberMe');
+    if (window.BalanceSync) {
+        window.BalanceSync.clearUser({ reason: 'auth-clear' });
     }
 }
 
@@ -502,7 +528,7 @@ function updateNavigation(isLoggedIn, user = null) {
                 <div class="user-account-nav">
                     <a href="dashboard.html" class="nav-link" style="display: flex; align-items: center; gap: 8px;">
                         <i class="fas fa-user-circle"></i>
-                        <span>${escapeHtml(user.fullname || user.email)}</span>
+                        <span>${escapeHtml(user.full_name || user.username || user.email)}</span>
                     </a>
                     <div class="user-dropdown">
                         <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
@@ -694,6 +720,14 @@ function notifyOpener(type, detail = {}) {
 
 // Attach event listeners
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('[AUTH] DOMContentLoaded - setting up form listeners');
+    
+    // Verify api client is loaded
+    if (typeof api === 'undefined') {
+        console.error('[AUTH] CRITICAL: api-client.js not loaded! Forms will not work.');
+        return;
+    }
+    
     initializeAuthPopupSurface();
     ensureAdminOtpModalStructure();
     const signinForm = document.getElementById('signinForm');
@@ -701,12 +735,16 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (signinForm) {
         signinForm.addEventListener('submit', handleSignIn);
-        console.log('Sign-in form listener attached');
+        console.log('[AUTH] Sign-in form listener attached successfully');
+    } else {
+        console.log('[AUTH] No signinForm found on this page');
     }
 
     if (signupForm) {
         signupForm.addEventListener('submit', handleSignUp);
-        console.log('Sign-up form listener attached');
+        console.log('[AUTH] Sign-up form listener attached successfully');
+    } else {
+        console.log('[AUTH] No signupForm found on this page');
     }
 
     const adminOtpForm = document.getElementById('adminOtpForm');
