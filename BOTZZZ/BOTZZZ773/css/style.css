@@ -783,6 +783,52 @@ section {
     border-radius: var(--radius-sm);
 }
 
+/* Parent category with children indicator */
+.service-category--parent {
+    margin-bottom: var(--spacing-sm);
+}
+
+.service-category--parent.has-children {
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid rgba(255, 20, 148, 0.15);
+}
+
+/* Child/Subcategory styling - indented under parent */
+.service-category--child {
+    margin-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+    padding-left: var(--spacing-md);
+    border-left: 3px solid rgba(255, 20, 148, 0.3);
+    position: relative;
+}
+
+.service-category--child::before {
+    content: '';
+    position: absolute;
+    left: -3px;
+    top: 0;
+    width: 3px;
+    height: 24px;
+    background: var(--primary-pink);
+    border-radius: 0 0 2px 2px;
+}
+
+.service-category--child .subcategory-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--secondary-pink);
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.service-category--child .services-table {
+    background: rgba(255, 255, 255, 0.01);
+    border-color: rgba(255, 20, 148, 0.08);
+}
+
 .service-subcategory {
     margin-bottom: var(--spacing-xl);
 }

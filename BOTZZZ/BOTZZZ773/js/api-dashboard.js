@@ -205,7 +205,10 @@ async function updateDashboardStats() {
         if (data.success) {
             document.getElementById('totalRequests').textContent = (data.totalRequests || 0).toLocaleString();
             document.getElementById('totalOrders').textContent = (data.totalOrders || 0).toLocaleString();
-            document.getElementById('activeProviders').textContent = (data.activeProviders || 0);
+            const activeServicesEl = document.getElementById('activeServices');
+            if (activeServicesEl) {
+                activeServicesEl.textContent = (data.activeServices || data.activeProviders || 0);
+            }
             document.getElementById('totalSpent').textContent = '$' + (data.totalSpent || 0).toFixed(2);
             
             // Also update balance if returned from dashboard endpoint
@@ -218,7 +221,10 @@ async function updateDashboardStats() {
         // Set default values on error
         document.getElementById('totalRequests').textContent = '0';
         document.getElementById('totalOrders').textContent = '0';
-        document.getElementById('activeProviders').textContent = '0';
+        const activeServicesEl = document.getElementById('activeServices');
+        if (activeServicesEl) {
+            activeServicesEl.textContent = '0';
+        }
         document.getElementById('totalSpent').textContent = '$0.00';
     }
 }
@@ -226,6 +232,7 @@ async function updateDashboardStats() {
 // Render API keys list from backend
 async function renderApiKeys() {
     const container = document.getElementById('apiKeysList');
+    if (!container) return; // Element removed from DOM
     
     try {
         const token = resolveAuthToken('render-api-keys');
@@ -360,6 +367,7 @@ async function deleteApiKey(keyId) {
 // Render providers list from backend
 async function renderProviders() {
     const container = document.getElementById('providersList');
+    if (!container) return; // Element removed from DOM
     
     try {
         const token = resolveAuthToken('render-providers');
@@ -571,16 +579,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize dashboard
     updateDashboardStats();
     loadUserBalance({ reason: 'page-load' }); // Load fresh balance
-    renderApiKeys();
-    renderProviders();
     
-    // Generate API Key button
-    document.getElementById('generateKeyBtn').addEventListener('click', function() {
-        openModal('generateKeyModal');
-    });
+    // Only render API keys if the container exists
+    if (document.getElementById('apiKeysList')) {
+        renderApiKeys();
+    }
     
-    // Generate API Key form
-    document.getElementById('generateKeyForm').addEventListener('submit', async function(e) {
+    // Only render providers if the container exists
+    if (document.getElementById('providersList')) {
+        renderProviders();
+    }
+    
+    // Generate API Key button (if exists)
+    const generateKeyBtn = document.getElementById('generateKeyBtn');
+    if (generateKeyBtn) {
+        generateKeyBtn.addEventListener('click', function() {
+            openModal('generateKeyModal');
+        });
+    }
+    
+    // Generate API Key form (if exists)
+    const generateKeyForm = document.getElementById('generateKeyForm');
+    if (generateKeyForm) {
+        generateKeyForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const keyName = document.getElementById('keyName').value;
@@ -638,14 +659,20 @@ document.addEventListener('DOMContentLoaded', function() {
             showMessage('Failed to generate API key', 'error');
         }
     });
+    }
     
-    // Add Provider button
-    document.getElementById('addProviderBtn').addEventListener('click', function() {
-        openModal('addProviderModal');
-    });
+    // Add Provider button (if exists)
+    const addProviderBtn = document.getElementById('addProviderBtn');
+    if (addProviderBtn) {
+        addProviderBtn.addEventListener('click', function() {
+            openModal('addProviderModal');
+        });
+    }
     
-    // Add Provider form
-    document.getElementById('addProviderForm').addEventListener('submit', async function(e) {
+    // Add Provider form (if exists)
+    const addProviderForm = document.getElementById('addProviderForm');
+    if (addProviderForm) {
+        addProviderForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
         const providerName = document.getElementById('providerName').value;
@@ -712,7 +739,8 @@ document.addEventListener('DOMContentLoaded', function() {
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalText;
         }
-    });
+        });
+    }
     
     // Close modals when clicking outside
     document.querySelectorAll('.modal').forEach(modal => {

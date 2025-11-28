@@ -465,25 +465,145 @@ function groupServicesByCategory(services = []) {
     }, {});
 }
 
+// Build hierarchical structure with parent and child categories
+async function buildHierarchicalCategoryStructure(groupedServices = {}) {
+    const categoriesData = categoriesCache || await loadCategoriesFromAPI();
+    const parentCategories = categoriesData?.hierarchical || categoriesData?.flat || [];
+    const childCategories = categoriesData?.children || [];
+    
+    // Create a map of slug -> category for quick lookup
+    const categoryMap = {};
+    [...parentCategories, ...childCategories].forEach(cat => {
+        const slug = normalizeCategorySlug(cat.slug || cat.name);
+        categoryMap[slug] = cat;
+    });
+    
+    // Build parent-child structure
+    const hierarchy = [];
+    const processedSlugs = new Set();
+    
+    // First, process parent categories in order
+    parentCategories.forEach(parent => {
+        const parentSlug = normalizeCategorySlug(parent.slug || parent.name);
+        const parentServices = groupedServices[parentSlug] || [];
+        
+        // Find children for this parent
+        const children = childCategories
+            .filter(child => child.parent_id === parent.id)
+            .map(child => {
+                const childSlug = normalizeCategorySlug(child.slug || child.name);
+                processedSlugs.add(childSlug);
+                return {
+                    ...child,
+                    slug: childSlug,
+                    services: groupedServices[childSlug] || []
+                };
+            })
+            .filter(child => child.services.length > 0);
+        
+        // Only include parent if it has services or children with services
+        if (parentServices.length > 0 || children.length > 0) {
+            processedSlugs.add(parentSlug);
+            hierarchy.push({
+                ...parent,
+                slug: parentSlug,
+                services: parentServices,
+                children: children
+            });
+        }
+    });
+    
+    // Add any orphan categories (services with categories not in the system)
+    Object.keys(groupedServices).forEach(slug => {
+        if (!processedSlugs.has(slug)) {
+            hierarchy.push({
+                name: formatCategoryLabel(slug),
+                slug: slug,
+                icon: 'fas fa-folder',
+                services: groupedServices[slug],
+                children: []
+            });
+        }
+    });
+    
+    return hierarchy;
+}
+
 async function buildGroupedServicesHtml(groupedServices = {}) {
     const categoryIcons = await getCategoryIconsMap();
-    const orderedCategories = Object.keys(groupedServices).sort();
-    return orderedCategories.map(category => {
-        const icon = categoryIcons[category] || '⭐';
-        const displayName = `${formatCategoryLabel(category)} Services`;
-        return buildCategorySectionHtml({
-            slug: category,
-            icon,
-            title: displayName,
-            services: sortServicesForDisplay(groupedServices[category])
+    const hierarchy = await buildHierarchicalCategoryStructure(groupedServices);
+    
+    return hierarchy.map(parent => {
+        const parentSlug = parent.slug;
+        const parentIcon = categoryIcons[parentSlug] || '⭐';
+        const parentTitle = `${formatCategoryLabel(parent.name || parentSlug)} Services`;
+        
+        let html = '';
+        
+        // Build parent section with its direct services
+        if (parent.services.length > 0) {
+            html += buildCategorySectionHtml({
+                slug: parentSlug,
+                icon: parentIcon,
+                title: parentTitle,
+                services: sortServicesForDisplay(parent.services),
+                isParent: true,
+                hasChildren: parent.children.length > 0
+            });
+        } else if (parent.children.length > 0) {
+            // Parent header without services
+            html += `
+                <div class="service-category service-category--parent" data-category="${parentSlug}" id="${parentSlug}">
+                    <h2 class="category-title">${parentIcon} ${parentTitle}</h2>
+                </div>
+            `;
+        }
+        
+        // Build child subcategories
+        parent.children.forEach(child => {
+            const childSlug = child.slug;
+            const childIcon = categoryIcons[childSlug] || '📁';
+            const childTitle = formatCategoryLabel(child.name || childSlug);
+            
+            html += buildSubcategorySectionHtml({
+                parentSlug: parentSlug,
+                slug: childSlug,
+                icon: childIcon,
+                title: childTitle,
+                services: sortServicesForDisplay(child.services)
+            });
         });
+        
+        return html;
     }).join('');
 }
 
-function buildCategorySectionHtml({ slug, icon, title, services }) {
+function buildSubcategorySectionHtml({ parentSlug, slug, icon, title, services }) {
     const rowsHtml = buildServiceRowsHtml(services);
     return `
-        <div class="service-category" data-category="${slug}" id="${slug}">
+        <div class="service-category service-category--child" data-category="${slug}" data-parent-category="${parentSlug}" id="${slug}">
+            <h3 class="subcategory-title">${icon} ${title}</h3>
+            <div class="service-subcategory">
+                <div class="services-table">
+                    <div class="service-row service-row-header">
+                        <div class="service-col">Service Name</div>
+                        <div class="service-col">Rate (per 1000)</div>
+                        <div class="service-col">Min/Max</div>
+                        <div class="service-col">Action</div>
+                    </div>
+                    ${rowsHtml}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function buildCategorySectionHtml({ slug, icon, title, services, isParent = false, hasChildren = false }) {
+    const rowsHtml = buildServiceRowsHtml(services);
+    const parentClass = isParent ? ' service-category--parent' : '';
+    const childrenClass = hasChildren ? ' has-children' : '';
+    return `
+        <div class="service-category${parentClass}${childrenClass}" data-category="${slug}" id="${slug}">
             <h2 class="category-title">${icon} ${title}</h2>
             <div class="service-subcategory">
                 <div class="services-table">

@@ -737,16 +737,11 @@
                     const serviceLabel = Number.isFinite(selectedService.publicId)
                         ? `#${selectedService.publicId}`
                         : 'ID Pending';
-                    const providerRefRaw = selectedService.providerReference?.toString().trim();
-                    const providerRefLabel = providerRefRaw
-                        ? escapeHtml(providerRefRaw)
-                        : 'Pending from provider';
                     const priceDisplay = formatCurrencyDisplay(selectedService.price, selectedService.currency, 4);
                     const capabilityMarkup = renderCapabilityPills(selectedService.capabilities || {});
                     serviceInfo.innerHTML = `
                         <div class="service-meta-row service-meta-row--wrap">
                             <span><strong>Service ID:</strong> ${serviceLabel}</span>
-                            <span><strong>Provider Ref:</strong> ${providerRefLabel}</span>
                             <span><strong>Price:</strong> ${priceDisplay} / 1000</span>
                             <span><strong>Range:</strong> ${selectedService.min} - ${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}</span>
                         </div>

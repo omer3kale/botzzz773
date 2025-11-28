@@ -759,6 +759,66 @@ body.popup-mode .admin-main {
     color: var(--admin-light-text);
 }
 
+/* Category Header Rows in Admin Tables */
+.category-header-row {
+    background: rgba(255, 20, 148, 0.08) !important;
+    border-top: 2px solid rgba(255, 20, 148, 0.3);
+}
+
+.category-header-row:hover {
+    background: rgba(255, 20, 148, 0.12) !important;
+}
+
+.category-header-row td {
+    padding: 12px 16px !important;
+}
+
+.category-header-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 14px;
+    color: #ff1494;
+}
+
+.category-header-content i {
+    font-size: 16px;
+    width: 20px;
+    text-align: center;
+}
+
+.category-header-label {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.category-header-parent {
+    font-size: 12px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, 0.5);
+    text-transform: none;
+    letter-spacing: normal;
+}
+
+/* Child category header - indented */
+.category-header--child {
+    background: rgba(255, 20, 148, 0.04) !important;
+    border-top: 1px solid rgba(255, 20, 148, 0.15);
+}
+
+.category-header--child .category-header-content {
+    padding-left: 24px;
+    color: #ff69b4;
+}
+
+.category-header--child .category-header-label {
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: none;
+}
+
 @media (max-width: 1024px) {
     .users-layout,
     .services-layout,

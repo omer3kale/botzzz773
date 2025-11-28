@@ -258,6 +258,93 @@ function escapeHtml(text = '') {
         .replace(/'/g, '&#39;');
 }
 
+// Group services by parent/child category hierarchy
+function groupServicesWithHierarchy(services = []) {
+    const categories = categoriesCache?.all || categoriesCache?.active || [];
+    const categoryMap = {};
+    
+    // Build category lookup map
+    categories.forEach(cat => {
+        const slug = (cat.slug || cat.name || '').toLowerCase().replace(/\s+/g, '-');
+        categoryMap[slug] = cat;
+    });
+    
+    // Sort services by category, then by name
+    const sortedServices = [...services].sort((a, b) => {
+        const catA = (a.category || 'other').toLowerCase();
+        const catB = (b.category || 'other').toLowerCase();
+        if (catA !== catB) return catA.localeCompare(catB);
+        return (a.name || '').localeCompare(b.name || '');
+    });
+    
+    // Build grouped structure
+    return sortedServices.map(service => {
+        const categorySlug = (service.category || 'other').toLowerCase();
+        const categoryData = categoryMap[categorySlug] || {};
+        const parentId = categoryData.parent_id;
+        
+        let parentCategory = null;
+        let parentIcon = null;
+        let childCategory = null;
+        let childIcon = null;
+        
+        if (parentId) {
+            // This is a child category
+            const parent = categories.find(c => c.id === parentId);
+            parentCategory = parent ? (parent.name || parent.slug) : null;
+            parentIcon = parent?.icon || 'fas fa-folder';
+            childCategory = categoryData.name || categorySlug;
+            childIcon = categoryData.icon || 'fas fa-folder';
+        } else {
+            // This is a parent category or no hierarchy
+            parentCategory = categoryData.name || categorySlug.charAt(0).toUpperCase() + categorySlug.slice(1);
+            parentIcon = categoryData.icon || getCategoryIcon(categorySlug);
+        }
+        
+        return {
+            service,
+            parentCategory,
+            parentIcon,
+            childCategory,
+            childIcon
+        };
+    });
+}
+
+function getCategoryIcon(slug) {
+    const iconMap = {
+        'instagram': 'fab fa-instagram',
+        'tiktok': 'fab fa-tiktok',
+        'youtube': 'fab fa-youtube',
+        'twitter': 'fab fa-twitter',
+        'facebook': 'fab fa-facebook',
+        'telegram': 'fab fa-telegram',
+        'spotify': 'fab fa-spotify',
+        'discord': 'fab fa-discord',
+        'reddit': 'fab fa-reddit'
+    };
+    return iconMap[slug] || 'fas fa-folder';
+}
+
+function buildCategoryHeaderRow(categoryName, icon, isParent = true, parentName = null) {
+    const iconClass = icon || 'fas fa-folder';
+    const indentClass = isParent ? '' : 'category-header--child';
+    const bgClass = isParent ? 'category-header--parent' : 'category-header--child';
+    const label = isParent ? categoryName : `↳ ${categoryName}`;
+    
+    return `
+        <tr class="category-header-row ${bgClass}" data-category="${escapeHtml(categoryName)}">
+            <td colspan="10">
+                <div class="category-header-content ${indentClass}">
+                    <i class="${escapeHtml(iconClass)}"></i>
+                    <span class="category-header-label">${escapeHtml(label)}</span>
+                    ${!isParent && parentName ? `<span class="category-header-parent">(under ${escapeHtml(parentName)})</span>` : ''}
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
 // Robustly parse API responses (handles JSON and plain text errors)
 async function parseApiResponse(response) {
     try {
@@ -2194,8 +2281,30 @@ async function loadServices() {
         if (servicesCache.length > 0) {
             tbody.innerHTML = '';
             
+            // Group services by category hierarchy
+            const groupedByCategory = groupServicesWithHierarchy(servicesCache);
+            
             let activeCount = 0;
-            servicesCache.forEach(service => {
+            let lastRenderedParent = null;
+            let lastRenderedChild = null;
+            
+            // Render services grouped by category
+            groupedByCategory.forEach(group => {
+                // Render parent category header if different from last
+                if (group.parentCategory && group.parentCategory !== lastRenderedParent) {
+                    tbody.insertAdjacentHTML('beforeend', buildCategoryHeaderRow(group.parentCategory, group.parentIcon, true));
+                    lastRenderedParent = group.parentCategory;
+                    lastRenderedChild = null;
+                }
+                
+                // Render child category header if applicable
+                if (group.childCategory && group.childCategory !== lastRenderedChild) {
+                    tbody.insertAdjacentHTML('beforeend', buildCategoryHeaderRow(group.childCategory, group.childIcon, false, group.parentCategory));
+                    lastRenderedChild = group.childCategory;
+                }
+                
+                // Render the service row
+                const service = group.service;
                 if (service.status === 'active') activeCount++;
 
         const serviceIdRaw = service.id !== undefined && service.id !== null ? String(service.id) : '';
