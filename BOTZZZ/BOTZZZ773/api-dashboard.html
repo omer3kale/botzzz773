@@ -27,6 +27,9 @@
     <link rel="apple-touch-icon" sizes="384x384" href="/img/icons/icon-384x384.png">
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
+    <!-- Supabase Real-Time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="js/supabase-client.js"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -138,8 +141,63 @@
                 </div>
             </div>
 
+            <!-- API Keys Section -->
+            <div class="api-section">
+                <div class="section-header">
+                    <h2>Your API Keys</h2>
+                    <button class="btn-primary" id="generateKeyBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Generate New Key
+                    </button>
+                </div>
+                <div class="api-keys-list" id="apiKeysList">
+                    <!-- API keys will be loaded dynamically -->
+                </div>
+            </div>
+
         </div>
     </section>
+
+    <!-- Generate API Key Modal -->
+    <div class="modal" id="generateKeyModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Generate New API Key</h3>
+                <button class="modal-close" onclick="closeModal('generateKeyModal')">&times;</button>
+            </div>
+            <form id="generateKeyForm">
+                <div class="form-group">
+                    <label for="keyName">Key Name</label>
+                    <input type="text" id="keyName" name="keyName" placeholder="e.g., Production Key" required>
+                </div>
+                <div class="form-group">
+                    <label>Permissions</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="permissions" value="orders" checked>
+                            Orders (create, view, cancel)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="permissions" value="services" checked>
+                            Services (view list)
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="permissions" value="balance" checked>
+                            Balance (view)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('generateKeyModal')">Cancel</button>
+                    <button type="submit" class="btn-primary">Generate Key</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
         </div>
     </main>
 
@@ -176,11 +234,28 @@
     <!-- Security Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 
+    <script src="js/api-client.js"></script>
     <script src="js/main.js"></script>
     <script src="js/auth-backend.js"></script>
     <script src="js/api-dashboard.js"></script>
+    <script src="js/botzzz773-realtime.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 
+    <!-- BOTZZZ773 Real-Time Init -->
+    <script>
+        // Initialize real-time for API dashboard
+        document.addEventListener('supabase:ready', function() {
+            console.log('[BOTZZZ773] API Dashboard real-time initializing...');
+            
+            if (window.BOTZZZ773Realtime) {
+                window.BOTZZZ773Realtime.init().then(function() {
+                    console.log('[BOTZZZ773] API Dashboard real-time connected');
+                }).catch(function(err) {
+                    console.warn('[BOTZZZ773] API Dashboard real-time error:', err);
+                });
+            }
+        });
+    </script>
 </body>
 </html>

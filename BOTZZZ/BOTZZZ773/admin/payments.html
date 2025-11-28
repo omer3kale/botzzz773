@@ -6,8 +6,12 @@
     <title>Payments - BOTZZZ773 Admin</title>
     <link rel="stylesheet" href="../css/admin-styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Supabase JS Client for Real-time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <!-- Admin Authentication Protection - MUST BE FIRST -->
     <script src="../js/admin-auth.js"></script>
+    <!-- Supabase Client Initialization -->
+    <script src="../js/supabase-client.js"></script>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#ff1494">
@@ -167,8 +171,53 @@
         </div>
     </main>
 
+    <!-- BOTZZZ773 Core Scripts -->
     <script src="../js/admin.js"></script>
     <script src="../js/admin-payments.js"></script>
+    <script src="../js/botzzz773-realtime.js"></script>
+    
+    <!-- BOTZZZ773 Real-Time Integration -->
+    <script>
+        (function() {
+            'use strict';
+            
+            console.log('[BOTZZZ773] Admin Payments real-time loading...');
+            
+            // Wait for Supabase ready
+            document.addEventListener('supabase:ready', function() {
+                if (typeof BOTZZZ773Realtime === 'undefined') {
+                    console.warn('[BOTZZZ773] Realtime module not found');
+                    return;
+                }
+                
+                // Initialize real-time
+                BOTZZZ773Realtime.init().then(function() {
+                    console.log('[BOTZZZ773] Admin Payments real-time connected');
+                    
+                    // Subscribe to payment updates
+                    BOTZZZ773Realtime.subscribeToPayments(function(data) {
+                        console.log('[BOTZZZ773 Payments] Update:', data.type, data.record?.id);
+                        if (typeof loadPayments === 'function') {
+                            loadPayments();
+                        }
+                    });
+                    
+                    // Handle completed payments
+                    BOTZZZ773Realtime.on('payments:completed', function(data) {
+                        console.log('[BOTZZZ773 Payments] COMPLETED:', data.record?.transaction_id);
+                    });
+                    
+                    // Handle failed payments
+                    BOTZZZ773Realtime.on('payments:failed', function(data) {
+                        console.log('[BOTZZZ773 Payments] FAILED:', data.record?.transaction_id);
+                    });
+                }).catch(function(err) {
+                    console.warn('[BOTZZZ773] Payments real-time error:', err);
+                });
+            });
+        })();
+    </script>
+    
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

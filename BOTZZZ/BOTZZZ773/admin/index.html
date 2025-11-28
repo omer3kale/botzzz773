@@ -7,11 +7,15 @@
     <link rel="stylesheet" href="../css/admin-styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Supabase JS Client for Real-time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Admin Authentication Protection - MUST BE FIRST -->
     <script src="../js/admin-auth.js"></script>
+    <!-- Supabase Client Initialization -->
+    <script src="../js/supabase-client.js"></script>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#ff1494">
@@ -232,16 +236,64 @@
         </div>
     </main>
 
+    <!-- BOTZZZ773 Core Scripts -->
     <script src="../js/admin.js"></script>
+    <script src="../js/botzzz773-realtime.js"></script>
+    
+    <!-- BOTZZZ773 Dashboard Integration -->
     <script>
-        window.initializeAdminPopupSurface?.('Admin dashboard window');
+        (function() {
+            'use strict';
+            
+            // Initialize popup surface if available
+            if (typeof window.initializeAdminPopupSurface === 'function') {
+                window.initializeAdminPopupSurface('Admin dashboard window');
+            }
+            
+            // Initialize real-time for dashboard - wait for supabase:ready
+            document.addEventListener('supabase:ready', function() {
+                console.log('[BOTZZZ773] Admin Dashboard real-time initializing...');
+                
+                if (typeof BOTZZZ773Realtime === 'undefined') {
+                    console.warn('[BOTZZZ773] Realtime module not found');
+                    return;
+                }
+                
+                BOTZZZ773Realtime.init().then(function() {
+                    console.log('[BOTZZZ773] Admin Dashboard real-time connected');
+                    
+                    // Subscribe to orders for dashboard stats
+                    BOTZZZ773Realtime.subscribeToOrders(function(data) {
+                        console.log('[BOTZZZ773 Dashboard] Order update');
+                        if (typeof populateRecentOrders === 'function') {
+                            populateRecentOrders();
+                        }
+                        if (typeof updateDashboardStats === 'function') {
+                            updateDashboardStats();
+                        }
+                    });
+                    
+                    // Subscribe to payments for revenue updates
+                    BOTZZZ773Realtime.subscribeToPayments(function(data) {
+                        console.log('[BOTZZZ773 Dashboard] Payment update');
+                        if (typeof updateDashboardStats === 'function') {
+                            updateDashboardStats();
+                        }
+                    });
+                }).catch(function(err) {
+                    console.warn('[BOTZZZ773] Admin Dashboard real-time error:', err);
+                });
+            });
+            
+            // Initialize dashboard on load
+            document.addEventListener('DOMContentLoaded', function() {
+                if (typeof populateRecentOrders === 'function') {
+                    populateRecentOrders();
+                }
+            });
+        })();
     </script>
-    <script>
-        // Initialize dashboard on load
-        if (typeof populateRecentOrders === 'function') {
-            document.addEventListener('DOMContentLoaded', populateRecentOrders);
-        }
-    </script>
+    
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

@@ -10,6 +10,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Supabase JS Client for Real-time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Supabase Client Initialization -->
+    <script src="js/supabase-client.js"></script>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#ff1494">
@@ -461,14 +465,6 @@
                 </div>
 
                 <div class="payments-card">
-                    <div class="refund-broadcast hidden" data-refund-banner>
-                        <div class="refund-broadcast-icon" aria-hidden="true">💸</div>
-                        <div class="refund-broadcast-body">
-                            <p class="refund-broadcast-label">Recent Refund</p>
-                            <p class="refund-broadcast-text" data-refund-message>Completed refunds will be announced here.</p>
-                        </div>
-                        <button type="button" class="refund-broadcast-close" data-refund-dismiss aria-label="Dismiss refund update">&times;</button>
-                    </div>
                     <div class="payments-table-wrapper">
                         <table class="payments-table" aria-live="polite">
                             <thead>
@@ -580,7 +576,71 @@
     <script src="js/refund-state.js"></script>
     <script src="js/refund-banner.js"></script>
     <script src="js/main.js"></script>
+    <script src="js/botzzz773-realtime.js"></script>
     <script src="js/dashboard.js"></script>
+    
+    <!-- BOTZZZ773 Real-Time Integration -->
+    <script>
+        (function() {
+            'use strict';
+            
+            console.log('[BOTZZZ773] Dashboard real-time integration loading...');
+            
+            // Wait for supabase:ready event
+            document.addEventListener('supabase:ready', function() {
+                console.log('[BOTZZZ773] Supabase ready, initializing dashboard real-time...');
+                
+                if (typeof BOTZZZ773Realtime === 'undefined') {
+                    console.warn('[BOTZZZ773] Realtime module not found');
+                    return;
+                }
+                
+                // Get current user ID from localStorage
+                var userData = localStorage.getItem('user');
+                var userId = userData ? JSON.parse(userData).id : null;
+                
+                if (!userId) {
+                    console.warn('[BOTZZZ773] No user ID found for real-time');
+                    return;
+                }
+                
+                // Initialize real-time
+                BOTZZZ773Realtime.init().then(function() {
+                    console.log('[BOTZZZ773] Dashboard real-time connected');
+                    
+                    // Subscribe to user's orders with proper handler
+                    BOTZZZ773Realtime.subscribeToOrders(function(data) {
+                        console.log('[BOTZZZ773 Dashboard] Order update received:', data.eventType);
+                        
+                        // Use the dashboard handler if available
+                        if (typeof window.BOTZZZ773_handleDashboardOrderUpdate === 'function') {
+                            window.BOTZZZ773_handleDashboardOrderUpdate(data);
+                        }
+                    });
+                    
+                    // Subscribe to user's balance changes
+                    BOTZZZ773Realtime.subscribeToBalance(function(data) {
+                        console.log('[BOTZZZ773 Dashboard] Balance update:', data);
+                        // Update balance display
+                        if (data.record && data.record.balance !== undefined) {
+                            var balanceEl = document.getElementById('balanceAmount');
+                            if (balanceEl) {
+                                balanceEl.textContent = '$' + parseFloat(data.record.balance).toFixed(2);
+                            }
+                        }
+                    });
+                    
+                    // Subscribe to user's tickets
+                    BOTZZZ773Realtime.subscribeToTickets(function(data) {
+                        console.log('[BOTZZZ773 Dashboard] Ticket update:', data.eventType);
+                    });
+                }).catch(function(err) {
+                    console.warn('[BOTZZZ773] Dashboard real-time init failed:', err);
+                });
+            });
+        })();
+    </script>
+    
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

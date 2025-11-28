@@ -27,6 +27,9 @@
     <link rel="apple-touch-icon" sizes="384x384" href="/img/icons/icon-384x384.png">
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
+    <!-- Supabase Real-Time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="js/supabase-client.js"></script>
 </head>
 <body>
     <!-- Navigation -->
@@ -212,11 +215,36 @@
         </div>
     </footer>
 
+    <script src="js/api-client.js"></script>
     <script src="js/main.js"></script>
     <script src="js/auth-backend.js"></script>
     <script src="js/tickets.js"></script>
+    <script src="js/botzzz773-realtime.js"></script>
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 
+    <!-- BOTZZZ773 Real-Time Init -->
+    <script>
+        // Initialize real-time for ticket updates
+        document.addEventListener('supabase:ready', function() {
+            console.log('[BOTZZZ773] Tickets page real-time initializing...');
+            
+            if (window.BOTZZZ773Realtime) {
+                window.BOTZZZ773Realtime.init().then(function() {
+                    // Subscribe to ticket updates for current user
+                    window.BOTZZZ773Realtime.subscribeToTickets(function(data) {
+                        console.log('[BOTZZZ773] Ticket update:', data);
+                        // Reload tickets when there's an update
+                        if (typeof loadTickets === 'function') {
+                            loadTickets();
+                        }
+                    });
+                    console.log('[BOTZZZ773] Tickets page real-time connected');
+                }).catch(function(err) {
+                    console.warn('[BOTZZZ773] Tickets page real-time error:', err);
+                });
+            }
+        });
+    </script>
 </body>
 </html>

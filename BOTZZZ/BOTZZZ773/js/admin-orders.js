@@ -7,7 +7,7 @@ let ordersAutoRefreshTimer = null;
 let lastOrderSyncTime = 0;
 let ordersSyncInFlight = false;
 const ORDERS_SYNC_MIN_INTERVAL = 30000; // 30 seconds
-const ORDERS_AUTO_REFRESH_INTERVAL = 30000; // 30 seconds
+const ORDERS_AUTO_REFRESH_INTERVAL = 10000; // 10 seconds - fallback polling interval
 const DEFAULT_ORDER_REFERENCE_BASE = 7000000;
 let highestOrderIdHint = DEFAULT_ORDER_REFERENCE_BASE;
 const selectedOrderIds = new Set();
@@ -22,6 +22,9 @@ let orderIdSelectionShortcutAttached = false;
 
 // Track current view state explicitly
 let currentOrdersView = 'all'; // 'all' | 'failed' | 'provider-errors'
+
+// BOTZZZ773 Real-time WebSocket state
+let realtimeEnabled = false;
 
 const adminOrdersPopupShell = (() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -1573,6 +1576,184 @@ function startOrdersAutoRefresh() {
     }, ORDERS_AUTO_REFRESH_INTERVAL);
 }
 
+/**
+ * ==========================================
+ * BOTZZZ773 Real-Time Integration
+ * ==========================================
+ * Provides instant order updates without page refresh
+ */
+function initializeRealtimeOrders() {
+    if (typeof window.BOTZZZ773Realtime === 'undefined') {
+        console.log('[BOTZZZ773 Orders] Realtime not available, using polling');
+        return false;
+    }
+
+    // Check if Supabase is ready, otherwise wait for it
+    const supabaseClient = window.BOTZZZ773_SUPABASE || window.supabaseClient;
+    
+    if (!supabaseClient) {
+        console.log('[BOTZZZ773 Orders] Waiting for Supabase ready event...');
+        
+        // Listen for supabase:ready event
+        document.addEventListener('supabase:ready', function onSupabaseReady() {
+            console.log('[BOTZZZ773 Orders] Supabase ready, initializing real-time...');
+            document.removeEventListener('supabase:ready', onSupabaseReady);
+            setupRealtimeSubscriptions();
+        });
+        
+        return true; // Will initialize when ready
+    }
+    
+    // Supabase already ready, initialize now
+    return setupRealtimeSubscriptions();
+}
+
+function setupRealtimeSubscriptions() {
+    try {
+        // Initialize realtime client
+        window.BOTZZZ773Realtime.init().then(function() {
+            console.log('[BOTZZZ773 Orders] Real-time initialized');
+            
+            // Subscribe to order changes
+            window.BOTZZZ773Realtime.subscribeToOrders((data) => {
+                console.log('[BOTZZZ773 Orders] Update:', data.type, data.record?.id);
+                handleRealtimeOrderUpdate(data);
+            });
+
+            // Listen for failed orders - instant notification
+            window.BOTZZZ773Realtime.on('orders:failed', (data) => {
+                console.log('[BOTZZZ773 Orders] FAILED:', data.record?.order_number);
+                updateFailedOrdersBadge();
+                if (currentOrdersView === 'failed') {
+                    loadFailedOrders();
+                }
+                showNotification(`Order #${data.record?.order_number || 'Unknown'} failed`, 'error');
+            });
+
+            // Listen for completed orders
+            window.BOTZZZ773Realtime.on('orders:completed', (data) => {
+                console.log('[BOTZZZ773 Orders] COMPLETED:', data.record?.order_number);
+                if (currentOrdersView === 'all') {
+                    updateOrderRowInTable(data.record);
+                }
+            });
+
+            // Listen for refunded orders
+            window.BOTZZZ773Realtime.on('orders:refunded', (data) => {
+                console.log('[BOTZZZ773 Orders] REFUNDED:', data.record?.order_number);
+                refreshOrdersAfterAdminChange();
+            });
+            
+            // Listen for connection status
+            window.BOTZZZ773Realtime.on('connected', () => {
+                realtimeEnabled = true;
+                updateOrdersSyncStatus('Real-time connected');
+            });
+
+            realtimeEnabled = true;
+            console.log('[BOTZZZ773 Orders] Real-time enabled');
+            updateOrdersSyncStatus('Real-time active');
+        }).catch(function(error) {
+            console.error('[BOTZZZ773 Orders] Realtime init error:', error);
+            realtimeEnabled = false;
+            updateOrdersSyncStatus('Polling mode');
+        });
+        
+        return true;
+
+    } catch (error) {
+        console.error('[BOTZZZ773 Orders] Realtime error:', error);
+        return false;
+    }
+}
+
+/**
+ * Handle incoming real-time order update
+ * @param {Object} data - Real-time payload
+ */
+function handleRealtimeOrderUpdate(data) {
+    const { type, record, oldRecord } = data;
+
+    if (!record) return;
+
+    // Update the orders cache
+    const cacheIndex = ordersCache.findIndex(o => o.id === record.id);
+    
+    if (type === 'INSERT') {
+        // New order - add to top of cache
+        ordersCache.unshift(record);
+        console.log('[BOTZZZ773 Orders] New order added to cache');
+    } else if (type === 'UPDATE' && cacheIndex !== -1) {
+        // Update existing order in cache
+        ordersCache[cacheIndex] = { ...ordersCache[cacheIndex], ...record };
+        console.log('[BOTZZZ773 Orders] Order updated in cache');
+    } else if (type === 'DELETE' && cacheIndex !== -1) {
+        // Remove from cache
+        ordersCache.splice(cacheIndex, 1);
+        console.log('[BOTZZZ773 Orders] Order removed from cache');
+    }
+
+    // Refresh the UI based on current view
+    if (currentOrdersView === 'failed' && (record.status === 'failed' || record.status === 'error')) {
+        loadFailedOrders();
+    } else if (currentOrdersView === 'all') {
+        // Update the specific row if visible
+        updateOrderRowInTable(record);
+    }
+}
+
+/**
+ * Update a single order row in the table without full refresh
+ * @param {Object} order - Order record from real-time or API
+ */
+function updateOrderRowInTable(order) {
+    if (!order || !order.id) return;
+    
+    const row = document.querySelector(`tr[data-order-id="${order.id}"]`);
+    if (!row) {
+        // Order not in current view, do full refresh
+        loadOrders({ skipSync: true });
+        return;
+    }
+
+    // Update status cell
+    const statusCell = row.querySelector('.status-badge');
+    if (statusCell && order.status) {
+        const statusKey = (order.status || 'pending').toLowerCase().replace(/\s+/g, '-');
+        statusCell.className = `status-badge ${statusKey}`;
+        statusCell.textContent = order.status.charAt(0).toUpperCase() + order.status.slice(1);
+    }
+
+    // Update row data attribute
+    row.dataset.status = (order.status || '').toLowerCase();
+
+    console.log('[BOTZZZ773 Orders] Row updated:', order.id);
+}
+
+/**
+ * Update failed orders badge count
+ */
+async function updateFailedOrdersBadge() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch('/.netlify/functions/orders?status=failed&countOnly=true', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const badge = document.getElementById('failedOrderCount');
+            if (badge) {
+                badge.textContent = data.count || data.orders?.length || 0;
+            }
+        }
+    } catch (error) {
+        console.error('[ORDERS] Failed to update badge:', error);
+    }
+}
+
 async function initializeOrdersPage() {
     console.log('[ORDERS] Initializing orders page - loading ALL orders');
     // Reset to all view on page load
@@ -1586,7 +1767,24 @@ async function initializeOrdersPage() {
     updateOrdersSyncStatus('Provider sync pending...');
     await syncOrderStatuses({ silent: true, force: true });
     await loadOrders({ skipSync: true });
-    startOrdersAutoRefresh();
+    
+    // Try to enable real-time updates first
+    const realtimeActive = initializeRealtimeOrders();
+    
+    // Start polling as fallback (runs at slower rate if realtime is active)
+    if (!realtimeActive) {
+        startOrdersAutoRefresh();
+    } else {
+        // Use slower polling as backup when realtime is active
+        const BACKUP_POLL_INTERVAL = 60000; // 1 minute backup poll
+        if (ordersAutoRefreshTimer) {
+            clearInterval(ordersAutoRefreshTimer);
+        }
+        ordersAutoRefreshTimer = setInterval(async () => {
+            console.log('[ORDERS] Backup poll - verifying data consistency');
+            await loadOrders({ skipSync: true });
+        }, BACKUP_POLL_INTERVAL);
+    }
 }
 
 // Modal Helper Functions (shared with admin-users.js pattern)

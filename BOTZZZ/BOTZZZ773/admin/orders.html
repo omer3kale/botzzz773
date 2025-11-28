@@ -6,11 +6,15 @@
     <title>Orders - BOTZZZ773 Admin</title>
     <link rel="stylesheet" href="../css/admin-styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Supabase JS Client for Real-time -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Admin Authentication Protection - MUST BE FIRST -->
     <script src="../js/admin-auth.js"></script>
+    <!-- Supabase Client Initialization -->
+    <script src="../js/supabase-client.js"></script>
     <!-- PWA Configuration -->
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#ff1494">
@@ -415,8 +419,60 @@
         </div>
     </main>
 
+    <!-- BOTZZZ773 Core Scripts -->
     <script src="../js/admin.js?v=20251128"></script>
+    <script src="../js/botzzz773-realtime.js?v=20251128"></script>
     <script src="../js/admin-orders.js?v=20251128"></script>
+    
+    <!-- BOTZZZ773 Real-Time Status Indicator -->
+    <script>
+        (function() {
+            'use strict';
+            
+            // Initialize real-time when page loads
+            window.addEventListener('load', function() {
+                if (typeof BOTZZZ773Realtime === 'undefined') {
+                    console.warn('[BOTZZZ773 Orders] Realtime module not available');
+                    return;
+                }
+                
+                // Listen for connection status
+                BOTZZZ773Realtime.on('connected', function(data) {
+                    console.log('[BOTZZZ773 Orders] Real-time connected:', data.source);
+                    updateRealtimeIndicator(true);
+                });
+                
+                BOTZZZ773Realtime.on('error', function(data) {
+                    console.warn('[BOTZZZ773 Orders] Real-time error:', data);
+                    updateRealtimeIndicator(false);
+                });
+                
+                // Check status after delay
+                setTimeout(function() {
+                    var status = BOTZZZ773Realtime.getStatus();
+                    console.log('[BOTZZZ773 Orders] Status:', status);
+                    updateRealtimeIndicator(status.connected);
+                }, 2000);
+            });
+            
+            function updateRealtimeIndicator(connected) {
+                var indicator = document.getElementById('realtimeStatus');
+                if (!indicator) {
+                    // Create indicator if not exists
+                    var syncStatus = document.querySelector('.sync-status');
+                    if (syncStatus) {
+                        syncStatus.innerHTML += ' <span id="realtimeStatus" style="margin-left:8px;font-size:10px;' + 
+                            (connected ? 'color:#22c55e' : 'color:#ef4444') + '">' +
+                            (connected ? '● LIVE' : '○ POLLING') + '</span>';
+                    }
+                } else {
+                    indicator.style.color = connected ? '#22c55e' : '#ef4444';
+                    indicator.textContent = connected ? '● LIVE' : '○ POLLING';
+                }
+            }
+        })();
+    </script>
+    
     <!-- PWA Registration -->
     <script src="/js/pwa.js?v=20251128"></script>
 

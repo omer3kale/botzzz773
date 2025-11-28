@@ -1369,6 +1369,62 @@
         setActiveSidebarLink(dashboardLink);
     }
 
+    // ==========================================
+    // REAL-TIME ORDER HANDLER (BOTZZZ773)
+    // ==========================================
+    function handleRealtimeOrderUpdate(data) {
+        console.log('[BOTZZZ773] Dashboard received real-time order update:', data);
+        
+        if (!data || !data.record) {
+            console.warn('[BOTZZZ773] Invalid real-time data format');
+            return;
+        }
+        
+        const record = data.record;
+        const eventType = data.type || 'UPDATE';
+        
+        // Check if this order belongs to current user
+        const currentUserId = user?.id || user?.user_id;
+        if (record.user_id && record.user_id !== currentUserId) {
+            console.log('[BOTZZZ773] Order update for different user, ignoring');
+            return;
+        }
+        
+        // Update last orders snapshot if we have it
+        if (lastOrdersSnapshot && lastOrdersSnapshot.length > 0) {
+            const orderIndex = lastOrdersSnapshot.findIndex(o => o.id === record.id);
+            
+            if (eventType === 'INSERT') {
+                // New order - add to beginning
+                lastOrdersSnapshot.unshift(record);
+                lastOrdersUpdatedAt = Date.now();
+            } else if (eventType === 'UPDATE' && orderIndex >= 0) {
+                // Update existing order
+                lastOrdersSnapshot[orderIndex] = { ...lastOrdersSnapshot[orderIndex], ...record };
+                lastOrdersUpdatedAt = Date.now();
+            } else if (eventType === 'DELETE' && orderIndex >= 0) {
+                // Remove deleted order
+                lastOrdersSnapshot.splice(orderIndex, 1);
+                lastOrdersUpdatedAt = Date.now();
+            }
+            
+            // Re-render displays with updated data
+            updateLiveStatusPanel(lastOrdersSnapshot);
+            updateRefundDisplays(lastOrdersSnapshot);
+            
+            const ordersTableBody = document.getElementById('ordersTableBody');
+            if (ordersTableBody && lastOrdersSnapshot.length > 0) {
+                displayOrders(lastOrdersSnapshot);
+            }
+        } else {
+            // No snapshot yet, do a full reload
+            loadOrders({ silent: true, reason: 'realtime-update' });
+        }
+    }
+    
+    // Expose real-time handler globally for botzzz773-realtime.js
+    window.BOTZZZ773_handleDashboardOrderUpdate = handleRealtimeOrderUpdate;
+
     // Load orders from backend
     async function loadOrders(options = {}) {
         const {

@@ -35,6 +35,44 @@
     margin-bottom: var(--spacing-xl);
 }
 
+.api-hero-actions .btn-primary,
+.api-hero-actions .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 28px;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.api-hero-actions .btn-primary {
+    background: linear-gradient(135deg, #ff1494 0%, #ff3da8 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 20px rgba(255, 20, 148, 0.4);
+    border: none;
+}
+
+.api-hero-actions .btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 30px rgba(255, 20, 148, 0.5);
+}
+
+.api-hero-actions .btn-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: #ffffff;
+    border: 2px solid #ff1494;
+}
+
+.api-hero-actions .btn-secondary:hover {
+    background: rgba(255, 20, 148, 0.15);
+    border-color: #ff3da8;
+    transform: translateY(-3px);
+}
+
 .api-info-row {
     display: flex;
     gap: var(--spacing-xl);
@@ -460,6 +498,35 @@
     border-radius: var(--radius-lg);
     padding: var(--spacing-xl);
     margin-bottom: var(--spacing-xl);
+}
+
+/* API Section within Dashboard */
+.api-section {
+    background: var(--bg-darker);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-top: var(--spacing-xl);
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-xl);
+}
+
+.section-header h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-white);
+    margin: 0;
+}
+
+.section-header .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
 }
 
 .section-header-row {
