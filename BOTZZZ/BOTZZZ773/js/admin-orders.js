@@ -220,6 +220,66 @@ function toNumberOrNull(value) {
     return Number.isFinite(num) ? num : null;
 }
 
+/**
+ * Safely extract all order-related data upfront to prevent TDZ errors.
+ * This function should be called at the START of any order processing loop.
+ * Returns a flat object with all commonly used order properties.
+ */
+function extractOrderData(order) {
+    if (!order || typeof order !== 'object') {
+        return {
+            order: null,
+            orderService: null,
+            orderUser: null,
+            orderProvider: null,
+            serviceName: 'Unknown Service',
+            userName: 'Unknown',
+            userEmail: '',
+            providerName: 'Unknown Provider',
+            providerApiUrl: '',
+            isValid: false
+        };
+    }
+
+    // Extract service - check multiple possible property names
+    const orderService = order.service || order.services || null;
+    
+    // Extract user - check multiple possible property names
+    const orderUser = order.user || order.users || null;
+    
+    // Extract provider from multiple sources
+    const orderProvider = order.provider 
+        || order.providers 
+        || orderService?.provider 
+        || orderService?.providers 
+        || null;
+    
+    // Safely extract display values
+    const serviceName = orderService?.name || 'Unknown Service';
+    const userName = orderUser?.username || orderUser?.email?.split('@')[0] || 'Unknown';
+    const userEmail = orderUser?.email || '';
+    const providerName = orderProvider?.name 
+        || order.provider_name 
+        || order.failure_log?.provider?.name 
+        || 'Unknown Provider';
+    const providerApiUrl = orderProvider?.api_url 
+        || order.failure_log?.provider?.api_url 
+        || '';
+
+    return {
+        order,
+        orderService,
+        orderUser,
+        orderProvider,
+        serviceName,
+        userName,
+        userEmail,
+        providerName,
+        providerApiUrl,
+        isValid: true
+    };
+}
+
 function formatCurrency(value, fractionDigits = 2, fallback = 'N/A', currencyCode = 'USD') {
     const numeric = toNumberOrNull(value);
     if (numeric === null) {
@@ -2231,6 +2291,15 @@ async function loadOrders({ skipSync = false } = {}) {
             let mostRecentSync = lastOrderSyncTime;
 
             ordersCache.forEach((order, index) => {
+                try {
+                // SAFETY: Extract all order-related data FIRST to prevent TDZ errors
+                const orderData = extractOrderData(order);
+                if (!orderData.isValid) {
+                    console.warn('[ORDERS] Skipping invalid order at index', index);
+                    return;
+                }
+                const { orderService, orderUser } = orderData;
+                
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const statusSummary = resolveOrderStatusSummary(order);
                 const orderStatusKey = statusSummary.customer?.key || 'unknown';
@@ -2251,11 +2320,7 @@ async function loadOrders({ skipSync = false } = {}) {
                     || order.provider_response?.message
                     || null;
                 
-                // Get order service and user first (needed for error display)
-                const orderUser = order.user || order.users || null;
-                const orderService = order.service || order.services || null;
-                
-                // Get provider info for error display
+                // Get provider info for error display (orderService already extracted above)
                 const errorProviderName = order.failure_log?.provider?.name 
                     || orderService?.provider?.name 
                     || order.provider_name 
@@ -2394,6 +2459,11 @@ async function loadOrders({ skipSync = false } = {}) {
                 const numericOrderId = toNumberOrNull(order.id);
                 if (numericOrderId !== null && numericOrderId > highestOrderIdHint) {
                     highestOrderIdHint = numericOrderId;
+                }
+                } catch (orderRenderError) {
+                    // SAFETY: Catch any remaining TDZ or rendering errors for individual orders
+                    console.error('[ORDERS] Error rendering order at index', index, ':', orderRenderError);
+                    // Continue processing other orders - don't crash the whole page
                 }
             });
 
@@ -2630,13 +2700,15 @@ async function loadFailedOrders() {
                     return;
                 }
 
+                // SAFETY: Extract all order-related data FIRST to prevent TDZ errors
+                const orderData = extractOrderData(order);
+                const { orderService, orderUser, serviceName: extractedServiceName, userName: extractedUserName } = orderData;
+
                 if (order.id !== undefined && order.id !== null) {
                     failedOrdersRegistry.set(String(order.id), order);
                 }
                 
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
-                const orderUser = order.user || order.users || null;
-                const orderService = order.service || order.services || null;
                 const identifierMeta = resolveOrderIdentifiers(order);
                 
                 const orderPrimaryLabel = escapeHtml(identifierMeta?.primaryLabel || order.id || 'Unknown');
@@ -2654,8 +2726,8 @@ async function loadFailedOrders() {
                 const chargeValue = toNumberOrNull(order.charge || order.retail_charge || order.customer_charge || order.amount);
                 const charge = chargeValue !== null ? formatCurrency(chargeValue, 2, 'N/A', order.currency || 'USD') : 'N/A';
 
-                const userName = escapeHtml(orderUser?.username || orderUser?.email || 'Unknown');
-                const serviceName = escapeHtml(orderService?.name || 'Unknown Service');
+                const userName = escapeHtml(orderUser?.username || orderUser?.email || extractedUserName);
+                const serviceName = escapeHtml(orderService?.name || extractedServiceName);
                 
                 // Show provider error with safe extraction
                 let providerError = 'Unknown error';
@@ -3347,10 +3419,10 @@ function showOrderErrorDetails(orderId) {
     currentErrorOrderId = orderId;
     currentErrorId = order.failure_log?.id || null;
 
-    // Get order details
-    const orderService = order.service || order.services || {};
-    const orderUser = order.user || order.users || {};
-    const provider = order.failure_log?.provider || orderService.provider || {};
+    // SAFETY: Extract all order-related data FIRST to prevent TDZ errors
+    const orderData = extractOrderData(order);
+    const { orderService, orderUser, providerName, providerApiUrl, serviceName } = orderData;
+    const provider = order.failure_log?.provider || orderService?.provider || {};
     
     // Populate modal fields
     const modal = document.getElementById('providerErrorModal');
@@ -3360,8 +3432,8 @@ function showOrderErrorDetails(orderId) {
     }
 
     // Provider info
-    document.getElementById('errorProviderName').textContent = provider.name || orderService.provider?.name || 'Unknown Provider';
-    document.getElementById('errorProviderUrl').textContent = provider.api_url || orderService.provider?.api_url || 'N/A';
+    document.getElementById('errorProviderName').textContent = provider.name || providerName;
+    document.getElementById('errorProviderUrl').textContent = provider.api_url || providerApiUrl || 'N/A';
 
     // Error details
     const errorMessage = order.provider_error 
@@ -3382,8 +3454,8 @@ function showOrderErrorDetails(orderId) {
     const orderId_display = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';
     document.getElementById('errorOrderId').textContent = `#${orderId_display}`;
     document.getElementById('errorProviderOrderId').textContent = order.provider_order_id || 'N/A';
-    document.getElementById('errorServiceName').textContent = orderService.name || 'Unknown Service';
-    document.getElementById('errorCustomer').textContent = orderUser.email || orderUser.username || 'Unknown';
+    document.getElementById('errorServiceName').textContent = serviceName;
+    document.getElementById('errorCustomer').textContent = orderUser?.email || orderUser?.username || 'Unknown';
     document.getElementById('errorCharge').textContent = `$${Number(order.charge || 0).toFixed(2)}`;
     document.getElementById('errorLink').innerHTML = order.link 
         ? `<a href="${order.link}" target="_blank" rel="noopener" style="color: #60a5fa;">${truncateText(order.link, 40)}</a>`
