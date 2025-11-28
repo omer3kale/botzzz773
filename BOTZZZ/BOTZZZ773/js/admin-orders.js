@@ -1822,6 +1822,22 @@ function closeModal() {
 // Filter orders by status
 function filterOrders(status) {
     console.log('[ORDERS] filterOrders called with status:', status);
+    
+    // If we're currently in provider-errors view, hide it first to restore the orders layout
+    if (currentOrdersView === 'provider-errors') {
+        console.log('[ORDERS] Leaving provider-errors view, restoring orders layout');
+        // Restore hidden elements manually (don't call hideProviderErrors as it reloads orders)
+        const ordersLayout = document.querySelector('.orders-layout');
+        const filtersBar = document.querySelector('.filters-bar');
+        const pagination = document.querySelector('.pagination');
+        const providerErrorsView = document.querySelector('.provider-errors-view');
+        
+        if (ordersLayout) ordersLayout.style.display = '';
+        if (filtersBar) filtersBar.style.display = '';
+        if (pagination) pagination.style.display = '';
+        if (providerErrorsView) providerErrorsView.style.display = 'none';
+    }
+    
     const rows = document.querySelectorAll('#ordersTableBody tr');
     const tabs = document.querySelectorAll('.filter-tab');
     
