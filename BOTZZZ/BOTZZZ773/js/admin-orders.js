@@ -2251,6 +2251,10 @@ async function loadOrders({ skipSync = false } = {}) {
                     || order.provider_response?.message
                     || null;
                 
+                // Get order service and user first (needed for error display)
+                const orderUser = order.user || order.users || null;
+                const orderService = order.service || order.services || null;
+                
                 // Get provider info for error display
                 const errorProviderName = order.failure_log?.provider?.name 
                     || orderService?.provider?.name 
@@ -2264,8 +2268,6 @@ async function loadOrders({ skipSync = false } = {}) {
                     || null;
                 const errorRetryCount = order.failure_log?.retry_count || 0;
 
-                const orderUser = order.user || order.users || null;
-                const orderService = order.service || order.services || null;
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
                 const identifierMeta = resolveOrderIdentifiers(order);
                 const formattedProviderOrderId = identifierMeta.providerOrderDisplay;

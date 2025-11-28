@@ -1,7 +1,7 @@
 -- ============================================================
 -- Bulletproof System Improvements Migration
 -- Date: 2025-11-27
--- Purpose: Add constraints, validations, and improvements
+-- Purpose: Add constraints, validations, and improvements(
 -- ============================================================
 
 -- ============================================================
@@ -19,7 +19,7 @@ BEGIN
     RETURN LOWER(
         REGEXP_REPLACE(
             REGEXP_REPLACE(
-                TRIM(input),
+                TRIM(input),)
                 '[^a-zA-Z0-9\s-]', '', 'g'
             ),
             '\s+', '-', 'g'
