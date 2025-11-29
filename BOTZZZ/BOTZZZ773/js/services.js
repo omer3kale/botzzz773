@@ -535,7 +535,7 @@ async function buildGroupedServicesHtml(groupedServices = {}) {
     
     return hierarchy.map(parent => {
         const parentSlug = parent.slug;
-        const parentIcon = categoryIcons[parentSlug] || '⭐';
+        const parentIconClass = categoryIcons[parentSlug] || 'fas fa-star';
         const parentTitle = `${formatCategoryLabel(parent.name || parentSlug)} Services`;
         
         let html = '';
@@ -544,7 +544,7 @@ async function buildGroupedServicesHtml(groupedServices = {}) {
         if (parent.services.length > 0) {
             html += buildCategorySectionHtml({
                 slug: parentSlug,
-                icon: parentIcon,
+                icon: parentIconClass,
                 title: parentTitle,
                 services: sortServicesForDisplay(parent.services),
                 isParent: true,
@@ -554,7 +554,7 @@ async function buildGroupedServicesHtml(groupedServices = {}) {
             // Parent header without services
             html += `
                 <div class="service-category service-category--parent" data-category="${parentSlug}" id="${parentSlug}">
-                    <h2 class="category-title">${parentIcon} ${parentTitle}</h2>
+                    <h2 class="category-title">${renderCategoryIcon(parentIconClass)} ${parentTitle}</h2>
                 </div>
             `;
         }
@@ -562,13 +562,13 @@ async function buildGroupedServicesHtml(groupedServices = {}) {
         // Build child subcategories
         parent.children.forEach(child => {
             const childSlug = child.slug;
-            const childIcon = categoryIcons[childSlug] || '📁';
+            const childIconClass = categoryIcons[childSlug] || 'fas fa-folder';
             const childTitle = formatCategoryLabel(child.name || childSlug);
             
             html += buildSubcategorySectionHtml({
                 parentSlug: parentSlug,
                 slug: childSlug,
-                icon: childIcon,
+                icon: childIconClass,
                 title: childTitle,
                 services: sortServicesForDisplay(child.services)
             });
@@ -582,7 +582,7 @@ function buildSubcategorySectionHtml({ parentSlug, slug, icon, title, services }
     const rowsHtml = buildServiceRowsHtml(services);
     return `
         <div class="service-category service-category--child" data-category="${slug}" data-parent-category="${parentSlug}" id="${slug}">
-            <h3 class="subcategory-title">${icon} ${title}</h3>
+            <h3 class="subcategory-title">${renderCategoryIcon(icon)} ${title}</h3>
             <div class="service-subcategory">
                 <div class="services-table">
                     <div class="service-row service-row-header">
@@ -604,7 +604,7 @@ function buildCategorySectionHtml({ slug, icon, title, services, isParent = fals
     const childrenClass = hasChildren ? ' has-children' : '';
     return `
         <div class="service-category${parentClass}${childrenClass}" data-category="${slug}" id="${slug}">
-            <h2 class="category-title">${icon} ${title}</h2>
+            <h2 class="category-title">${renderCategoryIcon(icon)} ${title}</h2>
             <div class="service-subcategory">
                 <div class="services-table">
                     <div class="service-row service-row-header">
@@ -1312,28 +1312,25 @@ async function getCategoryIconsMap() {
     
     allCategories.forEach(category => {
         const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
-        // Convert Font Awesome icons to emoji for service display
-        const emojiMap = {
-            'fab fa-instagram': '📱',
-            'fab fa-tiktok': '🎵',
-            'fab fa-youtube': '▶️',
-            'fab fa-twitter': '🐦',
-            'fab fa-facebook': '👥',
-            'fab fa-telegram': '💬',
-            'fab fa-spotify': '🎧',
-            'fab fa-soundcloud': '🎶',
-            'fab fa-reddit': '🟠',
-            'fab fa-discord': '💜',
-            'fas fa-folder': '📁'
-        };
-        
-        iconMap[slug] = emojiMap[category.icon] || '⭐';
+        // Store the actual Font Awesome icon class from category management
+        iconMap[slug] = category.icon || 'fas fa-folder';
     });
     
     // Add fallback for 'other' category
-    iconMap['other'] = '⭐';
+    iconMap['other'] = 'fas fa-star';
     
     return iconMap;
+}
+
+// Helper to render icon - handles both FA classes and emojis
+function renderCategoryIcon(iconValue) {
+    if (!iconValue) return '<i class="fas fa-star"></i>';
+    // If it's a Font Awesome class
+    if (iconValue.startsWith('fa')) {
+        return `<i class="${iconValue}"></i>`;
+    }
+    // If it's an emoji or other text
+    return iconValue;
 }
 
 // Load category filter buttons for services page
@@ -1603,7 +1600,7 @@ async function displayFilteredServices(services, options = {}) {
     const suffix = options.subcategoryLabel ? ` · ${options.subcategoryLabel}` : '';
     const headline = `${label}${suffix}`;
     const categoryIcons = await getCategoryIconsMap();
-    const icon = options.icon || categoryIcons[options.parentSlug || options.slug] || '⭐';
+    const iconClass = options.icon || categoryIcons[options.parentSlug || options.slug] || 'fas fa-star';
 
     activeFilterContext = {
         slug: options.slug,
@@ -1628,7 +1625,7 @@ async function displayFilteredServices(services, options = {}) {
     container.innerHTML = `
         ${buildFilterContextBar(`Showing ${headline}`)}
         <div class="service-category service-category--filtered" data-category="${options.slug || 'filtered'}">
-            <h2 class="category-title">${icon} ${headline}</h2>
+            <h2 class="category-title">${renderCategoryIcon(iconClass)} ${headline}</h2>
             <div class="service-subcategory">
                 <div class="services-table">
                     <div class="service-row service-row-header">

@@ -62,6 +62,11 @@
     }
 
     // ==========================================
+    // USER DISCOUNT RATE
+    // ==========================================
+    let userDiscountRate = 0; // Percentage discount (0-100)
+
+    // ==========================================
     // AUTHENTICATION CHECK
     // ==========================================
     function checkAuth(reason = 'dashboard-init') {
@@ -86,6 +91,11 @@
     if (!auth) return;
 
     const { token, user } = auth;
+    
+    // Initialize discount rate from stored user data if available
+    if (user.discount_rate !== undefined) {
+        userDiscountRate = parseFloat(user.discount_rate) || 0;
+    }
 
     // Update UI with user data
     function updateUserDisplay() {
@@ -120,6 +130,13 @@
                 Object.assign(user, data.user);
                 localStorage.setItem('user', JSON.stringify(user));
                 updateUserDisplay();
+                
+                // Update discount rate
+                if (data.user.discount_rate !== undefined) {
+                    userDiscountRate = parseFloat(data.user.discount_rate) || 0;
+                    updateDiscountBadge();
+                }
+                
                 if (window.BalanceSync) {
                     window.BalanceSync.setUser(user, { reason: context.reason || 'dashboard-refresh' });
                 }
@@ -129,6 +146,18 @@
             console.warn('[DASHBOARD] Failed to refresh user snapshot:', error);
         }
         return null;
+    }
+    
+    function updateDiscountBadge() {
+        const discountBadge = document.getElementById('discountBadge');
+        if (discountBadge) {
+            if (userDiscountRate > 0) {
+                discountBadge.textContent = `-${userDiscountRate}% discount`;
+                discountBadge.style.display = 'inline-block';
+            } else {
+                discountBadge.style.display = 'none';
+            }
+        }
     }
 
     function escapeHtml(text) {
@@ -768,7 +797,13 @@
         const quantity = parseInt(quantityInput.value) || 0;
         
         if (quantity >= selectedService.min && quantity <= selectedService.max) {
-            const charge = (quantity / 1000) * selectedService.price;
+            let charge = (quantity / 1000) * selectedService.price;
+            
+            // Apply user discount if available
+            if (userDiscountRate > 0) {
+                charge = charge * (1 - userDiscountRate / 100);
+            }
+            
             if (chargeAmount) {
                 chargeAmount.textContent = formatCurrencyDisplay(charge, selectedService.currency);
             }
@@ -1789,6 +1824,7 @@
 
     // Initialize
     updateUserDisplay();
+    updateDiscountBadge();
 
     if (window.BalanceSync) {
         window.BalanceSync.configure({

@@ -485,12 +485,24 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     background: linear-gradient(135deg, rgba(255, 20, 148, 0.1), rgba(255, 105, 180, 0.05));
     border: 1px solid rgba(255, 20, 148, 0.3);
     border-radius: var(--radius-md);
+    flex-wrap: wrap;
 }
 
 .charge-amount {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--primary-pink);
+}
+
+.discount-badge {
+    background: linear-gradient(135deg, #00c853, #00e676);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 8px;
+    box-shadow: 0 2px 8px rgba(0, 200, 83, 0.3);
 }
 
 .btn-submit {
