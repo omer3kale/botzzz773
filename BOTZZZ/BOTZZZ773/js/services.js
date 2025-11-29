@@ -1162,12 +1162,12 @@ categoryLoadingStyle.textContent = `
         padding: 16px;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
-        background: #f8fafc;
+        background: #1e0613;
     }
 
     .services-filter-label {
         font-weight: 600;
-        color: #0f172a;
+        color: #ffffff;
     }
 `;
 document.head.appendChild(categoryLoadingStyle);
