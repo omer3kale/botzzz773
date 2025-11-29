@@ -635,10 +635,13 @@ function confirmLoginAsUser(userId) {
 
 // Delete user
 function deleteUser(userId) {
+    const user = usersData.find(u => u.id === userId);
+    const userLabel = user ? user.username : userId.substring(0, 8);
+    
     const content = `
         <div class="confirmation-message danger">
             <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
-            <p>Are you sure you want to delete User #${userId}?</p>
+            <p>Are you sure you want to delete <strong>${userLabel}</strong>?</p>
             <p style="color: #888; font-size: 14px; margin-top: 10px;">
                 This will permanently delete all their data including orders, tickets, and payment history. This action cannot be undone.
             </p>
@@ -647,7 +650,7 @@ function deleteUser(userId) {
     
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-danger" onclick="confirmDeleteUser(${userId})">
+        <button type="button" class="btn-danger" onclick="confirmDeleteUser('${userId}')">
             <i class="fas fa-trash"></i> Delete User
         </button>
     `;
@@ -655,10 +658,45 @@ function deleteUser(userId) {
     createModal('Delete User', content, actions);
 }
 
-function confirmDeleteUser(userId) {
-    showNotification(`User #${userId} deleted successfully`, 'success');
-    closeModal();
-    setTimeout(() => populateUsersTable(), 500);
+async function confirmDeleteUser(userId) {
+    const deleteBtn = document.querySelector('.btn-danger');
+    if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+        
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ userId: userId })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to delete user');
+        }
+        
+        showNotification('User deleted successfully!', 'success');
+        closeModal();
+        setTimeout(() => populateUsersTable(), 500);
+        
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        showNotification(error.message, 'error');
+        if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete User';
+        }
+    }
 }
 
 // Initialize

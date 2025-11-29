@@ -120,7 +120,8 @@ exports.handler = async (event) => {
           body: JSON.stringify({ error: 'Invalid action' })
         };
       case 'PUT':
-        return await handleUpdate(user, data, headers);
+        // Pass userId explicitly to handleUpdate
+        return await handleUpdate(user, { ...data, userId: userId || data.userId }, headers);
       case 'DELETE':
         return await handleDelete(user, userId, headers);
       default:
