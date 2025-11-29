@@ -2899,7 +2899,7 @@ async function loadFailedOrders() {
 
         tbody.innerHTML = `
             <tr class="failed-orders-notice">
-                <td colspan="13" style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px;">
+                <td colspan="13" style="background: #000000; border-left: 4px solid #ef4444; padding: 12px;">
                     <i class="fas fa-exclamation-triangle" style="color: #ef4444; margin-right: 8px;"></i>
                     <strong>Failed Orders View:</strong> Showing ${failedOrders.length} order(s) with provider failures. Customers see these as "pending".
                 </td>
