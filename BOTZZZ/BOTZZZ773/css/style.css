@@ -413,14 +413,14 @@ ul {
 }
 
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.1);
+   background: var(--gradient-primary);
     color: var(--text-white);
-    border: 2px solid var(--primary-pink);
+    border: 2px solid #c3a7b6;
 }
 
 .btn-secondary:hover {
-    background: rgba(255, 20, 148, 0.1);
-    border-color: var(--secondary-pink);
+   transform: translateY(-3px);
+    box-shadow: var(--shadow-pink-lg);
 }
 
 .btn-large {
