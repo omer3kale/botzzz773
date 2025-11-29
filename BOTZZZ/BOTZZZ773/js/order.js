@@ -13,6 +13,7 @@ let serviceStatusController = null;
 let networkStatusController = null;
 let isPopupMode = false;
 let authGuardTriggered = false;
+let userDiscountRate = 0; // User's discount percentage (0-100)
 
 const AUTH_ALERT_MESSAGE = 'You must be signed in to place orders. Please sign in or create an account.';
 
@@ -250,27 +251,36 @@ async function initializeBalanceDisplay() {
         }
     }
 
-    // Load fresh balance from server
+    // Load fresh balance and discount rate from server
     try {
         const token = resolveAuthToken('balance-load');
         if (!token) return;
 
-        const response = await fetch('/.netlify/functions/user-profile', {
+        const response = await fetch('/.netlify/functions/users', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (response.ok) {
             const data = await response.json();
-            const balance = Number(data?.balance ?? data?.user?.balance);
+            // Regular user gets their own data in 'user' object
+            const userData = data?.user || data;
+            const balance = Number(userData?.balance);
             if (Number.isFinite(balance)) {
                 balanceDisplay.textContent = `$${balance.toFixed(2)}`;
                 if (window.BalanceSync) {
                     window.BalanceSync.setBalance(balance, { reason: 'order-page-load' });
                 }
             }
+            
+            // Store user's discount rate for price calculations
+            const discount = Number(userData?.discount_rate ?? 0);
+            if (Number.isFinite(discount) && discount >= 0 && discount <= 100) {
+                userDiscountRate = discount;
+                console.log('[ORDER] User discount rate:', userDiscountRate + '%');
+            }
         }
     } catch (err) {
-        console.warn('[ORDER] Failed to load balance:', err.message);
+        console.warn('[ORDER] Failed to load user data:', err.message);
     }
 }
 
@@ -390,11 +400,29 @@ document.addEventListener('DOMContentLoaded', function() {
         if (estimatedPriceEl) {
             if (service && quantity > 0) {
                 const rate = Number(service.rate || 0);
-                const price = (quantity / 1000) * rate;
+                let price = (quantity / 1000) * rate;
+                
+                // Apply user's discount if they have one
+                if (userDiscountRate > 0 && userDiscountRate <= 100) {
+                    const discountAmount = price * (userDiscountRate / 100);
+                    price = price - discountAmount;
+                    
+                    // Show discount info
+                    const discountBadge = document.getElementById('discountBadge');
+                    if (discountBadge) {
+                        discountBadge.textContent = `-${userDiscountRate}% discount applied`;
+                        discountBadge.style.display = 'block';
+                    }
+                }
+                
                 estimatedPriceEl.textContent = '$' + price.toFixed(2);
                 estimatedPriceEl.style.animation = 'pulse 0.5s ease';
             } else {
                 estimatedPriceEl.textContent = '$0.00';
+                const discountBadge = document.getElementById('discountBadge');
+                if (discountBadge) {
+                    discountBadge.style.display = 'none';
+                }
             }
         }
     }
