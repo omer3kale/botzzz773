@@ -123,6 +123,26 @@ const baseHandler = async (event) => {
           };
         }
         return await handleAdminAddPayment(user, body, headers);
+      case 'admin-edit-payment':
+        // Admin-only action
+        if (user.role !== 'admin') {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Admin access required' })
+          };
+        }
+        return await handleAdminEditPayment(user, body, headers);
+      case 'admin-delete-payment':
+        // Admin-only action
+        if (user.role !== 'admin') {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Admin access required' })
+          };
+        }
+        return await handleAdminDeletePayment(user, body, headers);
       default:
         return {
           statusCode: 400,
@@ -483,8 +503,8 @@ async function handleAdminAddPayment(user, data, headers) {
     const { userId, amount, method, transactionId, status, memo } = data;
 
     // Validate required fields
-    if (!userId || !amount || !method || !status) {
-      console.error('Missing required fields:', { userId: !!userId, amount: !!amount, method: !!method, status: !!status });
+    if (!userId || amount === undefined || amount === null || !method || !status) {
+      console.error('Missing required fields:', { userId: !!userId, amount: amount, method: !!method, status: !!status });
       return {
         statusCode: 400,
         headers,
@@ -492,12 +512,13 @@ async function handleAdminAddPayment(user, data, headers) {
       };
     }
 
-    if (amount <= 0) {
+    // Amount can be negative (for balance adjustments/deductions)
+    if (amount === 0) {
       console.error('Invalid amount:', amount);
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Amount must be greater than 0' })
+        body: JSON.stringify({ error: 'Amount cannot be zero' })
       };
     }
 
@@ -606,6 +627,215 @@ async function handleAdminAddPayment(user, data, headers) {
     }
   } catch (error) {
     console.error('Admin add payment error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: `Internal server error: ${error.message}` })
+    };
+  }
+}
+
+async function handleAdminEditPayment(user, data, headers) {
+  try {
+    console.log('handleAdminEditPayment called with:', { user: user.email, data });
+    
+    const { paymentId, amount, method, status, memo } = data;
+
+    // Validate required fields
+    if (!paymentId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Missing required field: paymentId' })
+      };
+    }
+
+    // Get current payment to find user and old amount
+    const { data: existingPayment, error: fetchError } = await supabaseAdmin
+      .from('payments')
+      .select('*, users(id, balance, username, email)')
+      .eq('id', paymentId)
+      .single();
+
+    if (fetchError || !existingPayment) {
+      console.error('Payment not found:', fetchError);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Payment not found' })
+      };
+    }
+
+    const targetUser = existingPayment.users;
+    const oldAmount = parseFloat(existingPayment.amount) || 0;
+    const newAmount = amount !== undefined ? parseFloat(amount) : oldAmount;
+    const oldStatus = existingPayment.status;
+    const newStatus = status || oldStatus;
+
+    // Calculate balance adjustment
+    let balanceAdjustment = 0;
+    const wasCompleted = oldStatus === 'completed';
+    const isNowCompleted = newStatus === 'completed';
+
+    if (wasCompleted && isNowCompleted) {
+      // Both completed - adjust by difference
+      balanceAdjustment = newAmount - oldAmount;
+    } else if (!wasCompleted && isNowCompleted) {
+      // Wasn't completed, now is - add full new amount
+      balanceAdjustment = newAmount;
+    } else if (wasCompleted && !isNowCompleted) {
+      // Was completed, now isn't - remove old amount
+      balanceAdjustment = -oldAmount;
+    }
+    // If neither was nor is completed, no balance adjustment needed
+
+    // Update payment record
+    const updateData = {
+      updated_at: new Date().toISOString()
+    };
+    if (amount !== undefined) updateData.amount = newAmount;
+    if (method) updateData.method = method;
+    if (status) updateData.status = status;
+    if (memo !== undefined) updateData.memo = memo || null;
+
+    // Add edit history to gateway_response
+    const gatewayResponse = existingPayment.gateway_response || {};
+    gatewayResponse.edit_history = gatewayResponse.edit_history || [];
+    gatewayResponse.edit_history.push({
+      edited_by: user.userId,
+      edited_by_email: user.email,
+      timestamp: new Date().toISOString(),
+      changes: { oldAmount, newAmount, oldStatus, newStatus }
+    });
+    updateData.gateway_response = gatewayResponse;
+
+    const { data: updatedPayment, error: updateError } = await supabaseAdmin
+      .from('payments')
+      .update(updateData)
+      .eq('id', paymentId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Update payment error:', updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: `Failed to update payment: ${updateError.message}` })
+      };
+    }
+
+    // Update user balance if needed
+    if (balanceAdjustment !== 0 && targetUser) {
+      const currentBalance = parseFloat(targetUser.balance) || 0;
+      const finalBalance = currentBalance + balanceAdjustment;
+
+      const { error: balanceError } = await supabaseAdmin
+        .from('users')
+        .update({ 
+          balance: finalBalance.toFixed(2),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', targetUser.id);
+
+      if (balanceError) {
+        console.error('Update balance error:', balanceError);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: `Payment updated but balance update failed: ${balanceError.message}` })
+        };
+      }
+
+      console.log('Balance adjusted:', { currentBalance, balanceAdjustment, finalBalance });
+      
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          payment: updatedPayment,
+          message: `Payment updated. User ${targetUser.username} balance adjusted by $${balanceAdjustment.toFixed(2)} (now $${finalBalance.toFixed(2)})`
+        })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        payment: updatedPayment,
+        message: 'Payment updated successfully'
+      })
+    };
+  } catch (error) {
+    console.error('Admin edit payment error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: `Internal server error: ${error.message}` })
+    };
+  }
+}
+
+async function handleAdminDeletePayment(user, data, headers) {
+  try {
+    console.log('handleAdminDeletePayment called with:', { user: user.email, data });
+    
+    const { paymentId } = data;
+
+    if (!paymentId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Missing required field: paymentId' })
+      };
+    }
+
+    // Get payment to check if exists
+    const { data: existingPayment, error: fetchError } = await supabaseAdmin
+      .from('payments')
+      .select('id, amount, status, user_id')
+      .eq('id', paymentId)
+      .single();
+
+    if (fetchError || !existingPayment) {
+      console.error('Payment not found:', fetchError);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Payment not found' })
+      };
+    }
+
+    // Delete the payment (note: this does NOT adjust balance - admin should use edit to adjust first if needed)
+    const { error: deleteError } = await supabaseAdmin
+      .from('payments')
+      .delete()
+      .eq('id', paymentId);
+
+    if (deleteError) {
+      console.error('Delete payment error:', deleteError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: `Failed to delete payment: ${deleteError.message}` })
+      };
+    }
+
+    console.log('Payment deleted:', paymentId);
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: `Payment #${paymentId} deleted successfully. Note: User balance was not adjusted.`
+      })
+    };
+  } catch (error) {
+    console.error('Admin delete payment error:', error);
     return {
       statusCode: 500,
       headers,

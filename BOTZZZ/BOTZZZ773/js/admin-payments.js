@@ -318,12 +318,13 @@ async function addPayment() {
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label>Amount *</label>
-                    <input type="number" name="amount" placeholder="100.00" min="0.01" step="0.01" required>
+                    <label>Amount * <span class="form-hint">(use negative to reduce balance)</span></label>
+                    <input type="number" name="amount" placeholder="100.00 or -50.00" step="0.01" required>
                 </div>
                 <div class="form-group">
                     <label>Payment Method *</label>
                     <select name="method" required>
+                        <option value="adjustment">Balance Adjustment</option>
                         <option value="payeer">Payeer</option>
                         <option value="stripe">Stripe</option>
                         <option value="paypal">PayPal</option>
@@ -609,7 +610,7 @@ async function loadPayments() {
         refreshCard.setAttribute('aria-pressed', 'true');
     }
 
-    tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading payments...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading payments...</td></tr>';
 
     try {
         const token = localStorage.getItem('token');
@@ -679,8 +680,8 @@ async function loadPayments() {
                 const memo = payment.memo ? escapeHtml(payment.memo) : '-';
                 const ariaLabel = `Select payment ${paymentIdRaw || 'without id'} for ${userLabel}`;
                 const modeLabel = payment.gateway_response?.manual ? 'Manual' : 'Live';
-                const methodOptions = ['payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
-                    .map(method => `<option value="${method}"${payment.method === method ? ' selected' : ''}>${method}</option>`)
+                const methodOptions = ['adjustment', 'payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
+                    .map(method => `<option value="${method}"${payment.method === method ? ' selected' : ''}>${method.charAt(0).toUpperCase() + method.slice(1)}</option>`)
                     .join('');
 
                 const row = `
@@ -701,6 +702,15 @@ async function loadPayments() {
                         <td>${escapeHtml(createdDate)}</td>
                         <td>${escapeHtml(updatedDate)}</td>
                         <td>${escapeHtml(modeLabel)}</td>
+                        <td>
+                            <div class="actions-dropdown">
+                                <button class="btn-icon" onclick="togglePaymentActionsMenu(this)"><i class="fas fa-ellipsis-v"></i></button>
+                                <div class="dropdown-menu">
+                                    <a href="#" onclick="editPayment('${paymentIdAttr}'); return false;"><i class="fas fa-edit"></i> Edit Payment</a>
+                                    <a href="#" onclick="deletePayment('${paymentIdAttr}'); return false;" class="danger"><i class="fas fa-trash"></i> Delete</a>
+                                </div>
+                            </div>
+                        </td>
                     </tr>
                 `;
                 tbody.insertAdjacentHTML('beforeend', row);
@@ -709,7 +719,7 @@ async function loadPayments() {
             restorePaymentSelectionState();
             bindPaymentSelectionEvents();
         } else {
-            tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #888;">No payments found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No payments found</td></tr>';
         }
 
         updateSelectedPaymentsSummary();
@@ -718,7 +728,7 @@ async function loadPayments() {
         setPaymentsRefreshStatus(`Updated ${formattedTime}`);
     } catch (error) {
         console.error('Load payments error:', error);
-        tbody.innerHTML = '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load payments. Please refresh the page.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load payments. Please refresh the page.</td></tr>';
         setPaymentsRefreshStatus('Refresh failed');
         updateSelectedPaymentsSummary();
     } finally {
@@ -726,6 +736,225 @@ async function loadPayments() {
         if (refreshCard) {
             refreshCard.classList.remove('is-active');
             refreshCard.setAttribute('aria-pressed', 'false');
+        }
+    }
+}
+
+// Toggle payment actions dropdown menu
+function togglePaymentActionsMenu(button) {
+    // Close any other open dropdowns first
+    document.querySelectorAll('.actions-dropdown .dropdown-menu.show').forEach(menu => {
+        if (menu !== button.nextElementSibling) {
+            menu.classList.remove('show');
+        }
+    });
+    
+    const menu = button.nextElementSibling;
+    if (menu) {
+        menu.classList.toggle('show');
+    }
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', function closeMenu(e) {
+            if (!button.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('show');
+                document.removeEventListener('click', closeMenu);
+            }
+        });
+    }, 0);
+}
+
+// Edit payment modal
+async function editPayment(paymentId) {
+    const payment = getPaymentById(paymentId);
+    if (!payment) {
+        showNotification('Payment not found', 'error');
+        return;
+    }
+    
+    const userMeta = paymentsUserLookup[payment.user_id] || {};
+    const userLabel = userMeta.username || userMeta.email || 'Unknown User';
+    const currentAmount = payment.amount || 0;
+    const currentMemo = payment.memo || '';
+    const currentStatus = payment.status || 'pending';
+    const currentMethod = payment.method || 'other';
+    
+    const methodOptions = ['adjustment', 'payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
+        .map(method => `<option value="${method}"${currentMethod === method ? ' selected' : ''}>${method.charAt(0).toUpperCase() + method.slice(1)}</option>`)
+        .join('');
+    
+    const statusOptions = ['completed', 'pending', 'failed', 'refunded']
+        .map(status => `<option value="${status}"${currentStatus === status ? ' selected' : ''}>${status.charAt(0).toUpperCase() + status.slice(1)}</option>`)
+        .join('');
+    
+    const content = `
+        <form id="editPaymentForm" onsubmit="submitEditPayment(event, '${escapeHtml(paymentId)}')" class="admin-form">
+            <div class="form-group">
+                <label>User</label>
+                <input type="text" value="${escapeHtml(userLabel)}" disabled>
+                <input type="hidden" name="paymentId" value="${escapeHtml(paymentId)}">
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Amount * <span class="form-hint">(use negative to reduce balance)</span></label>
+                    <input type="number" name="amount" value="${currentAmount}" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label>Payment Method *</label>
+                    <select name="method" required>
+                        ${methodOptions}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Status *</label>
+                <select name="status" required>
+                    ${statusOptions}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Memo/Note</label>
+                <textarea name="memo" rows="3" placeholder="Optional payment note...">${escapeHtml(currentMemo)}</textarea>
+            </div>
+        </form>
+    `;
+    
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="submit" form="editPaymentForm" class="btn-primary">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
+    `;
+    
+    createModal('Edit Payment #' + paymentId, content, actions);
+}
+
+// Submit edit payment
+async function submitEditPayment(event, paymentId) {
+    event.preventDefault();
+    const formData = new FormData(event.target);
+    const paymentData = Object.fromEntries(formData);
+    
+    // Show loading state
+    const submitBtn = document.querySelector('button[form="editPaymentForm"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/payments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'admin-edit-payment',
+                paymentId: paymentId,
+                amount: parseFloat(paymentData.amount),
+                method: paymentData.method,
+                status: paymentData.status,
+                memo: paymentData.memo || null
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(data.message || 'Payment updated successfully!', 'success');
+            closeModal();
+            setTimeout(() => loadPayments(), 500);
+        } else {
+            showNotification(data.error || 'Failed to update payment', 'error');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+            }
+        }
+    } catch (error) {
+        console.error('Edit payment error:', error);
+        showNotification('Failed to update payment. Please try again.', 'error');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+        }
+    }
+}
+
+// Delete payment
+async function deletePayment(paymentId) {
+    const payment = getPaymentById(paymentId);
+    if (!payment) {
+        showNotification('Payment not found', 'error');
+        return;
+    }
+    
+    const userMeta = paymentsUserLookup[payment.user_id] || {};
+    const userLabel = userMeta.username || userMeta.email || 'Unknown User';
+    
+    const content = `
+        <div class="confirm-delete">
+            <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #ef4444; margin-bottom: 16px;"></i>
+            <h3>Delete Payment #${escapeHtml(paymentId)}?</h3>
+            <p>This will permanently delete this payment record for <strong>${escapeHtml(userLabel)}</strong>.</p>
+            <p style="color: #ef4444; font-size: 14px;"><strong>Note:</strong> This will NOT automatically adjust the user's balance. Use "Edit Payment" to change the amount if you need to adjust the balance.</p>
+        </div>
+    `;
+    
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn-danger" onclick="confirmDeletePayment('${escapeHtml(paymentId)}')">
+            <i class="fas fa-trash"></i> Delete Payment
+        </button>
+    `;
+    
+    createModal('Confirm Delete', content, actions);
+}
+
+// Confirm delete payment
+async function confirmDeletePayment(paymentId) {
+    const deleteBtn = document.querySelector('.btn-danger');
+    if (deleteBtn) {
+        deleteBtn.disabled = true;
+        deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/payments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'admin-delete-payment',
+                paymentId: paymentId
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification(data.message || 'Payment deleted successfully!', 'success');
+            closeModal();
+            setTimeout(() => loadPayments(), 500);
+        } else {
+            showNotification(data.error || 'Failed to delete payment', 'error');
+            if (deleteBtn) {
+                deleteBtn.disabled = false;
+                deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete Payment';
+            }
+        }
+    } catch (error) {
+        console.error('Delete payment error:', error);
+        showNotification('Failed to delete payment. Please try again.', 'error');
+        if (deleteBtn) {
+            deleteBtn.disabled = false;
+            deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete Payment';
         }
     }
 }

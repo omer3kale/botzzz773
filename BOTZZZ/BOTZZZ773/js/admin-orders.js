@@ -2556,7 +2556,10 @@ async function loadOrders({ skipSync = false } = {}) {
                     ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
                     : '';
                 const providerInfo = resolveOrderProvider(order, orderService);
-                // Provider ID is already shown in orderSecondaryMarkup - no need for duplicate
+                // Show provider name for ALL orders (below provider order ID)
+                const providerNameMarkup = providerInfo.providerName && providerInfo.providerName !== 'Unknown Provider'
+                    ? `<span class="order-provider-name"><i class="fas fa-server"></i> ${escapeHtml(providerInfo.providerName)}</span>`
+                    : '';
                 const providerOrderMarkup = '';
                 const internalOrderMarkup = '';
 
@@ -2622,6 +2625,7 @@ async function loadOrders({ skipSync = false } = {}) {
                             <div class="order-id-cell">
                                 <span class="order-id-primary"${orderPrimaryTitle ? ` title="${orderPrimaryTitle}"` : ''}>${orderPrimaryLabel}</span>
                                 ${orderSecondaryMarkup}
+                                ${providerNameMarkup}
                                 ${providerOrderMarkup}
                                 ${internalOrderMarkup}
                             </div>
