@@ -25,6 +25,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const paymentMethodHint = document.getElementById('paymentMethodHint');
     const refundSummary = document.getElementById('refundSummary');
     const refundSummaryMessage = document.getElementById('refundSummaryMessage');
+    const paymentMethodCards = document.querySelectorAll('[data-payment-method-card]');
+    
+    let selectedPaymentMethod = 'cryptomus'; // Default to live gateway
+    const HELEKET_DISABLED_MESSAGE = 'Heleket is undergoing repairs. Please use Cryptomus for instant deposits.';
 
     function renderBalanceAmount(value) {
         if (!balanceAmount) {
@@ -59,13 +63,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtnText = submitBtn ? submitBtn.querySelector('span') : null;
 
     const BUTTON_LABELS = {
-        payeer: 'Proceed to Payment',
-        cryptomus: 'Proceed to Crypto Checkout'
+        heleket: 'Heleket unavailable',
+        cryptomus: 'Proceed to Crypto Payment',
+        payeer: 'Get Payment Instructions'
     };
 
     const BUTTON_LOADING_LABELS = {
-        payeer: 'Preparing Payeer Instructions...',
-        cryptomus: 'Preparing Cryptomus Checkout...'
+        heleket: 'Checking Heleket status...',
+        cryptomus: 'Creating Cryptomus invoice...',
+        payeer: 'Preparing instructions...'
     };
 
     // Processing fee percentage
@@ -74,6 +80,53 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load current balance on page load
     loadUserBalance({ reason: 'page-load' });
     loadRecentRefundHighlight();
+
+    // Payment method selection via cards
+    function selectPaymentMethod(method) {
+        if (method === 'heleket') {
+            showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
+            return;
+        }
+
+        selectedPaymentMethod = method;
+        if (paymentMethodCards && paymentMethodCards.length) {
+            paymentMethodCards.forEach(card => {
+                const isActive = card.dataset.method === method;
+                card.classList.toggle('selected', isActive);
+                card.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+        }
+        updatePaymentMethodHint();
+        updateSubmitButtonLabel();
+    }
+
+    if (paymentMethodCards && paymentMethodCards.length) {
+        paymentMethodCards.forEach(card => {
+            const method = card.dataset.method;
+            if (card.dataset.disabled === 'true') {
+                card.classList.add('is-disabled');
+            }
+
+            card.addEventListener('click', (event) => {
+                if (card.dataset.disabled === 'true') {
+                    event.preventDefault();
+                    showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
+                    return;
+                }
+                selectPaymentMethod(method);
+            });
+            card.addEventListener('keydown', (event) => {
+                if (card.dataset.disabled === 'true') {
+                    return;
+                }
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectPaymentMethod(method);
+                }
+            });
+        });
+        selectPaymentMethod(selectedPaymentMethod);
+    }
 
     updatePaymentMethodHint();
     updateSubmitButtonLabel();
@@ -155,20 +208,22 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        if (selectedPaymentMethod === 'heleket') {
+            showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
+            updateSubmitButtonLabel();
+            return;
+        }
+
         if (submitBtn && submitBtnText) {
             submitBtn.disabled = true;
-            const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
-            submitBtnText.textContent = BUTTON_LOADING_LABELS[selectedMethod] || BUTTON_LOADING_LABELS.payeer;
+            submitBtnText.textContent = BUTTON_LOADING_LABELS[selectedPaymentMethod] || 'Processing...';
         }
 
         try {
-            const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
-            if (selectedMethod === 'payeer') {
-                await initiatePayeerPayment({ amount, userEmail });
-            } else if (selectedMethod === 'cryptomus') {
+            if (selectedPaymentMethod === 'cryptomus') {
                 await initiateCryptomusPayment({ amount, userEmail });
-            } else {
-                throw new Error('Unsupported payment method');
+            } else if (selectedPaymentMethod === 'payeer') {
+                await initiatePayeerPayment({ amount, userEmail });
             }
         } catch (error) {
             console.error('Payment error:', error);
@@ -225,54 +280,41 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
     }
 
-    // Payment method selection behavior
-    const methodCards = document.querySelectorAll('.payment-method-card');
-    methodCards.forEach(card => {
-        card.addEventListener('click', () => {
-            methodCards.forEach(c => c.classList.remove('selected'));
-            card.classList.add('selected');
-            updatePaymentMethodHint();
-            updateSubmitButtonLabel();
-        });
-        card.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter' || ev.key === ' ') {
-                ev.preventDefault();
-                card.click();
-            }
-        });
-    });
-
     function updatePaymentMethodHint() {
         if (!paymentMethodHint) return;
-        const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
-        if (selectedMethod === 'payeer') {
+        if (selectedPaymentMethod === 'heleket') {
+            paymentMethodHint.textContent = 'Heleket is in repair. Use Cryptomus for instant crypto deposits in the meantime.';
+        } else if (selectedPaymentMethod === 'cryptomus') {
+            paymentMethodHint.textContent = 'Pay with Bitcoin, Ethereum, USDT, and other cryptocurrencies. Instant processing.';
+        } else if (selectedPaymentMethod === 'payeer') {
             paymentMethodHint.textContent = 'Manual Payeer transfers require including your Order ID in the transfer notes.';
-        } else if (selectedMethod === 'cryptomus') {
-            paymentMethodHint.textContent = 'You will be redirected to Cryptomus to complete the crypto payment.';
         } else {
-            paymentMethodHint.textContent = '';
+            paymentMethodHint.textContent = 'Choose a payment method to continue.';
         }
     }
 
     function updateSubmitButtonLabel() {
         if (!submitBtnText) return;
-        const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
-        submitBtnText.textContent = BUTTON_LABELS[selectedMethod] || BUTTON_LABELS.payeer;
+        submitBtnText.textContent = BUTTON_LABELS[selectedPaymentMethod] || 'Proceed to Payment';
     }
 
     async function initiateCryptomusPayment({ amount, userEmail }) {
-        const token = resolveAuthToken('initiate-cryptomus');
+        const token = resolveAuthToken('initiate-payment');
         if (!token) {
             throw new Error('Please sign in to add funds.');
         }
 
-        const response = await fetch('/.netlify/functions/payments', {
+        const response = await fetch('/.netlify/functions/cryptomus', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ action: 'create-checkout', amount, method: 'cryptomus' })
+            body: JSON.stringify({
+                action: 'create-payment',
+                amount: amount,
+                email: userEmail
+            })
         });
 
         const data = await response.json();
@@ -282,13 +324,18 @@ document.addEventListener('DOMContentLoaded', function() {
             throw new Error('Session expired. Please sign in again.');
         }
 
-        if (data && data.success && data.checkoutUrl) {
-            // Open Cryptomus checkout in a new tab
-            window.open(data.checkoutUrl, '_blank');
-            notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId || data.orderId });
+        if (data.success) {
+            // Open Cryptomus payment page in new window
+            if (isPopupMode) {
+                window.location.href = data.paymentUrl;
+            } else {
+                window.open(data.paymentUrl, '_blank', 'width=600,height=800');
+                showMessage('Payment window opened. Complete your payment there.', 'success');
+            }
             loadUserBalance({ reason: 'payment-created' });
+            notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
         } else {
-            throw new Error(data.error || 'Failed to initiate Cryptomus payment');
+            throw new Error(data.error || 'Payment initiation failed');
         }
     }
 

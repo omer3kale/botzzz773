@@ -67,7 +67,7 @@
                 <div class="container">
                     <div class="section-header">
                         <h1>Add Funds</h1>
-                        <p>Add funds to your account using secure manual Payeer transfers.</p>
+                        <p>Add funds with Cryptomus instant crypto payments. Heleket coming back soon.</p>
                     </div>
 
                     <div class="funds-wrapper">
@@ -123,88 +123,38 @@
                         <!-- Payment Method -->
                         <div class="form-section">
                             <label class="form-label">Payment Method</label>
-                            <p class="form-hint" id="paymentMethodHint">Manual Payeer transfers require including your Order ID in the transfer notes.</p>
-                            <div class="payment-method-card selected" data-method="payeer" role="button" tabindex="0">
-                                <div class="payment-method-header">
-                                    <div class="payment-method-icon">
-                                        <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                                            <rect width="32" height="32" rx="6" fill="#FF1494"/>
-                                            <path d="M8 12h16M8 16h16M8 20h10" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                                        </svg>
-                                    </div>
-                                    <div class="payment-method-info">
-                                        <h3>Payeer Manual</h3>
-                                        <p>Manual Transfer Payment</p>
-                                    </div>
-                                    <div class="payment-method-badge">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                    </div>
-                                </div>
-                                <div class="payment-method-details">
-                                    <div class="detail-item" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 15px; border-radius: 8px; margin-bottom: 10px;">
-                                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-                                            <path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"></path>
-                                            <path d="M4 6v12c0 1.1.9 2 2 2h14v-4"></path>
-                                            <path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"></path>
-                                        </svg>
-                                        <div style="flex: 1;">
-                                            <span style="display: block; color: rgba(255,255,255,0.8); font-size: 12px; margin-bottom: 4px;">Send Payment To:</span>
-                                            <span style="display: block; color: white; font-size: 18px; font-weight: 700; letter-spacing: 1px;">P1135369069</span>
+                            <div class="payment-method-grid" id="paymentMethodGrid">
+                                <button type="button" class="payment-method-card" data-payment-method-card data-method="heleket" data-disabled="true" aria-pressed="false" aria-disabled="true">
+                                    <div class="method-header">
+                                        <div class="method-icon neon-gradient">⚡</div>
+                                        <div class="method-meta">
+                                            <span class="method-title">Heleket Pay</span>
+                                            <span class="method-caption">Crypto acquiring (maintenance)</span>
                                         </div>
-                                        <button type="button" onclick="navigator.clipboard.writeText('P1135369069'); this.innerHTML='✓ Copied!'; setTimeout(() => this.innerHTML='Copy', 2000)" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.3s;">Copy</button>
+                                        <span class="method-pill warning">! In Repair</span>
                                     </div>
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>Manual Processing</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>Email Confirmation Required</span>
-                                    </div>
-                                    <div class="detail-item">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="20 6 9 17 4 12"></polyline>
-                                        </svg>
-                                        <span>USD Currency</span>
-                                    </div>
-                                </div>
-                                <div class="payment-method-card" data-method="cryptomus" role="button" tabindex="0">
-                                    <div class="payment-method-header">
-                                        <div class="payment-method-icon">
-                                            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-                                                <rect width="32" height="32" rx="6" fill="#1FB6FF"/>
-                                                <path d="M16 8v16M8 16h16" stroke="white" stroke-width="2" stroke-linecap="round"/>
-                                            </svg>
+                                    <ul class="method-features">
+                                        <li>Temporarily offline</li>
+                                        <li>Please use Cryptomus for now</li>
+                                    </ul>
+                                </button>
+
+                                <button type="button" class="payment-method-card selected" data-payment-method-card data-method="cryptomus" aria-pressed="true">
+                                    <div class="method-header">
+                                        <div class="method-icon purple-gradient">◇</div>
+                                        <div class="method-meta">
+                                            <span class="method-title">Cryptomus</span>
+                                            <span class="method-caption">Global crypto gateway</span>
                                         </div>
-                                        <div class="payment-method-info">
-                                            <h3>Cryptomus (Crypto)</h3>
-                                            <p>Pay with cryptocurrencies via Cryptomus</p>
-                                        </div>
-                                        <div class="payment-method-badge" aria-hidden="true">
-                                        </div>
+                                        <span class="method-pill">Recommended</span>
                                     </div>
-                                    <div class="payment-method-details">
-                                        <div class="detail-item">
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                            </svg>
-                                            <span>Instant confirmation after on-chain settlement</span>
-                                        </div>
-                                        <div class="detail-item">
-                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                                <polyline points="20 6 9 17 4 12"></polyline>
-                                            </svg>
-                                            <span>USD pricing, multiple coins supported</span>
-                                        </div>
-                                    </div>
-                                </div>
+                                    <ul class="method-features">
+                                        <li>QR & wallet payments</li>
+                                        <li>1-hour invoice lifetime</li>
+                                    </ul>
+                                </button>
                             </div>
+                            <p class="form-hint" id="paymentMethodHint">Cryptomus supports Bitcoin, Ethereum, USDT, and 100+ more coins.</p>
                         </div>
 
                         <!-- Order Summary -->
@@ -256,7 +206,7 @@
                             </svg>
                         </div>
                         <h3>Secure Payment</h3>
-                        <p>All transactions are encrypted and processed through secure Payeer gateway</p>
+                        <p>All transactions are encrypted and routed via Heleket & Cryptomus gateways</p>
                     </div>
 
                     <div class="info-card">
@@ -306,8 +256,8 @@
                     <h2>Frequently Asked Questions</h2>
                     <div class="faq-grid">
                 <div class="faq-card">
-                    <h3>What is Payeer?</h3>
-                    <p>Payeer is a secure and popular e-wallet system that allows you to make instant online payments. It supports multiple currencies and offers low transaction fees.</p>
+                    <h3>Which gateways do you support?</h3>
+                    <p>Cryptomus handles all live crypto deposits while Heleket returns shortly after maintenance. Both gateways offer fast, automated balance crediting.</p>
                 </div>
                 <div class="faq-card">
                     <h3>How long does it take to add funds?</h3>
@@ -323,7 +273,7 @@
                 </div>
                 <div class="faq-card">
                     <h3>Is my payment information secure?</h3>
-                    <p>Yes! All payments are processed through Payeer's secure gateway with industry-standard encryption. We never store your payment credentials.</p>
+                    <p>Yes! Crypto checkouts redirect you to Heleket or Cryptomus secure pages and we never store your wallet credentials.</p>
                 </div>
                 <div class="faq-card">
                     <h3>Can I get a refund?</h3>
