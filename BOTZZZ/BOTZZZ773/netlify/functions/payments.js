@@ -4,6 +4,11 @@ const { withRateLimit } = require('./utils/rate-limit');
 const jwt = require('jsonwebtoken');
 const { getStripeClient, isStripeConfigured } = require('./utils/stripe-client');
 const { createLogger, serializeError } = require('./utils/logger');
+const axios = require('axios');
+const { buildGatewayOrderId, formatUsd } = require('./utils/payment-gateway-helpers');
+
+const CRYPTOMUS_API_KEY = process.env.CRYPTOMUS_API_KEY;
+const CRYPTOMUS_MERCHANT_ID = process.env.CRYPTOMUS_MERCHANT_ID;
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
@@ -243,6 +248,91 @@ async function handleCreateCheckout(user, data, headers) {
           checkoutUrl: session.url
         })
       };
+    } else if (method === 'cryptomus') {
+      // Cryptomus invoice-based checkout
+      if (!CRYPTOMUS_API_KEY || !CRYPTOMUS_MERCHANT_ID) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Cryptomus is not configured. Please set CRYPTOMUS_API_KEY and CRYPTOMUS_MERCHANT_ID.' })
+        };
+      }
+
+      // Build an internal order id to reference before we get an external invoice id
+      const orderId = buildGatewayOrderId('CRYPT', user.userId);
+
+      // Create pending payment record
+      const { data: payment, error: createError } = await supabaseAdmin
+        .from('payments')
+        .insert({
+          user_id: user.userId,
+          amount: amount,
+          method: 'cryptomus',
+          status: 'pending',
+          transaction_id: orderId
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error('Create cryptomus payment record error:', createError);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Failed to create payment record' })
+        };
+      }
+
+      try {
+        const payload = {
+          amount: formatUsd(amount),
+          currency: 'USD',
+          order_id: orderId,
+          description: `Account top-up for ${user.email}`,
+          callback_url: `${process.env.SITE_URL}/.netlify/functions/crypto-payments`,
+          success_url: `${process.env.SITE_URL}/payment-success.html`,
+          cancel_url: `${process.env.SITE_URL}/payment-failed.html`
+        };
+
+        const response = await axios.post('https://api.cryptomus.com/v1/invoices', payload, {
+          auth: {
+            username: CRYPTOMUS_MERCHANT_ID,
+            password: CRYPTOMUS_API_KEY
+          },
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        });
+
+        const respData = response.data || {};
+        // Try to read invoice id/url from common locations
+        const invoiceId = respData.id || (respData.data && respData.data.id) || respData.invoice_id || null;
+        const invoiceUrl = respData.url || respData.checkout_url || (respData.data && (respData.data.url || respData.data.checkout_url)) || null;
+
+        // Update our payment record with the real invoice id and gateway response
+        await supabaseAdmin
+          .from('payments')
+          .update({
+            transaction_id: invoiceId || orderId,
+            gateway_response: respData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', payment.id);
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ success: true, checkoutUrl: invoiceUrl, orderId: invoiceId || orderId })
+        };
+      } catch (err) {
+        console.error('Cryptomus API error:', err && err.response ? err.response.data || err.response.statusText : err.message || err);
+        return {
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({ error: 'Failed to create Cryptomus invoice' })
+        };
+      }
     } else if (method === 'paypal') {
       // TODO: Implement PayPal checkout
       return {

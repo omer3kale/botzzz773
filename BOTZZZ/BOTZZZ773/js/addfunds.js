@@ -59,11 +59,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtnText = submitBtn ? submitBtn.querySelector('span') : null;
 
     const BUTTON_LABELS = {
-        payeer: 'Proceed to Payment'
+        payeer: 'Proceed to Payment',
+        cryptomus: 'Proceed to Crypto Checkout'
     };
 
     const BUTTON_LOADING_LABELS = {
-        payeer: 'Preparing Payeer Instructions...'
+        payeer: 'Preparing Payeer Instructions...',
+        cryptomus: 'Preparing Cryptomus Checkout...'
     };
 
     // Processing fee percentage
@@ -155,11 +157,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (submitBtn && submitBtnText) {
             submitBtn.disabled = true;
-            submitBtnText.textContent = BUTTON_LOADING_LABELS.payeer;
+            const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
+            submitBtnText.textContent = BUTTON_LOADING_LABELS[selectedMethod] || BUTTON_LOADING_LABELS.payeer;
         }
 
         try {
-            await initiatePayeerPayment({ amount, userEmail });
+            const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
+            if (selectedMethod === 'payeer') {
+                await initiatePayeerPayment({ amount, userEmail });
+            } else if (selectedMethod === 'cryptomus') {
+                await initiateCryptomusPayment({ amount, userEmail });
+            } else {
+                throw new Error('Unsupported payment method');
+            }
         } catch (error) {
             console.error('Payment error:', error);
             showMessage(error.message || 'Failed to initiate payment. Please try again.', 'error');
@@ -215,14 +225,71 @@ document.addEventListener('DOMContentLoaded', function() {
         return null;
     }
 
+    // Payment method selection behavior
+    const methodCards = document.querySelectorAll('.payment-method-card');
+    methodCards.forEach(card => {
+        card.addEventListener('click', () => {
+            methodCards.forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
+            updatePaymentMethodHint();
+            updateSubmitButtonLabel();
+        });
+        card.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+                ev.preventDefault();
+                card.click();
+            }
+        });
+    });
+
     function updatePaymentMethodHint() {
         if (!paymentMethodHint) return;
-        paymentMethodHint.textContent = 'Manual Payeer transfers require including your Order ID in the transfer notes.';
+        const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
+        if (selectedMethod === 'payeer') {
+            paymentMethodHint.textContent = 'Manual Payeer transfers require including your Order ID in the transfer notes.';
+        } else if (selectedMethod === 'cryptomus') {
+            paymentMethodHint.textContent = 'You will be redirected to Cryptomus to complete the crypto payment.';
+        } else {
+            paymentMethodHint.textContent = '';
+        }
     }
 
     function updateSubmitButtonLabel() {
         if (!submitBtnText) return;
-        submitBtnText.textContent = BUTTON_LABELS.payeer;
+        const selectedMethod = document.querySelector('.payment-method-card.selected')?.dataset.method || 'payeer';
+        submitBtnText.textContent = BUTTON_LABELS[selectedMethod] || BUTTON_LABELS.payeer;
+    }
+
+    async function initiateCryptomusPayment({ amount, userEmail }) {
+        const token = resolveAuthToken('initiate-cryptomus');
+        if (!token) {
+            throw new Error('Please sign in to add funds.');
+        }
+
+        const response = await fetch('/.netlify/functions/payments', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ action: 'create-checkout', amount, method: 'cryptomus' })
+        });
+
+        const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+            handleMissingAuth('cryptomus-response-unauthorized');
+            throw new Error('Session expired. Please sign in again.');
+        }
+
+        if (data && data.success && data.checkoutUrl) {
+            // Open Cryptomus checkout in a new tab
+            window.open(data.checkoutUrl, '_blank');
+            notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId || data.orderId });
+            loadUserBalance({ reason: 'payment-created' });
+        } else {
+            throw new Error(data.error || 'Failed to initiate Cryptomus payment');
+        }
     }
 
     async function initiatePayeerPayment({ amount, userEmail }) {
