@@ -94,6 +94,19 @@ exports.handler = async (event) => {
 
 async function handleCreatePayment(event, data, headers) {
   try {
+    // Validate credentials first
+    if (!CRYPTOMUS_MERCHANT_ID || !CRYPTOMUS_API_KEY) {
+      console.error('[CRYPTOMUS] Missing credentials:', {
+        hasMerchantId: !!CRYPTOMUS_MERCHANT_ID,
+        hasApiKey: !!CRYPTOMUS_API_KEY
+      });
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Payment gateway not configured. Please contact support.' })
+      };
+    }
+
     const user = getUserFromToken(event.headers.authorization);
     if (!user) {
       return {
@@ -151,6 +164,13 @@ async function handleCreatePayment(event, data, headers) {
 
     const sign = generateCryptomusSignature(invoiceData);
 
+    console.log('[CRYPTOMUS] Creating invoice:', {
+      orderId,
+      amount,
+      merchantIdLength: CRYPTOMUS_MERCHANT_ID.length,
+      signatureLength: sign.length
+    });
+
     const cryptomusResponse = await fetch('https://api.cryptomus.com/v1/payment', {
       method: 'POST',
       headers: {
@@ -162,6 +182,12 @@ async function handleCreatePayment(event, data, headers) {
     });
 
     const cryptomusData = await cryptomusResponse.json();
+
+    console.log('[CRYPTOMUS] API response:', {
+      status: cryptomusResponse.status,
+      state: cryptomusData.state,
+      message: cryptomusData.message
+    });
 
     if (!cryptomusResponse.ok || cryptomusData.state !== 0) {
       console.error('Cryptomus API error:', cryptomusData);

@@ -27,8 +27,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const refundSummaryMessage = document.getElementById('refundSummaryMessage');
     const paymentMethodCards = document.querySelectorAll('[data-payment-method-card]');
     
-    let selectedPaymentMethod = 'cryptomus'; // Default to live gateway
-    const HELEKET_DISABLED_MESSAGE = 'Heleket is undergoing repairs. Please use Cryptomus for instant deposits.';
+    let selectedPaymentMethod = 'heleket';
 
     function renderBalanceAmount(value) {
         if (!balanceAmount) {
@@ -63,13 +62,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const submitBtnText = submitBtn ? submitBtn.querySelector('span') : null;
 
     const BUTTON_LABELS = {
-        heleket: 'Heleket unavailable',
-        cryptomus: 'Proceed to Crypto Payment',
+        heleket: 'Pay with Heleket',
+        cryptomus: 'Pay with Cryptomus',
         payeer: 'Get Payment Instructions'
     };
 
     const BUTTON_LOADING_LABELS = {
-        heleket: 'Checking Heleket status...',
+        heleket: 'Generating Heleket invoice...',
         cryptomus: 'Creating Cryptomus invoice...',
         payeer: 'Preparing instructions...'
     };
@@ -83,11 +82,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Payment method selection via cards
     function selectPaymentMethod(method) {
-        if (method === 'heleket') {
-            showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
-            return;
-        }
-
         selectedPaymentMethod = method;
         if (paymentMethodCards && paymentMethodCards.length) {
             paymentMethodCards.forEach(card => {
@@ -103,22 +97,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (paymentMethodCards && paymentMethodCards.length) {
         paymentMethodCards.forEach(card => {
             const method = card.dataset.method;
-            if (card.dataset.disabled === 'true') {
-                card.classList.add('is-disabled');
-            }
 
-            card.addEventListener('click', (event) => {
-                if (card.dataset.disabled === 'true') {
-                    event.preventDefault();
-                    showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
-                    return;
-                }
-                selectPaymentMethod(method);
-            });
+            card.addEventListener('click', () => selectPaymentMethod(method));
             card.addEventListener('keydown', (event) => {
-                if (card.dataset.disabled === 'true') {
-                    return;
-                }
                 if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
                     selectPaymentMethod(method);
@@ -208,19 +189,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        if (selectedPaymentMethod === 'heleket') {
-            showMessage(HELEKET_DISABLED_MESSAGE, 'warning');
-            updateSubmitButtonLabel();
-            return;
-        }
-
         if (submitBtn && submitBtnText) {
             submitBtn.disabled = true;
             submitBtnText.textContent = BUTTON_LOADING_LABELS[selectedPaymentMethod] || 'Processing...';
         }
 
         try {
-            if (selectedPaymentMethod === 'cryptomus') {
+            if (selectedPaymentMethod === 'heleket') {
+                await initiateHeleketPayment({ amount, userEmail });
+            } else if (selectedPaymentMethod === 'cryptomus') {
                 await initiateCryptomusPayment({ amount, userEmail });
             } else if (selectedPaymentMethod === 'payeer') {
                 await initiatePayeerPayment({ amount, userEmail });
@@ -283,9 +260,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function updatePaymentMethodHint() {
         if (!paymentMethodHint) return;
         if (selectedPaymentMethod === 'heleket') {
-            paymentMethodHint.textContent = 'Heleket is in repair. Use Cryptomus for instant crypto deposits in the meantime.';
+            paymentMethodHint.textContent = 'Heleket invoices open in a secure window and auto credit once blockchain confirmations land.';
         } else if (selectedPaymentMethod === 'cryptomus') {
-            paymentMethodHint.textContent = 'Pay with Bitcoin, Ethereum, USDT, and other cryptocurrencies. Instant processing.';
+            paymentMethodHint.textContent = 'Pay with Bitcoin, Ethereum, USDT, and more. Keep the tab open until Cryptomus confirms payment.';
         } else if (selectedPaymentMethod === 'payeer') {
             paymentMethodHint.textContent = 'Manual Payeer transfers require including your Order ID in the transfer notes.';
         } else {
@@ -296,6 +273,46 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateSubmitButtonLabel() {
         if (!submitBtnText) return;
         submitBtnText.textContent = BUTTON_LABELS[selectedPaymentMethod] || 'Proceed to Payment';
+    }
+
+    async function initiateHeleketPayment({ amount, userEmail }) {
+        const token = resolveAuthToken('initiate-payment');
+        if (!token) {
+            throw new Error('Please sign in to add funds.');
+        }
+
+        const response = await fetch('/.netlify/functions/heleket', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'create-payment',
+                amount: amount,
+                email: userEmail
+            })
+        });
+
+        const data = await response.json();
+
+        if (response.status === 401 || response.status === 403) {
+            handleMissingAuth('heleket-response-unauthorized');
+            throw new Error('Session expired. Please sign in again.');
+        }
+
+        if (data.success && data.paymentUrl) {
+            if (isPopupMode) {
+                window.location.href = data.paymentUrl;
+            } else {
+                window.open(data.paymentUrl, '_blank', 'width=600,height=800');
+                showMessage('Heleket payment window opened in a new tab.', 'success');
+            }
+            loadUserBalance({ reason: 'heleket-payment-created' });
+            notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
+        } else {
+            throw new Error(data.error || 'Failed to create Heleket invoice');
+        }
     }
 
     async function initiateCryptomusPayment({ amount, userEmail }) {

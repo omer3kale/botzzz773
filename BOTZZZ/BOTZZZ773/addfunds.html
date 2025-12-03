@@ -67,7 +67,7 @@
                 <div class="container">
                     <div class="section-header">
                         <h1>Add Funds</h1>
-                        <p>Add funds with Cryptomus instant crypto payments. Heleket coming back soon.</p>
+                        <p>Choose Heleket or Cryptomus for instant crypto deposits credited in seconds.</p>
                     </div>
 
                     <div class="funds-wrapper">
@@ -124,29 +124,29 @@
                         <div class="form-section">
                             <label class="form-label">Payment Method</label>
                             <div class="payment-method-grid" id="paymentMethodGrid">
-                                <button type="button" class="payment-method-card" data-payment-method-card data-method="heleket" data-disabled="true" aria-pressed="false" aria-disabled="true">
+                                <button type="button" class="payment-method-card selected" data-payment-method-card data-method="heleket" aria-pressed="true">
                                     <div class="method-header">
                                         <div class="method-icon neon-gradient">⚡</div>
                                         <div class="method-meta">
                                             <span class="method-title">Heleket Pay</span>
-                                            <span class="method-caption">Crypto acquiring (maintenance)</span>
+                                            <span class="method-caption">Direct crypto acquiring</span>
                                         </div>
-                                        <span class="method-pill warning">! In Repair</span>
+                                            <span class="method-pill">Fastest</span>
                                     </div>
                                     <ul class="method-features">
-                                        <li>Temporarily offline</li>
-                                        <li>Please use Cryptomus for now</li>
+                                        <li>Auto credit after confirmation</li>
+                                        <li>USD invoicing with live FX</li>
                                     </ul>
                                 </button>
 
-                                <button type="button" class="payment-method-card selected" data-payment-method-card data-method="cryptomus" aria-pressed="true">
+                                <button type="button" class="payment-method-card" data-payment-method-card data-method="cryptomus" aria-pressed="false">
                                     <div class="method-header">
                                         <div class="method-icon purple-gradient">◇</div>
                                         <div class="method-meta">
                                             <span class="method-title">Cryptomus</span>
                                             <span class="method-caption">Global crypto gateway</span>
                                         </div>
-                                        <span class="method-pill">Recommended</span>
+                                            <span class="method-pill">Recommended</span>
                                     </div>
                                     <ul class="method-features">
                                         <li>QR & wallet payments</li>
@@ -154,7 +154,7 @@
                                     </ul>
                                 </button>
                             </div>
-                            <p class="form-hint" id="paymentMethodHint">Cryptomus supports Bitcoin, Ethereum, USDT, and 100+ more coins.</p>
+                            <p class="form-hint" id="paymentMethodHint">Heleket invoices open in a secure window and auto credit once paid.</p>
                         </div>
 
                         <!-- Order Summary -->
