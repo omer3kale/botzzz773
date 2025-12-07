@@ -74,7 +74,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Processing fee percentage
-    const FEE_PERCENTAGE = 2.5;
+    const FEE_PERCENTAGE = 1;
 
     // Load current balance on page load
     loadUserBalance({ reason: 'page-load' });
@@ -168,7 +168,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Validation
         if (amount < 5) {
-            showMessage('Minimum deposit amount is $5.00', 'error');
+            showMessage('Minimum deposit amount is $1.00', 'error');
             customAmountInput.focus();
             return;
         }
