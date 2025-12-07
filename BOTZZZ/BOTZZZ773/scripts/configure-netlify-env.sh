@@ -131,8 +131,8 @@ echo "Optional Configuration:"
 echo ""
 read -p "APP_NAME [BOTZZZ773]: " APP_NAME
 APP_NAME=${APP_NAME:-"BOTZZZ773"}
-read -p "MIN_DEPOSIT_AMOUNT [5]: " MIN_DEPOSIT_AMOUNT
-MIN_DEPOSIT_AMOUNT=${MIN_DEPOSIT_AMOUNT:-"5"}
+read -p "MIN_DEPOSIT_AMOUNT [1]: " MIN_DEPOSIT_AMOUNT
+MIN_DEPOSIT_AMOUNT=${MIN_DEPOSIT_AMOUNT:-"1"}
 
 echo ""
 echo "📝 Applying configuration to all deploy contexts..."
