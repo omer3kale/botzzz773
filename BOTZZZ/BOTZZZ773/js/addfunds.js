@@ -144,7 +144,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Update order summary
     function updateSummary(amount) {
-        if (amount < 5) {
+        if (amount < 1) {
             summaryAmount.textContent = '$0.00';
             summaryFee.textContent = '$0.00';
             summaryTotal.textContent = '$0.00';
@@ -167,7 +167,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
         // Validation
-        if (amount < 5) {
+        if (amount < 1) {
             showMessage('Minimum deposit amount is $1.00', 'error');
             customAmountInput.focus();
             return;
