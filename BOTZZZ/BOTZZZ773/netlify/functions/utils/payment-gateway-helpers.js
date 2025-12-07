@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 
-const DEFAULT_MIN_AMOUNT = Number(process.env.MIN_DEPOSIT_AMOUNT || 5);
+const DEFAULT_MIN_AMOUNT = Number(process.env.MIN_DEPOSIT_AMOUNT || 1);
 
 function buildGatewayOrderId(prefix = 'PAY', userId = 'GUEST') {
   const safePrefix = String(prefix || 'PAY')
@@ -130,7 +130,7 @@ function deriveGooglePayRequestConfig({
 }
 
 function getMinimumDepositAmount() {
-  return Number.isFinite(DEFAULT_MIN_AMOUNT) ? DEFAULT_MIN_AMOUNT : 5;
+  return Number.isFinite(DEFAULT_MIN_AMOUNT) ? DEFAULT_MIN_AMOUNT : 1;
 }
 
 module.exports = {
