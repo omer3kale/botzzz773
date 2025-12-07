@@ -118,11 +118,11 @@ async function handleCreatePayment(event, data, headers) {
 
     const { amount } = data;
 
-    if (!amount || amount < 5) {
+    if (!amount || amount < 1) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Minimum amount is $5' })
+        body: JSON.stringify({ error: 'Minimum amount is $1' })
       };
     }
 
