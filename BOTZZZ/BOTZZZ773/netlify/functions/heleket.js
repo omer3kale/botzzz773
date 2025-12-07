@@ -9,7 +9,7 @@ const HELEKET_MERCHANT_ID = process.env.HELEKET_MERCHANT_ID;
 const HELEKET_API_KEY = process.env.HELEKET_API_KEY;
 const HELEKET_API_BASE = process.env.HELEKET_API_BASE || 'https://api.heleket.com';
 const SITE_URL = process.env.SITE_URL || 'https://www.botzzz773.pro';
-const MIN_AMOUNT = Number(process.env.MIN_DEPOSIT_AMOUNT || 5);
+const MIN_AMOUNT = Number(process.env.MIN_DEPOSIT_AMOUNT || 1);
 
 const HELEKET_SUCCESS_STATUSES = new Set(['paid', 'paid_over']);
 const HELEKET_FAILURE_STATUSES = new Set(['fail', 'wrong_amount', 'cancel', 'system_fail', 'refund_fail']);
