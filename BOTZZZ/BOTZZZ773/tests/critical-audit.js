@@ -180,7 +180,7 @@ class CriticalAudit {
       this.risk(
         'No minimum/maximum payment limits',
         'Users could pay $0 or $999999',
-        'Add: if (amount < 5 || amount > 10000) return error'
+        'Add: if (amount < 1 || amount > 10000) return error'
       );
     }
 
