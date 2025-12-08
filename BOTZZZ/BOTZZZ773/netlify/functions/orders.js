@@ -2194,6 +2194,15 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
       if (normalizedStatus) {
         updatePayload.status = normalizedStatus;
+        
+        // Sync customer_status with provider status for completed/failed orders
+        if (normalizedStatus === 'completed') {
+          updatePayload.customer_status = 'completed';
+        } else if (normalizedStatus === 'partial') {
+          updatePayload.customer_status = 'partial';
+        } else if (normalizedStatus === 'processing' || normalizedStatus === 'pending') {
+          updatePayload.customer_status = 'processing';
+        }
       }
 
       if (providerChargeFromResponse !== null) {
