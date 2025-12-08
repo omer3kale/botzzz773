@@ -180,6 +180,15 @@ exports.handler = async (event) => {
     
     const { key, action, ...otherParams } = params;
 
+    // Allow simple GET ping without params (panels sometimes probe connectivity)
+    if (event.httpMethod === 'GET' && !key && !action) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ message: 'API online. Use POST with key and action.' })
+      };
+    }
+
     // Validate API key
     if (!key) {
       return {
