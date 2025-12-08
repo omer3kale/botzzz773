@@ -2004,12 +2004,15 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
   let ordersQuery = supabaseAdmin
     .from('orders')
-    .select('id, service_id, provider_order_id, status, provider_response, meta, external_order_id, order_number, public_id');
+    .select('id, service_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
 
   if (orderIds && orderIds.length > 0) {
     ordersQuery = ordersQuery.in('id', orderIds);
   } else {
-    ordersQuery = ordersQuery.in('status', statusesToSync);
+    // Sync orders that are:
+    // 1. In active states (pending, processing, etc.) OR
+    // 2. Completed on provider but customer_status not yet updated
+    ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
   }
 
   const { data: ordersData, error: ordersError } = await ordersQuery.limit(limit);
