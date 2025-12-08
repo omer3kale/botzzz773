@@ -438,9 +438,7 @@
         'new',
         'received',
         'accepted',
-        'created',
-        'error',
-        'failed'
+        'created'
     ]);
 
     const CUSTOMER_SUCCESS_STATUS_KEYS = new Set([
@@ -451,6 +449,13 @@
         'delivered',
         'done',
         'finished'
+    ]);
+
+    const CUSTOMER_FAILED_STATUS_KEYS = new Set([
+        'failed',
+        'error',
+        'fail',
+        'failure'
     ]);
 
     const CUSTOMER_CANCELLED_KEYS = new Set(['canceled', 'cancelled']);
@@ -472,7 +477,15 @@
         if (CUSTOMER_SUCCESS_STATUS_KEYS.has(normalizedKey)) {
             return {
                 key: 'success',
-                label: 'Success',
+                label: 'Completed',
+                raw: safeRaw
+            };
+        }
+
+        if (CUSTOMER_FAILED_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'failed',
+                label: 'Failed',
                 raw: safeRaw
             };
         }
@@ -1064,22 +1077,49 @@
     }
 
     function buildCustomerFacingStatus(order = {}) {
+        // Check if order was cancelled by admin - these show as cancelled
+        const cancelled = order?.cancelled || order?.canceled || false;
+        if (cancelled) {
+            return coerceCustomerFacingStatusDescriptor('cancelled', 'Cancelled');
+        }
+
         const summary = order?.status_summary;
         if (summary?.customer) {
             const raw = summary.customer.raw || summary.customer.key || summary.customer.label || 'pending';
-            return coerceCustomerFacingStatusDescriptor(raw, summary.customer.label);
+            const status = coerceCustomerFacingStatusDescriptor(raw, summary.customer.label);
+            
+            // Show failed orders as pending unless cancelled by admin
+            if (status.key === 'failed' && !cancelled) {
+                return coerceCustomerFacingStatusDescriptor('pending', 'Pending');
+            }
+            
+            return status;
         }
 
         const directCustomerStatus = order?.customer_status || order?.customerStatus;
         if (typeof directCustomerStatus === 'string' && directCustomerStatus.trim().length > 0) {
-            return coerceCustomerFacingStatusDescriptor(directCustomerStatus.trim());
+            const status = coerceCustomerFacingStatusDescriptor(directCustomerStatus.trim());
+            
+            // Show failed orders as pending unless cancelled by admin
+            if (status.key === 'failed' && !cancelled) {
+                return coerceCustomerFacingStatusDescriptor('pending', 'Pending');
+            }
+            
+            return status;
         }
 
         const fallbackRaw = typeof order?.status === 'string'
             ? order.status
             : (order?.order_status || 'pending');
 
-        return coerceCustomerFacingStatusDescriptor(fallbackRaw);
+        const status = coerceCustomerFacingStatusDescriptor(fallbackRaw);
+        
+        // Show failed orders as pending unless cancelled by admin
+        if (status.key === 'failed' && !cancelled) {
+            return coerceCustomerFacingStatusDescriptor('pending', 'Pending');
+        }
+
+        return status;
     }
 
     function isOrderRefunded(order = {}) {
