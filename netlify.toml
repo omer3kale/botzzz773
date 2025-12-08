@@ -1,10 +1,10 @@
 # Netlify Configuration - Root Level
+# This file OVERRIDES all dashboard settings
 [build]
   base = "BOTZZZ/BOTZZZ773"
   publish = "."
   command = "echo 'Static site - no build needed'"
-  functions = "netlify/functions"
-  node_bundler = "esbuild"
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF ."
   
 [build.environment]
   SECRETS_SCAN_ENABLED = "false"
