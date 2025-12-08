@@ -452,15 +452,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 serviceType: formData.get('serviceType'),
                 link: formData.get('link'),
                 quantity: formData.get('quantity'),
-                email: formData.get('email'),
                 notes: formData.get('notes')
             };
             
             // Validate
-            if (!validateEmail(data.email)) {
-                showMessage('Please enter a valid email address', 'error');
-                return;
-            }
             
             if (!validateURL(data.link)) {
                 showMessage('Please enter a valid URL', 'error');
@@ -593,28 +588,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 const hint = this.nextElementSibling;
                 if (hint) {
                     hint.textContent = '✅ Valid URL';
-                    hint.style.color = '#10b981';
-                }
-            }
-        });
-    }
-    
-    // Real-time email validation
-    const emailInput = document.getElementById('email');
-    if (emailInput) {
-        emailInput.addEventListener('blur', function() {
-            if (this.value && !validateEmail(this.value)) {
-                this.style.borderColor = '#ef4444';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '❌ Please enter a valid email';
-                    hint.style.color = '#ef4444';
-                }
-            } else if (this.value) {
-                this.style.borderColor = '#10b981';
-                const hint = this.nextElementSibling;
-                if (hint) {
-                    hint.textContent = '✅ Valid email';
                     hint.style.color = '#10b981';
                 }
             }
