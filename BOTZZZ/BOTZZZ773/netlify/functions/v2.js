@@ -103,6 +103,27 @@ async function getUserFromApiKey(apiKey) {
   }
 }
 
+// Simple in-memory rate limiter (resets on function cold start)
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 120; // 120 requests per minute (2 per second average)
+
+function checkRateLimit(userId) {
+  const now = Date.now();
+  const userLimit = rateLimitMap.get(userId) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW };
+  
+  // Reset if window expired
+  if (now > userLimit.resetAt) {
+    userLimit.count = 0;
+    userLimit.resetAt = now + RATE_LIMIT_WINDOW;
+  }
+  
+  userLimit.count++;
+  rateLimitMap.set(userId, userLimit);
+  
+  return userLimit.count <= MAX_REQUESTS_PER_WINDOW;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -149,6 +170,15 @@ exports.handler = async (event) => {
         statusCode: 403,
         headers,
         body: JSON.stringify({ error: 'Account is not active' })
+      };
+    }
+
+    // Rate limiting check
+    if (!checkRateLimit(user.id)) {
+      return {
+        statusCode: 429,
+        headers,
+        body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 120 requests per minute.' })
       };
     }
 
@@ -285,6 +315,8 @@ async function handleAddOrder(user, params, headers) {
         quantity: quantity,
         charge: totalCost,
         status: 'pending',
+        customer_status: 'processing',
+        provider_status: null,
   order_number: `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`
       })
       .select()
@@ -324,7 +356,8 @@ async function handleAddOrder(user, params, headers) {
             .from('orders')
             .update({ 
               provider_order_id: providerResponse.data.order,
-              status: 'processing'
+              status: 'processing',
+              provider_status: 'processing'
             })
             .eq('id', order.id);
         }

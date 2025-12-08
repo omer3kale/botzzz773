@@ -604,20 +604,48 @@ document.addEventListener('DOMContentLoaded', function() {
         generateKeyForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         
+        const submitBtn = generateKeyForm.querySelector('button[type="submit"]');
+        const originalBtnText = submitBtn ? submitBtn.textContent : '';
+        
         const keyName = document.getElementById('keyName').value;
         const permissions = Array.from(document.querySelectorAll('#generateKeyForm input[type="checkbox"]:checked'))
             .map(cb => cb.value);
+        
+        // Validation
+        if (!keyName || keyName.trim().length === 0) {
+            showMessage('API key name is required', 'error');
+            return;
+        }
+        
+        if (keyName.length > 100) {
+            showMessage('API key name must be less than 100 characters', 'error');
+            return;
+        }
         
         if (permissions.length === 0) {
             showMessage('Please select at least one permission', 'error');
             return;
         }
         
+        // Disable submit button
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+        }
+        
         try {
             const token = resolveAuthToken('generate-api-key');
             if (!token) {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalBtnText;
+                }
+                showMessage('Authentication required. Please sign in again.', 'error');
                 return;
             }
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
             
             const response = await fetch('/.netlify/functions/api-keys', {
                 method: 'POST',
@@ -626,36 +654,108 @@ document.addEventListener('DOMContentLoaded', function() {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    name: keyName,
+                    name: keyName.trim(),
                     permissions: permissions
-                })
+                }),
+                signal: controller.signal
             });
             
-            const data = await response.json();
+            clearTimeout(timeoutId);
             
-            if (data.success) {
+            let data;
+            try {
+                data = await response.json();
+            } catch (parseError) {
+                console.error('[API-DASHBOARD] Failed to parse API response:', parseError);
+                // If response is 201 (created) but JSON parse failed, still check if key was created
+                if (response.status === 201) {
+                    console.warn('[API-DASHBOARD] Got 201 status but could not parse JSON - key may have been created');
+                    showMessage('API key may have been created. Please refresh the page to check.', 'warning');
+                    // Attempt to refresh keys list
+                    await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
+                }
+                throw new Error('Invalid response from server. Please try again.');
+            }
+            
+            // Check for successful creation - must have all three: response.ok, data.success, and data.key
+            if (response.ok && data.success && data.key) {
+                console.log('[API-DASHBOARD] API key created successfully:', {
+                    name: keyName,
+                    permissions: permissions,
+                    keyPrefix: data.key.substring(0, 10)
+                });
+                
                 // Show the key in modal
-                document.getElementById('generatedApiKey').textContent = data.key;
+                const keyElement = document.getElementById('generatedApiKey');
+                if (keyElement) {
+                    keyElement.textContent = data.key;
+                } else {
+                    console.warn('[API-DASHBOARD] generatedApiKey element not found');
+                }
                 
                 closeModal('generateKeyModal');
                 openModal('apiKeyModal');
                 
                 // Reset form
-                document.getElementById('generateKeyForm').reset();
+                generateKeyForm.reset();
                 
-                // Re-render keys
-                renderApiKeys();
+                // Re-render keys list
+                await renderApiKeys().catch(err => {
+                    console.warn('[API-DASHBOARD] Failed to refresh keys list:', err);
+                });
+                
+                // Notify parent window if in iframe/popup
                 notifyOpener({
                     type: 'API_KEY_CREATED',
                     name: keyName,
-                    permissions
+                    permissions: permissions,
+                    success: true
                 });
+                
+                showMessage('API key created successfully! Make sure to copy it now.', 'success');
+            } else if (response.status === 201 && (!data.success || !data.key)) {
+                // Edge case: backend returned 201 but response is incomplete
+                console.error('[API-DASHBOARD] Got 201 status but incomplete data:', data);
+                showMessage('API key may have been created but response was incomplete. Please refresh to verify.', 'warning');
+                // Attempt to refresh keys list to show potentially created key
+                await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
+            } else if (response.status === 401 || response.status === 403) {
+                console.error('[API-DASHBOARD] Authentication failed:', response.status);
+                showMessage('Session expired. Please sign in again.', 'error');
+                setTimeout(() => {
+                    window.location.href = 'signin.html';
+                }, 2000);
+            } else if (response.status === 400) {
+                console.error('[API-DASHBOARD] Validation error:', data);
+                showMessage(data.error || 'Invalid request. Please check your input.', 'error');
+            } else if (response.status === 500) {
+                console.error('[API-DASHBOARD] Server error:', data);
+                showMessage('Server error. Please try again later.', 'error');
             } else {
-                showMessage(data.error || 'Failed to generate API key', 'error');
+                console.error('[API-DASHBOARD] API key creation failed:', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    data: data
+                });
+                showMessage(data.error || data.message || 'Failed to generate API key. Please try again.', 'error');
             }
         } catch (error) {
-            console.error('Generate API key error:', error);
-            showMessage('Failed to generate API key', 'error');
+            if (error.name === 'AbortError') {
+                console.error('[API-DASHBOARD] Request timeout:', error);
+                showMessage('Request timed out. Please check your connection and try again.', 'error');
+            } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+                console.error('[API-DASHBOARD] Network error:', error);
+                showMessage('Network error. Please check your connection and try again.', 'error');
+            } else {
+                console.error('[API-DASHBOARD] Unexpected error during API key generation:', error);
+                showMessage(error.message || 'An unexpected error occurred. Please try again.', 'error');
+            }
+        } finally {
+            // Re-enable submit button
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalBtnText;
+            }
         }
     });
     }
