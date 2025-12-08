@@ -509,7 +509,7 @@ console.log(data);</code></pre>
             <div class="code-examples-grid">
                 <!-- PHP Example -->
                 <div class="code-example-card">
-                    <h3>PHP</h3>
+                    <h3>PHP (JSON Format)</h3>
                     <div class="code-block">
                         <div class="code-header">
                             <span>example.php</span>
@@ -517,7 +517,7 @@ console.log(data);</code></pre>
                         </div>
                         <pre><code>&lt;?php
 $api_key = 'a8Kx9mP!4nQr2sT-vWy5zB@7cDe-fGh3jK#6lMn-pRs1tU';
-$api_url = 'https://www.botzzz773.pro/.netlify/functions/v2';
+$api_url = 'https://www.botzzz773.pro/api/v2';
 
 $data = array(
     'key' => $api_key,
@@ -538,6 +538,60 @@ curl_setopt($ch, CURLOPT_HTTPHEADER, array(
 $response = curl_exec($ch);
 curl_close($ch);
 
+$result = json_decode($response, true);
+echo 'Order ID: ' . $result['order'];
+?&gt;</code></pre>
+                    </div>
+                </div>
+
+                <!-- PHP URL-Encoded Example -->
+                <div class="code-example-card">
+                    <h3>PHP (URL-Encoded Format)</h3>
+                    <div class="code-block">
+                        <div class="code-header">
+                            <span>provider-integration.php</span>
+                            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                        </div>
+                        <pre><code>&lt;?php
+// Perfect Panel / SmartPanel Compatible Format
+$api_key = 'a8Kx9mP!4nQr2sT-vWy5zB@7cDe-fGh3jK#6lMn-pRs1tU';
+$api_url = 'https://www.botzzz773.pro/api/v2';
+
+// Get services list
+$data = array(
+    'key' => $api_key,
+    'action' => 'services'
+);
+
+$ch = curl_init($api_url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+curl_setopt($ch, CURLOPT_HTTPHEADER, array(
+    'Content-Type: application/x-www-form-urlencoded'
+));
+
+$response = curl_exec($ch);
+curl_close($ch);
+
+$services = json_decode($response, true);
+print_r($services);
+
+// Place an order
+$order_data = array(
+    'key' => $api_key,
+    'action' => 'add',
+    'service' => 1,
+    'link' => 'https://instagram.com/username',
+    'quantity' => 1000
+);
+
+$ch = curl_init($api_url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($order_data));
+
+$response = curl_exec($ch);
 $result = json_decode($response, true);
 echo 'Order ID: ' . $result['order'];
 ?&gt;</code></pre>
