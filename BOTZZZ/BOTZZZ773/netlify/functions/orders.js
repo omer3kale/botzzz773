@@ -578,8 +578,8 @@ const baseHandler = async (event) => {
     };
   }
 
-  // Verify user has valid userId and email
-  if (!user.userId || !user.email) {
+  // Verify user has valid userId
+  if (!user.userId) {
     return {
       statusCode: 403,
       headers,
@@ -872,7 +872,7 @@ async function handleCreateOrder(user, data, headers) {
     // ============= STEP 1: VALIDATE INPUT =============
     logger.info('Create order attempt', {
       userId: user.userId,
-      email: user.email,
+      email: user.email || 'not-provided',
       serviceId
     });
 
@@ -3223,7 +3223,7 @@ async function handleResendOrder(user, body, headers) {
       };
     }
 
-    logger.info('Resending failed order', { orderId, adminUser: user.email });
+    logger.info('Resending failed order', { orderId, adminUser: user.email || user.userId });
 
     // Get order details with service and provider info
     const { data: order, error: orderError } = await supabaseAdmin
