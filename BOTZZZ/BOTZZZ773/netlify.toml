@@ -25,6 +25,13 @@
   status = 200
   force = true
 
+# Fallback for panels using /v2 (without /api prefix)
+[[redirects]]
+  from = "/v2"
+  to = "/.netlify/functions/v2"
+  status = 200
+  force = true
+
 # Redirect all paths to the BOTZZZ773 directory
 [[redirects]]
   from = "/.netlify/functions/*"
