@@ -626,7 +626,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
-                    action: 'create',
                     name: keyName,
                     permissions: permissions
                 })
