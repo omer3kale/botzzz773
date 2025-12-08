@@ -127,7 +127,7 @@ function checkRateLimit(userId) {
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json'
   };
@@ -145,7 +145,21 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { key, action, ...params } = JSON.parse(event.body || '{}');
+    let params;
+    
+    // Support both JSON and URL-encoded form data (for Perfect Panel compatibility)
+    const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+    
+    if (contentType.includes('application/x-www-form-urlencoded')) {
+      // Parse URL-encoded form data
+      const querystring = require('querystring');
+      params = querystring.parse(event.body || '');
+    } else {
+      // Parse JSON
+      params = JSON.parse(event.body || '{}');
+    }
+    
+    const { key, action, ...otherParams } = params;
 
     // Validate API key
     if (!key) {
@@ -187,13 +201,13 @@ exports.handler = async (event) => {
       case 'services':
         return await handleServices(user, headers);
       case 'add':
-        return await handleAddOrder(user, params, headers);
+        return await handleAddOrder(user, otherParams, headers);
       case 'status':
-        return await handleOrderStatus(user, params, headers);
+        return await handleOrderStatus(user, otherParams, headers);
       case 'balance':
         return await handleBalance(user, headers);
       case 'refill':
-        return await handleRefill(user, params, headers);
+        return await handleRefill(user, otherParams, headers);
       default:
         return {
           statusCode: 400,
