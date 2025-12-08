@@ -128,7 +128,7 @@ exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, HEAD',
     'Content-Type': 'application/json'
   };
 
@@ -136,7 +136,11 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  if (event.httpMethod !== 'POST') {
+  if (event.httpMethod === 'HEAD') {
+    return { statusCode: 200, headers, body: '' };
+  }
+
+  if (event.httpMethod !== 'POST' && event.httpMethod !== 'GET') {
     return {
       statusCode: 405,
       headers,
@@ -147,25 +151,31 @@ exports.handler = async (event) => {
   try {
     let params;
     
-    // Support both JSON and URL-encoded form data (for Perfect Panel compatibility)
-    const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
-    
-    console.log('[API v2] Request received:', {
-      method: event.httpMethod,
-      contentType: contentType,
-      origin: event.headers.origin || event.headers.Origin || 'unknown',
-      bodyLength: (event.body || '').length
-    });
-    
-    if (contentType.includes('application/x-www-form-urlencoded')) {
-      // Parse URL-encoded form data
-      const querystring = require('querystring');
-      params = querystring.parse(event.body || '');
-      console.log('[API v2] Parsed URL-encoded params:', { action: params.action, hasKey: !!params.key });
+    if (event.httpMethod === 'GET') {
+      // Allow basic GET usage for provider connectivity checks (some panels ping with GET)
+      params = event.queryStringParameters || {};
+      console.log('[API v2] GET request:', { action: params.action, hasKey: !!params.key });
     } else {
-      // Parse JSON
-      params = JSON.parse(event.body || '{}');
-      console.log('[API v2] Parsed JSON params:', { action: params.action, hasKey: !!params.key });
+      // Support both JSON and URL-encoded form data (for Perfect Panel compatibility)
+      const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
+      
+      console.log('[API v2] Request received:', {
+        method: event.httpMethod,
+        contentType: contentType,
+        origin: event.headers.origin || event.headers.Origin || 'unknown',
+        bodyLength: (event.body || '').length
+      });
+      
+      if (contentType.includes('application/x-www-form-urlencoded')) {
+        // Parse URL-encoded form data
+        const querystring = require('querystring');
+        params = querystring.parse(event.body || '');
+        console.log('[API v2] Parsed URL-encoded params:', { action: params.action, hasKey: !!params.key });
+      } else {
+        // Parse JSON
+        params = JSON.parse(event.body || '{}');
+        console.log('[API v2] Parsed JSON params:', { action: params.action, hasKey: !!params.key });
+      }
     }
     
     const { key, action, ...otherParams } = params;
