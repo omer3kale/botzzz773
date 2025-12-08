@@ -192,7 +192,7 @@ exports.handler = async (event) => {
     // Validate API key
     if (!key) {
       return {
-        statusCode: 401,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'API key is required' })
       };
@@ -201,7 +201,7 @@ exports.handler = async (event) => {
     const user = await getUserFromApiKey(key);
     if (!user) {
       return {
-        statusCode: 401,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Invalid API key' })
       };
@@ -209,7 +209,7 @@ exports.handler = async (event) => {
 
     if (user.status !== 'active') {
       return {
-        statusCode: 403,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Account is not active' })
       };
