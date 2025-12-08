@@ -1,12 +1,12 @@
 # Netlify Configuration
 [build]
   publish = "."
-  command = "echo 'Static site - no build needed'"
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF ."
+  command = "ls -la && echo 'Build complete - static site'"
   
 [build.environment]
   SECRETS_SCAN_ENABLED = "false"
   NODE_VERSION = "18"
+  NETLIFY_BUILD_DEBUG = "true"
 
 [functions]
   directory = "netlify/functions"
