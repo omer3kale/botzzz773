@@ -1,0 +1,63 @@
+# Netlify Configuration - Root Level
+[build]
+  base = "BOTZZZ/BOTZZZ773"
+  publish = "BOTZZZ/BOTZZZ773"
+  command = "npm install"
+  functions = "BOTZZZ/BOTZZZ773/netlify/functions"
+  node_bundler = "esbuild"
+  
+[build.environment]
+  SECRETS_SCAN_ENABLED = "false"
+  NODE_VERSION = "18"
+
+[functions]
+  directory = "BOTZZZ/BOTZZZ773/netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["@supabase/supabase-js", "stripe", "axios"]
+
+[dev]
+  command = "npm run dev"
+  targetPort = 3000
+  port = 8888
+
+# Redirect all paths to the BOTZZZ773 directory
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Order status sync - runs every 10 minutes
+[[functions."order-status-sync".schedule]]
+  cron = "*/10 * * * *"
+
+# Security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Cache static assets
+[[headers]]
+  for = "/css/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Don't cache HTML files
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
