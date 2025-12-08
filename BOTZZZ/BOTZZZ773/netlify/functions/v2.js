@@ -150,13 +150,22 @@ exports.handler = async (event) => {
     // Support both JSON and URL-encoded form data (for Perfect Panel compatibility)
     const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
     
+    console.log('[API v2] Request received:', {
+      method: event.httpMethod,
+      contentType: contentType,
+      origin: event.headers.origin || event.headers.Origin || 'unknown',
+      bodyLength: (event.body || '').length
+    });
+    
     if (contentType.includes('application/x-www-form-urlencoded')) {
       // Parse URL-encoded form data
       const querystring = require('querystring');
       params = querystring.parse(event.body || '');
+      console.log('[API v2] Parsed URL-encoded params:', { action: params.action, hasKey: !!params.key });
     } else {
       // Parse JSON
       params = JSON.parse(event.body || '{}');
+      console.log('[API v2] Parsed JSON params:', { action: params.action, hasKey: !!params.key });
     }
     
     const { key, action, ...otherParams } = params;

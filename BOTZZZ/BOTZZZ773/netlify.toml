@@ -18,6 +18,13 @@
   targetPort = 3000
   port = 8888
 
+# API v2 endpoint - redirect /api/v2 to Netlify function for panel compatibility
+[[redirects]]
+  from = "/api/v2"
+  to = "/.netlify/functions/v2"
+  status = 200
+  force = true
+
 # Redirect all paths to the BOTZZZ773 directory
 [[redirects]]
   from = "/.netlify/functions/*"
