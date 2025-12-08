@@ -1,14 +1,15 @@
 # Netlify Configuration
 [build]
   publish = "."
-  command = "npm install"
-  functions = "netlify/functions"
-  node_bundler = "esbuild"
+  command = "echo 'Static site - no build needed'"
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF ."
   
 [build.environment]
   SECRETS_SCAN_ENABLED = "false"
+  NODE_VERSION = "18"
 
 [functions]
+  directory = "netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["@supabase/supabase-js", "stripe", "axios"]
 
@@ -17,78 +18,44 @@
   targetPort = 3000
   port = 8888
 
+# Redirect all paths to the BOTZZZ773 directory
 [[redirects]]
-  from = "/*"
-  to = "https://www.botzzz773.pro/:splat"
-  status = 301
-  [redirects.conditions]
-    Host = ["botzzz773.pro"]
-
-[[scheduled_functions]]
-  path = "sync-order-status"
-  schedule = "*/10 * * * *"
-
-[[scheduled_functions]]
-  path = "sync-service-catalog"
-  schedule = "15 * * * *"
-
-[[scheduled_functions]]
-  path = "scheduled-provider-sync"
-  schedule = "@daily"
-
-# API redirect to serverless functions
-[[redirects]]
-  from = "/api/*"
+  from = "/.netlify/functions/*"
   to = "/.netlify/functions/:splat"
   status = 200
 
-# Page redirects
-[[redirects]]
-  from = "/services/*"
-  to = "/services.html"
-  status = 200
+# Order status sync - runs every 10 minutes
+[[functions."order-status-sync".schedule]]
+  cron = "*/10 * * * *"
 
-[[redirects]]
-  from = "/order/*"
-  to = "/order.html"
-  status = 200
-
-[[redirects]]
-  from = "/contact/*"
-  to = "/contact.html"
-  status = 200
-
-# Do NOT use SPA fallback - all HTML files should be served directly
-# Removed: [[redirects]] from = "/*" to = "/index.html" status = 200
-
-# Headers for security and CORS
+# Security headers
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
-    X-XSS-Protection = "1; mode=block"
     X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
     Referrer-Policy = "strict-origin-when-cross-origin"
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
 
 # Cache static assets
 [[headers]]
   for = "/css/*"
   [headers.values]
-    Cache-Control = "public, max-age=86400"
+    Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
   for = "/js/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600"
+    Cache-Control = "public, max-age=31536000, immutable"
 
-# CORS headers for API endpoints
 [[headers]]
-  for = "/.netlify/functions/*"
+  for = "/img/*"
   [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization, X-Requested-With"
-    Access-Control-Max-Age = "86400"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Don't cache HTML files
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
