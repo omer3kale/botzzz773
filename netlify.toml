@@ -1,9 +1,9 @@
 # Netlify Configuration - Root Level
 [build]
   base = "BOTZZZ/BOTZZZ773"
-  publish = "BOTZZZ/BOTZZZ773"
-  command = "npm install"
-  functions = "BOTZZZ/BOTZZZ773/netlify/functions"
+  publish = "."
+  command = "echo 'Static site - no build needed'"
+  functions = "netlify/functions"
   node_bundler = "esbuild"
   
 [build.environment]
@@ -11,7 +11,7 @@
   NODE_VERSION = "18"
 
 [functions]
-  directory = "BOTZZZ/BOTZZZ773/netlify/functions"
+  directory = "netlify/functions"
   node_bundler = "esbuild"
   external_node_modules = ["@supabase/supabase-js", "stripe", "axios"]
 
