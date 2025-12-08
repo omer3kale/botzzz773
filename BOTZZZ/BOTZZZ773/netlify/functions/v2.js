@@ -185,7 +185,24 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ message: 'API online. Use POST with key and action.' })
+        body: JSON.stringify({ 
+          status: 'online',
+          message: 'API v2 endpoint',
+          methods: ['services', 'add', 'status', 'balance', 'refill']
+        })
+      };
+    }
+
+    // Allow POST ping without key to verify provider exists (some panels check this)
+    if (event.httpMethod === 'POST' && !key && !action) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ 
+          status: 'online',
+          message: 'API v2 endpoint. Provide key and action.',
+          methods: ['services', 'add', 'status', 'balance', 'refill']
+        })
       };
     }
 
