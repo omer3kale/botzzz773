@@ -3,7 +3,7 @@
 const { createClient } = require('@supabase/supabase-js');
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function getServices() {
@@ -11,7 +11,7 @@ async function getServices() {
     const { data, error } = await supabase
       .from('services')
       .select('id, name, type, category, rate, min_order, max_order, refill, cancel')
-      .eq('status', true)
+      .eq('status', 'active')
       .order('id', { ascending: true });
 
     if (error) {
@@ -19,16 +19,23 @@ async function getServices() {
       return [];
     }
 
+    if (!data || !Array.isArray(data)) {
+      console.error('Services response is not an array:', typeof data);
+      return [];
+    }
+
+    console.log(`Services found: ${data.length}`);
+
     return data.map(service => ({
       service: String(service.id),
-      name: service.name,
+      name: service.name || 'Unnamed',
       type: 'service',
-      category: service.category,
-      rate: String(service.rate),
-      min: String(service.min_order),
-      max: String(service.max_order),
-      refill: service.refill,
-      cancel: service.cancel
+      category: service.category || 'General',
+      rate: String(service.rate || 0),
+      min: String(service.min_order || 1),
+      max: String(service.max_order || 1000),
+      refill: service.refill !== false,
+      cancel: service.cancel !== false
     }));
   } catch (err) {
     console.error('Services error:', err);
