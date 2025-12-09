@@ -1,16 +1,12 @@
 // SMM Panel Provider API - Compatible with Goupsocial, Nakrutka, Bigstata format
 // Implements standard /api/ endpoint for provider registration
-const { createClient } = require('@supabase/supabase-js');
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const { supabaseAdmin } = require('./utils/supabase');
 
 async function getServices() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from('services')
-      .select('id, name, type, category, rate, min_order, max_order, refill, cancel')
+      .select('*')
       .eq('status', 'active')
       .order('id', { ascending: true });
 
@@ -26,17 +22,27 @@ async function getServices() {
 
     console.log(`Services found: ${data.length}`);
 
-    return data.map(service => ({
-      service: String(service.id),
-      name: service.name || 'Unnamed',
-      type: 'service',
-      category: service.category || 'General',
-      rate: String(service.rate || 0),
-      min: String(service.min_order || 1),
-      max: String(service.max_order || 1000),
-      refill: service.refill !== false,
-      cancel: service.cancel !== false
-    }));
+    const formatted = data.map(service => {
+      try {
+        return {
+          service: String(service.id),
+          name: String(service.name || 'Unnamed').substring(0, 100),
+          type: String(service.type || 'Default').substring(0, 50),
+          category: String(service.category || 'General').substring(0, 50),
+          rate: String(parseFloat(service.rate || 0).toFixed(2)),
+          min: String(parseInt(service.min_order || 1, 10)),
+          max: String(parseInt(service.max_order || 1000, 10)),
+          refill: service.refill !== false,
+          cancel: service.cancel !== false
+        };
+      } catch (e) {
+        console.error(`Error formatting service ${service.id}:`, e);
+        return null;
+      }
+    }).filter(s => s !== null);
+
+    console.log(`Formatted: ${formatted.length} services`);
+    return formatted;
   } catch (err) {
     console.error('Services error:', err);
     return [];
