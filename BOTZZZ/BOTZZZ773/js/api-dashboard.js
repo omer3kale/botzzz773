@@ -264,9 +264,8 @@ async function renderApiKeys() {
         }
         
         container.innerHTML = apiKeys.map(key => {
-            // SECURITY: Decrypt key for display (masked)
+            // Show full key for easy sharing with providers like Goupsocial
             const decryptedKey = decryptApiKey(key.key);
-            const maskedKey = decryptedKey.substring(0, 20) + '••••••••••••';
             
             return `
             <div class="api-key-card">
@@ -291,7 +290,7 @@ async function renderApiKeys() {
                     </div>
                 </div>
                 <div class="api-key-display-hidden">
-                    <code>${maskedKey}</code>
+                    <code>${decryptedKey}</code>
                 </div>
                 <div class="api-key-stats">
                     <div class="key-stat">
