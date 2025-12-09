@@ -327,6 +327,20 @@ function copyKeyToClipboard(encryptedKey) {
     });
 }
 
+// Copy generated key from modal
+function copyGeneratedKey() {
+    const keyElement = document.getElementById('generatedApiKey');
+    if (keyElement) {
+        const key = keyElement.textContent;
+        navigator.clipboard.writeText(key).then(() => {
+            showMessage('API key copied to clipboard!', 'success');
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            showMessage('Failed to copy API key', 'error');
+        });
+    }
+}
+
 // Delete API key from backend
 async function deleteApiKey(keyId) {
     if (!confirm('Are you sure you want to delete this API key? This action cannot be undone.')) {
