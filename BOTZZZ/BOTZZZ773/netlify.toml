@@ -18,10 +18,10 @@
   targetPort = 3000
   port = 8888
 
-# API subdomain (api.botzzz773.pro) - route all requests to v2 function
+# API subdomain (api.botzzz773.pro) - route all requests to dedicated api function
 [[redirects]]
   from = "/*"
-  to = "/.netlify/functions/v2"
+  to = "/.netlify/functions/api"
   status = 200
   force = true
   conditions = { host = ["api.botzzz773.pro"] }
