@@ -331,19 +331,7 @@ async function loadServicesFromAPI(options = {}) {
     }
 
     const isRetry = Boolean(options.manualRetry);
-
     const token = resolveAuthToken('load-services');
-    if (!token) {
-        servicesStatusController?.setState('error');
-        container.innerHTML = `
-            <div style="text-align: center; padding: 80px 20px;">
-                <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
-                <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Sign In Required</h3>
-                <p style="color: #64748B; font-size: 16px;">Please sign in again to view services.</p>
-            </div>
-        `;
-        return false;
-    }
     authToken = token;
     
     try {
@@ -355,9 +343,15 @@ async function loadServicesFromAPI(options = {}) {
             'Content-Type': 'application/json'
         };
 
-        headers.Authorization = `Bearer ${token}`;
+        if (token) {
+            headers.Authorization = `Bearer ${token}`;
+        }
 
-        const response = await fetch('/.netlify/functions/services?audience=customer', {
+        const endpoint = token
+            ? '/.netlify/functions/services?audience=customer'
+            : '/api?action=services';
+
+        const response = await fetch(endpoint, {
             method: 'GET',
             headers
         });
@@ -390,7 +384,7 @@ async function loadServicesFromAPI(options = {}) {
             throw new Error(data.error || 'Failed to load services');
         }
 
-        const services = Array.isArray(data.services) ? data.services : [];
+        const services = Array.isArray(data.services) ? data.services : Array.isArray(data) ? data : [];
         const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
         approvedServicesCache = approvedServices;
         console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length);
@@ -1820,9 +1814,6 @@ function initializeCategoryLoading() {
 
 function resolveAuthToken(reason) {
     const token = getAuthToken();
-    if (!token) {
-        handleMissingAuth(reason);
-    }
     return token;
 }
 
