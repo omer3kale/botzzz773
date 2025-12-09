@@ -1,2 +1,5 @@
+# API subdomain routing - handle both domain formats
+https://api.botzzz773.pro/* https://www.botzzz773.pro/api/:splat 200
+
 # API redirects to serverless functions
 /api/* /.netlify/functions/:splat 200
