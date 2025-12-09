@@ -362,6 +362,38 @@ exports.handler = async (event) => {
   }
 };
 
+// Convert UUID to numeric ID (consistent hash)
+function uuidToNumericId(uuid) {
+  // Remove hyphens and take first 8 characters
+  const hex = uuid.replace(/-/g, '').substring(0, 8);
+  // Convert to integer (max safe integer in JS is 9007199254740991)
+  const numericId = parseInt(hex, 16);
+  return numericId;
+}
+
+// Find service UUID by numeric ID (reverse lookup)
+async function findServiceByNumericId(numericId) {
+  try {
+    // Get all services and find matching numeric ID
+    const { data: services } = await supabaseAdmin
+      .from('services')
+      .select('id')
+      .eq('status', 'active');
+    
+    if (!services) return null;
+    
+    for (const service of services) {
+      if (uuidToNumericId(service.id) === parseInt(numericId, 10)) {
+        return service.id;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('[API v2] Error finding service by numeric ID:', error);
+    return null;
+  }
+}
+
 // Get services list
 async function handleServices(user, headers) {
   try {
@@ -412,8 +444,11 @@ async function handleServices(user, headers) {
             return null;
           }
 
+          // Convert UUID to numeric ID for compatibility with SMM panels
+          const numericServiceId = uuidToNumericId(service.id);
+
           return {
-            service: service.id.toString(),
+            service: numericServiceId,
             name: String(service.name || 'Unnamed Service').substring(0, 100),
             type: String(service.type || 'Default').substring(0, 50),
             category: String(service.category || 'General').substring(0, 50),
@@ -487,14 +522,20 @@ async function handleAddOrder(user, params, headers) {
       };
     }
 
-    // Validate service is a valid integer
-    const serviceId = parseInt(service, 10);
-    if (isNaN(serviceId) || serviceId <= 0) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Invalid service ID' })
-      };
+    // Validate service is a valid integer or UUID
+    let actualServiceId = service;
+    const serviceIdNum = parseInt(service, 10);
+    
+    // If it's a numeric ID, convert to UUID
+    if (!isNaN(serviceIdNum) && serviceIdNum > 0) {
+      actualServiceId = await findServiceByNumericId(serviceIdNum);
+      if (!actualServiceId) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ error: 'Service not found' })
+        };
+      }
     }
 
     // Validate quantity is a positive integer
@@ -546,11 +587,11 @@ async function handleAddOrder(user, params, headers) {
       }
     }
 
-    // Get service details
+    // Get service details using the actual UUID
     const { data: serviceData, error: serviceError } = await supabaseAdmin
       .from('services')
       .select('*, provider:providers(*)')
-      .eq('id', serviceId)
+      .eq('id', actualServiceId)
       .single();
 
     if (serviceError || !serviceData) {
@@ -574,8 +615,8 @@ async function handleAddOrder(user, params, headers) {
 
     // Validate total cost is reasonable (prevent accidental massive orders)
     if (parseFloat(totalCost) > 10000) {
-      console.warn(`[API v2] Suspicious large order attempt: user=${user.id}, service=${serviceId}, qty=${qty}, cost=${totalCost}`);
-      await auditLog(user.id, 'suspicious_large_order', { service: serviceId, quantity: qty, cost: totalCost }, 'critical');
+      console.warn(`[API v2] Suspicious large order attempt: user=${user.id}, service=${actualServiceId}, qty=${qty}, cost=${totalCost}`);
+      await auditLog(user.id, 'suspicious_large_order', { service: actualServiceId, quantity: qty, cost: totalCost }, 'critical');
       return {
         statusCode: 400,
         headers,
@@ -597,7 +638,7 @@ async function handleAddOrder(user, params, headers) {
       .from('orders')
       .insert({
         user_id: user.id,
-        service_id: service,
+        service_id: actualServiceId,
         service_name: serviceData.name,
         link: link,
         quantity: quantity,
@@ -613,7 +654,7 @@ async function handleAddOrder(user, params, headers) {
 
     if (orderError) {
       console.error(`[API v2] Order creation failed: user=${user.id}`, orderError);
-      await auditLog(user.id, 'order_creation_failed', { service: serviceId, error: orderError.message }, 'critical');
+      await auditLog(user.id, 'order_creation_failed', { service: actualServiceId, error: orderError.message }, 'critical');
       return {
         statusCode: 500,
         headers,
