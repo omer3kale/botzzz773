@@ -45,6 +45,26 @@ async function getServices() {
     }).filter(Boolean);
 
     console.log(`[API] Formatted services: ${formatted.length}`);
+
+    // Fallback: if empty, proxy to v2 services (ensures provider discovery works)
+    if (!formatted.length) {
+      try {
+        const baseUrl = process.env.URL || 'https://www.botzzz773.pro';
+        const resp = await fetch(`${baseUrl}/.netlify/functions/v2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'services' })
+        });
+        const v2Services = await resp.json();
+        console.log(`[API] Fallback to v2 returned ${Array.isArray(v2Services) ? v2Services.length : 'non-array'}`);
+        if (Array.isArray(v2Services) && v2Services.length) {
+          return v2Services;
+        }
+      } catch (fallbackErr) {
+        console.error('[API] Fallback to v2 failed:', fallbackErr);
+      }
+    }
+
     return formatted;
   } catch (err) {
     console.error('Services error:', err);
