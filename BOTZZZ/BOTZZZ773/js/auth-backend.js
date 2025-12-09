@@ -4,6 +4,15 @@
 let authPopupMode = false;
 let popupSurfaceEl = null;
 
+// Public pages that must never force a sign-in redirect (e.g., API docs for provider pings)
+function isPublicApiDocPage() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+    const path = window.location.pathname.replace(/^\/+/g, '').toLowerCase();
+    return path === 'api.html' || path === 'api-docs.html';
+}
+
 // Check if user is already logged in on page load
 document.addEventListener('DOMContentLoaded', () => {
     // Don't await on auth pages to prevent blocking form attachment
@@ -23,6 +32,7 @@ async function checkAuthStatus() {
     const token = localStorage.getItem('token');
     const isAuthPage = window.location.pathname.includes('signin') || 
                        window.location.pathname.includes('signup');
+    const isPublicApiDoc = isPublicApiDocPage();
     
     if (!token) {
         // Don't update navigation on signin/signup pages to preserve form
@@ -44,7 +54,7 @@ async function checkAuthStatus() {
         } else {
             // Token invalid - clear storage but don't redirect on auth pages
             clearAuthStorage();
-            if (!isAuthPage) {
+            if (!isAuthPage && !isPublicApiDoc) {
                 window.location.href = 'signin.html';
             }
             return false;
@@ -53,7 +63,7 @@ async function checkAuthStatus() {
         console.error('Auth verification failed:', error);
         // Clear storage but don't redirect on auth pages (user is already there)
         clearAuthStorage();
-        if (!isAuthPage) {
+        if (!isAuthPage && !isPublicApiDoc) {
             window.location.href = 'signin.html';
         }
         return false;
