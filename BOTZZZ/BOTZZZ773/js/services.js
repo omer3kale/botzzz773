@@ -110,6 +110,7 @@ function createNetworkPillController() {
 
 document.addEventListener('DOMContentLoaded', function() {
     const hasServicesContainer = Boolean(document.getElementById('servicesContainer'));
+    // On pages without services container (e.g., index), only load categories/cards and skip auth lookups
     if (!hasServicesContainer) {
         initializeCategoryLoading();
         return;
@@ -122,10 +123,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const token = resolveAuthToken('initial-load');
-    if (!token) {
-        return;
+    if (token) {
+        authToken = token;
     }
-    authToken = token;
 
     servicesStatusController = createServiceStatusController();
     servicesNetworkController = createNetworkPillController();
@@ -1831,23 +1831,7 @@ function handleMissingAuth(reason) {
         return;
     }
     authGuardTriggered = true;
-
-    const payload = { type: 'AUTH_REQUIRED', source: 'services', reason };
-    if (isPopupMode) {
-        notifyOpener(payload);
-        setTimeout(() => {
-            try {
-                window.close();
-            } catch (error) {
-                console.warn('[SERVICES] Failed to close popup after auth guard.', error);
-            }
-        }, 200);
-        return;
-    }
-
-    alert(AUTH_ALERT_MESSAGE);
-    const redirectTarget = buildRedirectTarget();
-    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    console.warn('[SERVICES] Auth missing; skipping redirect for public access.', { reason });
 }
 
 function buildRedirectTarget() {
