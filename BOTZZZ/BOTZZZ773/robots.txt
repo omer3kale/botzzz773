@@ -1,0 +1,14 @@
+# BOTZZZ773 - Professional SMM Panel
+User-agent: *
+Allow: /
+Allow: /api
+Allow: /api/v2
+Disallow: /admin/
+Disallow: /.netlify/
+
+# Sitemap
+Sitemap: https://www.botzzz773.pro/sitemap.xml
+
+# API Documentation
+# Public API: https://www.botzzz773.pro/api
+# API Docs: https://www.botzzz773.pro/api.html

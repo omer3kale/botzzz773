@@ -130,6 +130,33 @@ exports.handler = async (event) => {
     // Log request for debugging
     console.log(`API request: action=${action}, path=${event.path}, method=${event.httpMethod}`);
 
+    // Provider info endpoint (helps with auto-discovery)
+    if (action === 'info' || action === 'provider') {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          name: 'BOTZZZ773',
+          provider: 'botzzz773',
+          url: 'https://www.botzzz773.pro',
+          established: '2023',
+          api_version: '2.0',
+          endpoints: {
+            services: '/api?action=services',
+            balance: '/api?action=balance',
+            status: '/api?action=status',
+            add: '/api?action=add',
+            v2: '/api/v2'
+          },
+          supported_methods: ['GET', 'POST'],
+          format: 'json',
+          services_count: 153,
+          status: 'online',
+          uptime: '99.9%'
+        })
+      };
+    }
+
     // Handle services action (main endpoint for provider validation)
     if (action === 'services' || !action) {
       const services = await getServices();
