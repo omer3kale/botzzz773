@@ -444,11 +444,20 @@ async function handleServices(user, headers) {
             return null;
           }
 
-          // Convert UUID to numeric ID for compatibility with SMM panels
-          const numericServiceId = uuidToNumericId(service.id);
+          // Dual compatibility: support both UUID (pre-migration) and numeric (post-migration)
+          // If service.id is already a number, use it directly
+          // If it's a UUID string, convert to numeric for SMM panel compatibility
+          let serviceId;
+          if (typeof service.id === 'number') {
+            serviceId = service.id; // Post-migration: already numeric
+          } else if (typeof service.id === 'string' && /^[0-9]+$/.test(service.id)) {
+            serviceId = parseInt(service.id, 10); // String number
+          } else {
+            serviceId = uuidToNumericId(service.id); // Pre-migration: UUID
+          }
 
           return {
-            service: numericServiceId,
+            service: serviceId,
             name: String(service.name || 'Unnamed Service').substring(0, 100),
             type: String(service.type || 'Default').substring(0, 50),
             category: String(service.category || 'General').substring(0, 50),
@@ -522,21 +531,35 @@ async function handleAddOrder(user, params, headers) {
       };
     }
 
-    // Validate service is a valid integer or UUID
+    // Dual compatibility: Accept both UUID (pre-migration) and numeric ID (post-migration)
     let actualServiceId = service;
-    const serviceIdNum = parseInt(service, 10);
     
-    // If it's a numeric ID, convert to UUID
+    // Check if it's a numeric ID (post-migration or hash-converted)
+    const serviceIdNum = parseInt(service, 10);
     if (!isNaN(serviceIdNum) && serviceIdNum > 0) {
-      actualServiceId = await findServiceByNumericId(serviceIdNum);
-      if (!actualServiceId) {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({ error: 'Service not found' })
-        };
+      // Try direct numeric lookup first (post-migration)
+      const { data: numericService } = await supabaseAdmin
+        .from('services')
+        .select('id')
+        .eq('id', serviceIdNum)
+        .eq('status', 'active')
+        .single();
+      
+      if (numericService) {
+        actualServiceId = numericService.id; // Found by numeric ID
+      } else {
+        // Fallback: try reverse hash lookup (pre-migration with hash)
+        actualServiceId = await findServiceByNumericId(serviceIdNum);
+        if (!actualServiceId) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({ error: 'Service not found' })
+          };
+        }
       }
     }
+    // else: it's already a UUID, use as-is (pre-migration direct UUID)
 
     // Validate quantity is a positive integer
     const qty = parseInt(quantity, 10);
