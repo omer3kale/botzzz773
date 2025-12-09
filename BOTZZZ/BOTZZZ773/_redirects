@@ -1,2 +1,5 @@
-# API redirects to serverless functions
-/api/* /.netlify/functions/:splat 200
+# API redirects to serverless functions - must come before any other rules
+/api /.netlify/functions/api 200!
+/api/ /.netlify/functions/api 200!
+/api?* /.netlify/functions/api 200!
+/api/* /.netlify/functions/:splat 200!
