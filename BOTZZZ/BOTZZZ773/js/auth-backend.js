@@ -10,7 +10,13 @@ function isPublicApiDocPage() {
         return false;
     }
     const path = window.location.pathname.replace(/^\/+/g, '').toLowerCase();
-    return path === 'api.html' || path === 'api-docs.html';
+    // Allow public access to homepage, services, and all API pages
+    return path === 'index.html' || 
+           path === '' || 
+           path === 'services.html' || 
+           path === 'api.html' || 
+           path === 'api-docs.html' ||
+           path.startsWith('api');
 }
 
 // Check if user is already logged in on page load

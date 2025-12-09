@@ -385,9 +385,15 @@ async function loadServicesFromAPI(options = {}) {
         }
 
         const services = Array.isArray(data.services) ? data.services : Array.isArray(data) ? data : [];
-        const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
+        
+        // For public/unauthenticated users, show all active services (no admin approval filter)
+        // For authenticated users, still filter by admin_approved
+        const approvedServices = token 
+            ? services.filter(service => service.admin_approved === true || service.adminApproved === true)
+            : services; // Show all services to public users
+            
         approvedServicesCache = approvedServices;
-        console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length);
+        console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length, 'auth:', !!token);
         
         if (approvedServices.length === 0) {
             container.innerHTML = `
