@@ -264,7 +264,7 @@ async function renderApiKeys() {
         }
         
         container.innerHTML = apiKeys.map(key => {
-            // Show full key for easy sharing with providers like Goupsocial
+            // Show full key for easy sharing with third-party providers
             const decryptedKey = decryptApiKey(key.key);
             
             return `

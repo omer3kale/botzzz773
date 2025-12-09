@@ -1,4 +1,4 @@
-// SMM Panel Provider API - Compatible with Goupsocial, Nakrutka, Bigstata format
+// SMM Panel Provider API - Standard format for provider integration
 // Implements standard /api/ endpoint for provider registration
 const { supabaseAdmin } = require('./utils/supabase');
 

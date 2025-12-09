@@ -208,12 +208,12 @@
             <div style="padding: 20px;">
                 <p style="margin-bottom: 15px; color: #64748B;">Copy this key now - it won't be shown again!</p>
                 <div style="background: #0a0a0a; padding: 15px; border-radius: 8px; margin-bottom: 15px; position: relative;">
-                    <code id="generatedApiKey" style="color: #ff1494; font-size: 14px; word-break: break-all;"></code>
-                    <button onclick="copyGeneratedKey()" style="position: absolute; top: 10px; right: 10px; background: #ff1494; color: #fff; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 12px;">
+                    <code id="generatedApiKey" style="color: #ff1494; font-size: 14px; word-break: break-all; display: block; padding-right: 80px; user-select: all;"></code>
+                    <button onclick="copyGeneratedKey()" class="btn-primary" style="position: absolute; top: 10px; right: 10px; margin: 0;">
                         Copy
                     </button>
                 </div>
-                <p style="font-size: 14px; color: #94A3B8;">Store this key securely. You can use it to integrate with providers like Goupsocial.</p>
+                <p style="font-size: 14px; color: #94A3B8;">Store this key securely. You can use it for API integration and third-party providers.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn-primary" onclick="closeModal('apiKeyModal')">Done</button>

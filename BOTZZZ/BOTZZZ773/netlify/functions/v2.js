@@ -236,7 +236,7 @@ exports.handler = async (event) => {
       params = event.queryStringParameters || {};
       console.log('[API v2] GET request:', { action: params.action, hasKey: !!params.key });
     } else {
-      // Support both JSON and URL-encoded form data (for Perfect Panel compatibility)
+      // Support both JSON and URL-encoded form data
       const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
       
       console.log('[API v2] Request received:', {
@@ -260,7 +260,7 @@ exports.handler = async (event) => {
     
     const { key, action, ...otherParams } = params;
 
-    // Perfect Panel Compatibility: Default to services list when no action specified
+    // Default to services list when no action specified
     // This allows provider testing via browser (GET) or automated tools (POST)
     if (!action || action === 'services') {
       console.log('[API v2] Returning services list (provider discovery mode)');
