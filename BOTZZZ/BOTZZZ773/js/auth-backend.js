@@ -16,6 +16,7 @@ function isPublicApiDocPage() {
            path === 'services.html' || 
            path === 'api.html' || 
            path === 'api-docs.html' ||
+           path === 'api-dashboard.html' ||
            path.startsWith('api');
 }
 

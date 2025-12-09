@@ -853,9 +853,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 function resolveAuthToken(reason) {
     const token = getAuthToken();
-    if (!token) {
-        handleMissingAuth(reason || 'token-missing');
-    }
+    // Optional auth - don't block if no token
     return token;
 }
 
@@ -874,10 +872,9 @@ function getAuthToken() {
 
 function resolveUserProfile(reason) {
     const profile = getStoredUser();
-    if (!profile) {
-        handleMissingAuth(reason || 'user-missing');
-    }
+    // Optional auth - don't block if no profile
     return profile;
+}
 }
 
 function getStoredUser() {
@@ -897,28 +894,9 @@ function getStoredUser() {
 }
 
 function handleMissingAuth(reason) {
-    if (authGuardTriggered) {
-        return;
-    }
-    authGuardTriggered = true;
-
-    const payload = { type: 'AUTH_REQUIRED', source: 'api-dashboard', reason };
-    notifyOpener(payload);
-
-    if (isPopupMode) {
-        setTimeout(() => {
-            try {
-                window.close();
-            } catch (error) {
-                console.warn('[API DASHBOARD] Failed to close popup after auth guard.', error);
-            }
-        }, 200);
-        return;
-    }
-
-    alert(AUTH_ALERT_MESSAGE);
-    const redirectTarget = buildRedirectTarget();
-    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    // Allow public access to API dashboard - just log the reason
+    console.debug('[API DASHBOARD] Auth check skipped (public mode).', { reason });
+    return;
 }
 
 function buildRedirectTarget() {
