@@ -66,12 +66,6 @@
   status = 200
   force = true
 
-# Redirect all paths to the BOTZZZ773 directory
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
-
 # Order status sync - runs every 10 minutes
 [functions.order-status-sync]
   schedule = "*/10 * * * *"

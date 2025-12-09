@@ -298,9 +298,6 @@ function closeAdminOtpModal({ clearCredentials = false } = {}) {
         adminOtpState.rememberMe = false;
     }
 }
-        clearAdminOtpCredentials();
-    }
-}
 
 function updateAdminOtpCountdown() {
     const countdownEl = document.getElementById('otpCountdown');
