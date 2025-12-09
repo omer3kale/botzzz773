@@ -18,9 +18,20 @@
   targetPort = 3000
   port = 8888
 
-# These redirects should be removed - api.botzzz773.pro needs DNS/subdomain routing, not path routing
+# API v2 endpoint - JSON endpoint for providers (main endpoint)
+[[redirects]]
+  from = "/v2"
+  to = "/.netlify/functions/v2"
+  status = 200
+  force = true
 
-# API v2 endpoint - MUST come first to match /api/v2 before general /api/*
+[[redirects]]
+  from = "/v2/*"
+  to = "/.netlify/functions/v2"
+  status = 200
+  force = true
+
+# API v2 endpoint - also available at /api/v2 for compatibility
 [[redirects]]
   from = "/api/v2"
   to = "/.netlify/functions/v2"
@@ -33,18 +44,12 @@
   status = 200
   force = true
 
-# API gateway endpoint - route /api to dedicated api function (catches everything else)
+# API documentation page - /api shows api.html
 [[redirects]]
   from = "/api"
-  to = "/.netlify/functions/api"
+  to = "/api.html"
   status = 200
-  force = true
-
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api"
-  status = 200
-  force = true
+  force = false
 
 # Fallback for panels using /v2 (without /api prefix)
 [[redirects]]

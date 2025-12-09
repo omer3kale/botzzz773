@@ -1,5 +1,3 @@
-# API redirects to serverless functions - must come before any other rules
-/api /.netlify/functions/api 200!
-/api/ /.netlify/functions/api 200!
-/api?* /.netlify/functions/api 200!
-/api/* /.netlify/functions/:splat 200!
+# API v2 endpoint for JSON (providers use this)
+/v2 /.netlify/functions/v2 200!
+/api/v2 /.netlify/functions/v2 200!
