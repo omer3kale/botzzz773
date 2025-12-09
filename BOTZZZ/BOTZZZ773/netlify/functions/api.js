@@ -4,33 +4,6 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const requestCounts = {};
-const RATE_LIMIT = 120;
-const RATE_LIMIT_WINDOW = 60000;
-
-function parseQueryString(body) {
-  if (!body) return {};
-  const params = {};
-  body.split('&').forEach(pair => {
-    const [key, value] = pair.split('=');
-    params[decodeURIComponent(key)] = decodeURIComponent(value || '');
-  });
-  return params;
-}
-
-function checkRateLimit(ip) {
-  const now = Date.now();
-  if (!requestCounts[ip]) {
-    requestCounts[ip] = [];
-  }
-  requestCounts[ip] = requestCounts[ip].filter(time => now - time < RATE_LIMIT_WINDOW);
-  if (requestCounts[ip].length >= RATE_LIMIT) {
-    return false;
-  }
-  requestCounts[ip].push(now);
-  return true;
-}
-
 async function handleServices() {
   try {
     const { data, error } = await supabase
@@ -63,21 +36,9 @@ async function handleServices() {
 
 exports.handler = async (event) => {
   try {
-    const ip = event.headers['client-ip'] || event.headers['x-forwarded-for']?.split(',')[0] || 'unknown';
-    
-    if (!checkRateLimit(ip)) {
-      return {
-        statusCode: 429,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Rate limit exceeded' })
-      };
-    }
-
-    const body = event.body || '';
-    const params = parseQueryString(body);
-    const action = params.action || '';
-
+    console.log('API function called');
     const services = await handleServices();
+    console.log('Services fetched:', services.length);
     
     return {
       statusCode: 200,
@@ -94,7 +55,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Internal server error', message: error.message })
     };
   }
 };
