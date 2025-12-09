@@ -1,22 +1,13 @@
-/**
- * API Gateway Function
- * Handles all API requests from api.botzzz773.pro
- * Routes to appropriate handler based on action parameter
- */
-
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Simple in-memory rate limiting
 const requestCounts = {};
-const RATE_LIMIT = 120; // requests per minute
-const RATE_LIMIT_WINDOW = 60000; // 1 minute in ms
+const RATE_LIMIT = 120;
+const RATE_LIMIT_WINDOW = 60000;
 
-// Helper: Parse query string
 function parseQueryString(body) {
   if (!body) return {};
   const params = {};
@@ -27,25 +18,19 @@ function parseQueryString(body) {
   return params;
 }
 
-// Helper: Check rate limit
 function checkRateLimit(ip) {
   const now = Date.now();
   if (!requestCounts[ip]) {
     requestCounts[ip] = [];
   }
-  
-  // Remove old requests outside the window
   requestCounts[ip] = requestCounts[ip].filter(time => now - time < RATE_LIMIT_WINDOW);
-  
   if (requestCounts[ip].length >= RATE_LIMIT) {
     return false;
   }
-  
   requestCounts[ip].push(now);
   return true;
 }
 
-// Helper: Get services list
 async function handleServices() {
   try {
     const { data, error } = await supabase
@@ -59,7 +44,6 @@ async function handleServices() {
       return [];
     }
 
-    // Transform to match SMM panel format
     return data.map(service => ({
       service: service.id,
       name: service.name,
@@ -77,12 +61,10 @@ async function handleServices() {
   }
 }
 
-// Main handler
-exports.handler = async (event, context) => {
+exports.handler = async (event) => {
   try {
     const ip = event.headers['client-ip'] || event.headers['x-forwarded-for']?.split(',')[0] || 'unknown';
     
-    // Check rate limit
     if (!checkRateLimit(ip)) {
       return {
         statusCode: 429,
@@ -91,35 +73,21 @@ exports.handler = async (event, context) => {
       };
     }
 
-    let body = event.body || '';
+    const body = event.body || '';
     const params = parseQueryString(body);
     const action = params.action || '';
 
-    // Handle services action (unrestricted)
-    if (action === 'services') {
-      const services = await handleServices();
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(services)
-      };
-    }
-
-    // Default: return services for api subdomain requests without action
-    if (!action) {
-      const services = await handleServices();
-      return {
-        statusCode: 200,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(services)
-      };
-    }
-
-    // Unknown action
+    const services = await handleServices();
+    
     return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Invalid action' })
+      statusCode: 200,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type'
+      },
+      body: JSON.stringify(services)
     };
   } catch (error) {
     console.error('API error:', error);
