@@ -260,35 +260,10 @@ exports.handler = async (event) => {
     
     const { key, action, ...otherParams } = params;
 
-    // Allow simple GET ping without params (panels sometimes probe connectivity)
-    if (event.httpMethod === 'GET' && !key && !action) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ 
-          status: 'online',
-          message: 'API v2 endpoint',
-          methods: ['services', 'add', 'status', 'balance', 'refill']
-        })
-      };
-    }
-
-    // Allow POST ping without key to verify provider exists (some panels check this)
-    if (event.httpMethod === 'POST' && !key && !action) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ 
-          status: 'online',
-          message: 'API v2 endpoint. Provide key and action.',
-          methods: ['services', 'add', 'status', 'balance', 'refill']
-        })
-      };
-    }
-
-    // Allow unauthenticated services list for provider discovery (goupsocial, etc.)
-    // This must work even if an invalid/test API key is provided
-    if (action === 'services') {
+    // Perfect Panel Compatibility: Default to services list when no action specified
+    // This allows provider testing via browser (GET) or automated tools (POST)
+    if (!action || action === 'services') {
+      console.log('[API v2] Returning services list (provider discovery mode)');
       return await handleServices(null, headers);
     }
 
