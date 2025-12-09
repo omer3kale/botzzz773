@@ -6,8 +6,7 @@ async function getServices() {
   try {
     const { data, error } = await supabaseAdmin
       .from('services')
-      .select('*')
-      .eq('status', 'active')
+      .select('id, name, type, category, rate, min_order, max_order, min_quantity, max_quantity, refill, cancel, status')
       .order('id', { ascending: true });
 
     if (error) {
@@ -20,18 +19,26 @@ async function getServices() {
       return [];
     }
 
-    console.log(`Services found: ${data.length}`);
+    // Filter active-like statuses (string "active" or truthy)
+    const activeServices = data.filter(service => {
+      const status = service.status;
+      return status === true || status === 'active' || status === 'Active' || status === 'ACTIVE';
+    });
 
-    const formatted = data.map(service => {
+    console.log(`Services found: ${data.length}, active-like: ${activeServices.length}`);
+
+    const formatted = activeServices.map(service => {
       try {
+        const min = service.min_order ?? service.min_quantity ?? 1;
+        const max = service.max_order ?? service.max_quantity ?? 1000;
         return {
           service: String(service.id),
           name: String(service.name || 'Unnamed').substring(0, 100),
           type: String(service.type || 'Default').substring(0, 50),
           category: String(service.category || 'General').substring(0, 50),
           rate: String(parseFloat(service.rate || 0).toFixed(2)),
-          min: String(parseInt(service.min_order || 1, 10)),
-          max: String(parseInt(service.max_order || 1000, 10)),
+          min: String(parseInt(min, 10)),
+          max: String(parseInt(max, 10)),
           refill: service.refill !== false,
           cancel: service.cancel !== false
         };
