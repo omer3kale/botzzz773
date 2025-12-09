@@ -33,11 +33,6 @@ document.addEventListener('DOMContentLoaded', function() {
         enablePopupSurface();
     }
 
-    const token = resolveAuthToken('initial-load');
-    if (!token) {
-        return;
-    }
-
     initializeSmoothScroll();
     initializeEndpointAnimations();
 });
@@ -132,11 +127,8 @@ function handlePopupClose() {
 }
 
 function resolveAuthToken(reason) {
-    const token = getAuthToken();
-    if (!token) {
-        handleMissingAuth(reason);
-    }
-    return token;
+    // Public docs: allow access without auth; keep helper for potential future use
+    return getAuthToken();
 }
 
 function getAuthToken() {
@@ -149,28 +141,7 @@ function getAuthToken() {
 }
 
 function handleMissingAuth(reason) {
-    if (authGuardTriggered) {
-        return;
-    }
-    authGuardTriggered = true;
-
-    const payload = { type: 'AUTH_REQUIRED', source: 'api-docs', reason };
-    notifyOpener(payload);
-
-    if (isPopupMode) {
-        setTimeout(() => {
-            try {
-                window.close();
-            } catch (error) {
-                console.warn('[API] Failed to close popup after auth guard.', error);
-            }
-        }, 200);
-        return;
-    }
-
-    alert(AUTH_ALERT_MESSAGE);
-    const redirectTarget = buildRedirectTarget();
-    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    // No-op: docs should be public for provider scraping
 }
 
 function buildRedirectTarget() {
