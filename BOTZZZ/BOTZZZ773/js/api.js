@@ -3,8 +3,6 @@
 let isPopupMode = false;
 let authGuardTriggered = false;
 
-const AUTH_ALERT_MESSAGE = 'You must be signed in to access the API documentation. Please sign in or create an account.';
-
 // Copy code function
 function copyCode(button) {
     const codeBlock = button.closest('.code-block');
@@ -126,11 +124,6 @@ function handlePopupClose() {
     }
 }
 
-function resolveAuthToken(reason) {
-    // Public docs: allow access without auth; keep helper for potential future use
-    return getAuthToken();
-}
-
 function getAuthToken() {
     try {
         return localStorage.getItem('token');
@@ -138,10 +131,6 @@ function getAuthToken() {
         console.warn('[API] Unable to read auth token from storage.', error);
         return null;
     }
-}
-
-function handleMissingAuth(reason) {
-    // No-op: docs should be public for provider scraping
 }
 
 function buildRedirectTarget() {
