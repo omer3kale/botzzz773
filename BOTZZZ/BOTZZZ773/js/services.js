@@ -1827,11 +1827,8 @@ function getAuthToken() {
 }
 
 function handleMissingAuth(reason) {
-    if (authGuardTriggered) {
-        return;
-    }
-    authGuardTriggered = true;
-    console.warn('[SERVICES] Auth missing; skipping redirect for public access.', { reason });
+    // Fully disabled for public access - no alerts, no redirects
+    console.debug('[SERVICES] Auth check skipped (public mode).', { reason });
 }
 
 function buildRedirectTarget() {
