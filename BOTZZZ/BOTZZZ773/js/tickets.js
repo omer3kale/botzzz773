@@ -5,6 +5,41 @@ let authGuardTriggered = false;
 
 const AUTH_ALERT_MESSAGE = 'You must be signed in to access support tickets. Please sign in or create an account.';
 
+// Toast notification system
+function showToast(message, type = 'error') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.style.cssText = 'position: fixed; top: 20px; right: 20px; background: ' + (type === 'error' ? '#dc2626' : '#16a34a') + '; color: white; padding: 16px 24px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 10000; max-width: 400px; animation: slideIn 0.3s ease;';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+    }, 5000);
+}
+
+// Normalize backend response keys to camelCase
+function normalizeTicket(ticket) {
+    return {
+        ...ticket,
+        createdAt: ticket.created_at || ticket.createdAt,
+        updatedAt: ticket.updated_at || ticket.updatedAt,
+        userId: ticket.user_id || ticket.userId,
+        orderId: ticket.order_id || ticket.orderId,
+        lastReplyBy: ticket.last_reply_by || ticket.lastReplyBy
+    };
+}
+
+function normalizeMessage(message) {
+    return {
+        ...message,
+        ticketId: message.ticket_id || message.ticketId,
+        userId: message.user_id || message.userId,
+        isAdmin: message.is_admin || message.isAdmin,
+        createdAt: message.created_at || message.createdAt
+    };
+}
+
 // Category subcategories mapping
 const categorySubcategories = {
     orders: ['Refill', 'Cancel', 'Speed'],
@@ -16,24 +51,63 @@ const categorySubcategories = {
 let tickets = [];
 
 // Load tickets from backend
-async function loadTickets() {
+async function loadTickets(ticketId = null) {
+    const ticketsList = document.getElementById('ticketsList');
+    
+    // Set loading state
+    if (ticketsList) {
+        ticketsList.setAttribute('aria-busy', 'true');
+    }
+    
     try {
         const token = resolveAuthToken('load-tickets');
         if (!token) {
+            if (ticketsList) {
+                ticketsList.innerHTML = '<div class="empty-state"><p>Please sign in to view your support tickets</p></div>';
+                ticketsList.setAttribute('aria-busy', 'false');
+            }
             return;
         }
         
-        const response = await fetch('/.netlify/functions/tickets', {
+        // Support loading single ticket via query parameter
+        const url = ticketId 
+            ? `/.netlify/functions/tickets?ticketId=${encodeURIComponent(ticketId)}`
+            : '/.netlify/functions/tickets';
+        
+        const response = await fetch(url, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         
         const data = await response.json();
-        if (data.success && data.tickets) {
-            tickets = data.tickets;
+        
+        if (response.ok) {
+            if (ticketId && data.ticket) {
+                // Single ticket loaded - normalize keys
+                currentTicket = normalizeTicket(data.ticket);
+                if (currentTicket.messages) {
+                    currentTicket.messages = currentTicket.messages.map(normalizeMessage);
+                }
+                renderTicketDetails();
+            } else if (data.tickets) {
+                // Multiple tickets loaded - normalize all keys
+                tickets = data.tickets.map(normalizeTicket);
+            }
+        } else {
+            console.error('Failed to load tickets:', data.error);
+            showToast(data.error || 'Failed to load tickets', 'error');
+            if (ticketsList) {
+                ticketsList.innerHTML = `<div class="empty-state"><p>${data.error || 'Failed to load tickets'}</p></div>`;
+            }
         }
     } catch (error) {
         console.error('Failed to load tickets:', error);
-        // Keep sample tickets on error
+        if (ticketsList) {
+            ticketsList.innerHTML = '<div class="empty-state"><p>Failed to load tickets. Please try again.</p></div>';
+        }
+    } finally {
+        if (ticketsList) {
+            ticketsList.setAttribute('aria-busy', 'false');
+        }
     }
 }
 
@@ -51,26 +125,25 @@ async function saveTicket(ticketData) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                action: 'create',
-                ...ticketData
-            })
+            body: JSON.stringify(ticketData)
         });
         
         const data = await response.json();
         
         if (data.success) {
-            // Add new ticket to local array
-            tickets.unshift(data.ticket);
-            notifyOpener({ type: 'TICKET_CREATED', ticketId: data.ticket?.id });
+            // Add new ticket to local array - normalize keys
+            const normalizedTicket = normalizeTicket(data.ticket);
+            tickets.unshift(normalizedTicket);
+            notifyOpener({ type: 'TICKET_CREATED', ticketId: normalizedTicket?.id });
+            showToast('Ticket created successfully!', 'success');
             return true;
         } else {
-            alert(data.error || 'Failed to create ticket');
+            showToast(data.error || 'Failed to create ticket', 'error');
             return false;
         }
     } catch (error) {
         console.error('Failed to save ticket:', error);
-        alert('Failed to create ticket. Please try again.');
+        showToast('Failed to create ticket. Please try again.', 'error');
         return false;
     }
 }
@@ -79,6 +152,8 @@ async function saveTicket(ticketData) {
 document.addEventListener('DOMContentLoaded', async () => {
     const urlParams = new URLSearchParams(window.location.search);
     isPopupMode = urlParams.get('popup') === '1';
+    const ticketId = urlParams.get('ticketId'); // Support loading single ticket from URL
+    
     if (isPopupMode) {
         enablePopupSurface();
     }
@@ -87,8 +162,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    await loadTickets();
-    renderTickets();
+    // Load single ticket if ticketId provided, otherwise load all
+    if (ticketId) {
+        await loadTickets(ticketId);
+    } else {
+        await loadTickets();
+        renderTickets();
+    }
+    
     setupCategoryChange();
     setupFilterButtons();
     setupNewTicketForm();
@@ -98,15 +179,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 function renderTickets(filter = 'all') {
     const ticketsList = document.getElementById('ticketsList');
     
+    // Guard for missing element
+    if (!ticketsList) {
+        console.warn('ticketsList element not found');
+        return;
+    }
+    
     let filteredTickets = tickets;
     if (filter !== 'all') {
         filteredTickets = tickets.filter(t => t.status === filter);
     }
 
     if (filteredTickets.length === 0) {
+        // Professional empty state with CTA button
+        const emptyMessage = filter === 'all' 
+            ? 'You don\'t have any tickets yet' 
+            : `No ${filter} tickets found`;
+        const showCTA = filter === 'all';
+        
         ticketsList.innerHTML = `
-            <div style="text-align: center; padding: 40px 20px; color: rgba(255, 255, 255, 0.5);">
-                <p>No ${filter === 'all' ? '' : filter} tickets found</p>
+            <div class="empty-state" style="text-align: center; padding: 60px 20px;">
+                <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1" style="margin-bottom: 20px;">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                </svg>
+                <p style="color: rgba(255, 255, 255, 0.6); font-size: 16px; margin-bottom: ${showCTA ? '24px' : '0'};">${emptyMessage}</p>
+                ${showCTA ? '<button class="btn-primary" onclick="openNewTicketModal()">Create Your First Ticket</button>' : ''}
             </div>
         `;
         return;
@@ -153,11 +251,14 @@ function renderTicketDetails() {
     if (!currentTicket) {
         emptyState.style.display = 'flex';
         ticketDetails.style.display = 'none';
+        ticketDetails.setAttribute('aria-live', 'off');
         return;
     }
 
     emptyState.style.display = 'none';
     ticketDetails.style.display = 'block';
+    // Announce ticket selection to screen readers
+    ticketDetails.setAttribute('aria-live', 'polite');
 
     ticketDetails.innerHTML = `
         <div class="ticket-details-header">
@@ -256,31 +357,19 @@ async function sendReply() {
         const data = await response.json();
         
         if (data.success) {
-            const newMessage = {
-                id: currentTicket.messages.length + 1,
-                author: 'You',
-                role: 'user',
-                content: message,
-                date: new Date().toLocaleString('en-US', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
-            };
-            
-            currentTicket.messages.push(newMessage);
-            currentTicket.updatedAt = newMessage.date;
-            renderTicketDetails();
-            replyMessage.value = '';
+            // Reload ticket from backend to sync status, timestamps, and messages
+            await loadTickets(currentTicket.id);
+            // Also reload the full tickets list to update timestamps
+            await loadTickets();
+            renderTickets();
+            showToast('Reply sent successfully', 'success');
             notifyOpener({ type: 'TICKET_REPLIED', ticketId: currentTicket.id });
         } else {
-            alert(data.error || 'Failed to send reply');
+            showToast(data.error || 'Failed to send reply', 'error');
         }
     } catch (error) {
         console.error('Failed to send reply:', error);
-        alert('Failed to send reply. Please try again.');
+        showToast('Failed to send reply. Please try again.', 'error');
     }
 }
 
@@ -319,13 +408,14 @@ async function closeTicket() {
             });
             renderTickets();
             renderTicketDetails();
+            showToast('Ticket closed successfully', 'success');
             notifyOpener({ type: 'TICKET_CLOSED', ticketId: currentTicket.id });
         } else {
-            alert(data.error || 'Failed to close ticket');
+            showToast(data.error || 'Failed to close ticket', 'error');
         }
     } catch (error) {
         console.error('Failed to close ticket:', error);
-        alert('Failed to close ticket. Please try again.');
+        showToast('Failed to close ticket. Please try again.', 'error');
     }
 }
 
@@ -334,8 +424,14 @@ function setupFilterButtons() {
     const filterBtns = document.querySelectorAll('.filter-btn');
     filterBtns.forEach(btn => {
         btn.addEventListener('click', () => {
-            filterBtns.forEach(b => b.classList.remove('active'));
+            // Update aria-pressed and active state for accessibility
+            filterBtns.forEach(b => {
+                b.classList.remove('active');
+                b.setAttribute('aria-pressed', 'false');
+            });
             btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+            
             const status = btn.dataset.status;
             renderTickets(status);
         });
@@ -343,15 +439,36 @@ function setupFilterButtons() {
 }
 
 // Modal functions
+let modalTriggerButton = null;
+
 function openNewTicketModal() {
-    document.getElementById('newTicketModal').classList.add('active');
+    const modal = document.getElementById('newTicketModal');
+    modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
+    
+    // Store reference to trigger button for focus restoration
+    modalTriggerButton = document.activeElement;
+    
+    // Move focus to first input for keyboard accessibility
+    setTimeout(() => {
+        const firstInput = document.getElementById('ticketCategory');
+        if (firstInput) firstInput.focus();
+    }, 100);
 }
 
 function closeNewTicketModal() {
-    document.getElementById('newTicketModal').classList.remove('active');
+    const modal = document.getElementById('newTicketModal');
+    modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
     document.getElementById('newTicketForm').reset();
     document.getElementById('subcategoryGroup').style.display = 'none';
     document.getElementById('orderIdGroup').style.display = 'none';
+    
+    // Restore focus to trigger button for keyboard accessibility
+    if (modalTriggerButton) {
+        modalTriggerButton.focus();
+        modalTriggerButton = null;
+    }
 }
 
 // Setup category change
@@ -393,6 +510,14 @@ function setupNewTicketForm() {
         e.preventDefault();
 
         const category = document.getElementById('ticketCategory').value;
+        
+        // Inline validation for category
+        if (!category) {
+            showToast('Please select a category', 'error');
+            document.getElementById('ticketCategory').focus();
+            return;
+        }
+        
         const subcategory = document.getElementById('ticketSubcategory').value;
         const subject = document.getElementById('ticketSubject').value;
         const message = document.getElementById('ticketMessage').value;
@@ -411,31 +536,41 @@ function setupNewTicketForm() {
         if (success) {
             closeNewTicketModal();
             renderTickets();
+            // Auto-select the newly created ticket
             if (tickets.length > 0) {
                 selectTicket(tickets[0].id);
             }
-            alert('Ticket created successfully!');
         }
     });
 }
 
-// Format date
+// Format date with safe fallback for invalid dates
 function formatDate(dateStr) {
+    if (!dateStr) return '—';
+    
     const date = new Date(dateStr);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+        return '—';
+    }
+    
     const now = new Date();
     const diffMs = now - date;
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 60) {
+    if (diffMins < 1) {
+        return 'Just now';
+    } else if (diffMins < 60) {
         return `${diffMins}m ago`;
     } else if (diffHours < 24) {
         return `${diffHours}h ago`;
     } else if (diffDays < 7) {
         return `${diffDays}d ago`;
     } else {
-        return dateStr.split(' ')[0];
+        return dateStr.split(' ')[0] || '—';
     }
 }
 
@@ -470,9 +605,12 @@ function handleMissingAuth(reason) {
         return;
     }
 
-    alert(AUTH_ALERT_MESSAGE);
+    showToast(AUTH_ALERT_MESSAGE, 'error');
     const redirectTarget = buildRedirectTarget();
-    window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    // Delay redirect slightly so user sees the toast
+    setTimeout(() => {
+        window.location.href = `signin.html?redirect=${encodeURIComponent(redirectTarget)}`;
+    }, 1500);
 }
 
 function buildRedirectTarget() {

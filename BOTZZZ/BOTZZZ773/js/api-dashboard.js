@@ -5,8 +5,6 @@ let authGuardTriggered = false;
 let authToken = null;
 let userProfile = null;
 
-const AUTH_ALERT_MESSAGE = 'You must be signed in to access the API dashboard. Please sign in or create an account.';
-
 function enablePopupSurface() {
     document.body.classList.add('popup-mode');
     const panel = document.querySelector('[data-popup-surface]');
@@ -61,29 +59,23 @@ function notifyOpener(payload) {
     }
 }
 
-// Security Constants
-const ENCRYPTION_KEY = 'BOTZZZ773_SECURE_KEY_2025'; // In production, use user-specific key
+// Security: API keys are only shown ONCE at creation
+// After creation, only prefix/suffix are stored for display
+// Full keys are never stored client-side for security
 
-// Security Helper: Encrypt API key
-function encryptApiKey(apiKey) {
-    try {
-        const encrypted = CryptoJS.AES.encrypt(apiKey, ENCRYPTION_KEY).toString();
-        return encrypted;
-    } catch (error) {
-        console.error('Encryption error:', error);
-        return apiKey; // Fallback to plain text if encryption fails
-    }
+// Sanitize HTML to prevent XSS
+function sanitizeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
 }
 
-// Security Helper: Decrypt API key
-function decryptApiKey(encryptedKey) {
-    try {
-        const decrypted = CryptoJS.AES.decrypt(encryptedKey, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8);
-        return decrypted || encryptedKey; // Fallback if decryption fails
-    } catch (error) {
-        console.error('Decryption error:', error);
-        return encryptedKey; // Fallback to encrypted text if decryption fails
-    }
+// Mask API key for display (show first 8 and last 4 characters)
+function maskApiKey(key) {
+    if (!key || key.length < 12) return '••••••••••••';
+    const prefix = key.substring(0, 8);
+    const suffix = key.substring(key.length - 4);
+    return `${prefix}${'•'.repeat(Math.max(8, key.length - 12))}${suffix}`;
 }
 
 // Modal functions
@@ -101,30 +93,8 @@ function openModal(modalId) {
     }
 }
 
-// Generate random API key with secure format
-function generateRandomKey() {
-    // Generate a secure random API key
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const specialChars = '!@#$%^&*';
-    let key = '';
-    
-    // Generate 48 random characters for maximum security
-    for (let i = 0; i < 48; i++) {
-        if (i > 0 && i % 12 === 0) {
-            // Add dash separator every 12 characters for readability
-            key += '-';
-        }
-        // Mix in special characters occasionally for added security
-        if (i % 15 === 7) {
-            key += specialChars.charAt(Math.floor(Math.random() * specialChars.length));
-        } else {
-            key += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-    }
-    
-    // SECURITY: Encrypt the key before storing
-    return encryptApiKey(key);
-}
+// Note: API key generation happens securely on the backend
+// Keys are only shown once at creation time for security
 
 // Copy API key function
 function copyApiKey() {
@@ -237,7 +207,7 @@ async function renderApiKeys() {
     try {
         const token = resolveAuthToken('render-api-keys');
         if (!token) {
-            container.innerHTML = '<div class="empty-state"><p>Please login to view API keys</p></div>';
+            container.innerHTML = '<div class="empty-state"><p>Sign in to manage your API keys</p></div>';
             return;
         }
         
@@ -264,24 +234,24 @@ async function renderApiKeys() {
         }
         
         container.innerHTML = apiKeys.map(key => {
-            // Show full key for easy sharing with third-party providers
-            const decryptedKey = decryptApiKey(key.key);
+            // Mask key by default - backend only returns prefix and suffix after creation
+            const keyDisplay = key.key_prefix && key.key_last_four 
+                ? `${sanitizeHTML(key.key_prefix)}••••••••••••${sanitizeHTML(key.key_last_four)}`
+                : maskApiKey(key.key || '');
+            
+            const permissionsText = Array.isArray(key.permissions) 
+                ? key.permissions.map(p => sanitizeHTML(p)).join(', ') 
+                : 'read';
             
             return `
             <div class="api-key-card">
                 <div class="api-key-header">
                     <div class="api-key-info">
-                        <h3>${key.name}</h3>
-                        <span class="api-key-date">Created ${new Date(key.created).toLocaleDateString()}</span>
+                        <h3>${sanitizeHTML(key.name)}</h3>
+                        <span class="api-key-date">Created ${new Date(key.created_at || key.created).toLocaleDateString()}</span>
                     </div>
                     <div class="api-key-actions">
-                        <button class="btn-icon" onclick="copyKeyToClipboard('${key.key}')" title="Copy API Key">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                            </svg>
-                        </button>
-                        <button class="btn-icon danger" onclick="deleteApiKey('${key.id}')" title="Delete API Key">
+                        <button class="btn-icon danger" onclick="deleteApiKey('${sanitizeHTML(String(key.id))}')" title="Delete API Key">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="3 6 5 6 21 6"/>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -290,20 +260,26 @@ async function renderApiKeys() {
                     </div>
                 </div>
                 <div class="api-key-display-hidden">
-                    <code>${decryptedKey}</code>
+                    <code>${keyDisplay}</code>
+                    <button class="btn-icon" onclick="copyKeyText('${keyDisplay}')" title="Copy key reference">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                        </svg>
+                    </button>
                 </div>
                 <div class="api-key-stats">
                     <div class="key-stat">
                         <span class="key-stat-label">Requests</span>
-                        <span class="key-stat-value">${key.requests || 0}</span>
+                        <span class="key-stat-value">${key.requests || key.request_count || 0}</span>
                     </div>
                     <div class="key-stat">
                         <span class="key-stat-label">Last Used</span>
-                        <span class="key-stat-value">${key.lastUsed ? new Date(key.lastUsed).toLocaleDateString() : 'Never'}</span>
+                        <span class="key-stat-value">${key.last_used || key.lastUsed ? new Date(key.last_used || key.lastUsed).toLocaleDateString() : 'Never'}</span>
                     </div>
                 </div>
                 <div class="api-key-permissions">
-                    ${key.permissions.map(p => `<span class="permission-badge">${p}</span>`).join('')}
+                    ${(Array.isArray(key.permissions) ? key.permissions : ['read']).map(p => `<span class="permission-badge">${sanitizeHTML(p)}</span>`).join('')}
                 </div>
             </div>
             `;
@@ -314,16 +290,13 @@ async function renderApiKeys() {
     }
 }
 
-// Copy key to clipboard with decryption
-function copyKeyToClipboard(encryptedKey) {
-    // SECURITY: Decrypt key before copying
-    const decryptedKey = decryptApiKey(encryptedKey);
-    
-    navigator.clipboard.writeText(decryptedKey).then(() => {
-        showMessage('API key copied to clipboard!', 'success');
+// Copy masked key text to clipboard
+function copyKeyText(keyText) {
+    navigator.clipboard.writeText(keyText).then(() => {
+        showMessage('Key reference copied! Full key was shown only at creation.', 'info');
     }).catch(err => {
         console.error('Failed to copy:', err);
-        showMessage('Failed to copy API key', 'error');
+        showMessage('Failed to copy key text', 'error');
     });
 }
 
@@ -385,7 +358,7 @@ async function renderProviders() {
     try {
         const token = resolveAuthToken('render-providers');
         if (!token) {
-            container.innerHTML = '<div class="empty-state"><p>Please login to view providers</p></div>';
+            container.innerHTML = '<div class="empty-state"><p>Sign in to manage providers</p></div>';
             return;
         }
         
@@ -653,7 +626,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     submitBtn.disabled = false;
                     submitBtn.textContent = originalBtnText;
                 }
-                showMessage('Authentication required. Please sign in again.', 'error');
                 return;
             }
             
@@ -695,15 +667,40 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[API-DASHBOARD] API key created successfully:', {
                     name: keyName,
                     permissions: permissions,
-                    keyPrefix: data.key.substring(0, 10)
+                    keyLength: data.key.length,
+                    keyPrefix: data.key.substring(0, 10),
+                    fullKey: data.key
                 });
                 
                 // Show the key in modal
                 const keyElement = document.getElementById('generatedApiKey');
                 if (keyElement) {
+                    // Verify key is a proper string
+                    console.log('[API-DASHBOARD] Received key type:', typeof data.key);
+                    console.log('[API-DASHBOARD] Received key value:', data.key);
+                    
+                    // Set the key multiple ways to ensure it displays
                     keyElement.textContent = data.key;
+                    keyElement.innerText = data.key;
+                    keyElement.innerHTML = data.key;
+                    
+                    console.log('[API-DASHBOARD] After setting - textContent:', keyElement.textContent);
+                    console.log('[API-DASHBOARD] After setting - innerText:', keyElement.innerText);
+                    console.log('[API-DASHBOARD] After setting - innerHTML:', keyElement.innerHTML);
+                    
+                    // Visual confirmation for debugging
+                    setTimeout(() => {
+                        const displayed = keyElement.textContent;
+                        if (displayed !== data.key) {
+                            console.error('[API-DASHBOARD] KEY MISMATCH! Expected:', data.key, 'Got:', displayed);
+                            alert('Key display issue detected. Full key (copy this):\n\n' + data.key);
+                        } else {
+                            console.log('[API-DASHBOARD] Key displayed correctly');
+                        }
+                    }, 100);
                 } else {
                     console.warn('[API-DASHBOARD] generatedApiKey element not found');
+                    alert('Full API key:\n\n' + data.key);
                 }
                 
                 closeModal('generateKeyModal');
@@ -734,10 +731,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
             } else if (response.status === 401 || response.status === 403) {
                 console.error('[API-DASHBOARD] Authentication failed:', response.status);
-                showMessage('Session expired. Please sign in again.', 'error');
-                setTimeout(() => {
-                    window.location.href = 'signin.html';
-                }, 2000);
+                // Silently handle auth errors for public dashboard
             } else if (response.status === 400) {
                 console.error('[API-DASHBOARD] Validation error:', data);
                 showMessage(data.error || 'Invalid request. Please check your input.', 'error');
@@ -887,7 +881,6 @@ function resolveUserProfile(reason) {
     const profile = getStoredUser();
     // Optional auth - don't block if no profile
     return profile;
-}
 }
 
 function getStoredUser() {

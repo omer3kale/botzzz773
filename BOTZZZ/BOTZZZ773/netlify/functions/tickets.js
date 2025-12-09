@@ -5,6 +5,26 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// Rate limiting for tickets API
+const rateLimitMap = new Map();
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 30; // 30 requests per minute
+
+function checkRateLimit(userId) {
+  const now = Date.now();
+  const userLimit = rateLimitMap.get(userId) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW };
+  
+  if (now > userLimit.resetAt) {
+    userLimit.count = 0;
+    userLimit.resetAt = now + RATE_LIMIT_WINDOW;
+  }
+  
+  userLimit.count++;
+  rateLimitMap.set(userId, userLimit);
+  
+  return userLimit.count <= MAX_REQUESTS_PER_WINDOW;
+}
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -51,12 +71,24 @@ exports.handler = async (event) => {
     };
   }
 
+  // Rate limiting check
+  if (!checkRateLimit(user.userId)) {
+    return {
+      statusCode: 429,
+      headers,
+      body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 30 requests per minute.' })
+    };
+  }
+
   try {
     const body = JSON.parse(event.body || '{}');
+    // Support query params for GET requests
+    const queryParams = event.queryStringParameters || {};
+    const params = event.httpMethod === 'GET' ? { ...body, ...queryParams } : body;
 
     switch (event.httpMethod) {
       case 'GET':
-        return await handleGetTickets(user, body, headers);
+        return await handleGetTickets(user, params, headers);
       case 'POST':
         return await handlePostActions(user, body, headers);
       case 'PUT':
@@ -161,8 +193,9 @@ async function handleGetTickets(user, data, headers) {
 
 async function handleCreateTicket(user, data, headers) {
   try {
-    const { subject, category, priority, message } = data;
+    const { subject, category, priority, message, orderId } = data;
 
+    // Input sanitization
     if (!subject || !category || !message) {
       return {
         statusCode: 400,
@@ -171,16 +204,32 @@ async function handleCreateTicket(user, data, headers) {
       };
     }
 
-    // Create ticket with auto-generated ticket number
+    // Validate subject and message length
+    if (subject.length > 200 || message.length > 5000) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Subject or message too long' })
+      };
+    }
+
+    // Create ticket with auto-generated ticket number and optional orderId
     let ticket;
     try {
-      ticket = await insertTicketRecord({
+      const ticketData = {
         user_id: user.userId,
-        subject,
+        subject: subject.trim(),
         category,
         priority: priority || 'medium',
         status: 'open'
-      });
+      };
+      
+      // Add orderId if provided
+      if (orderId) {
+        ticketData.order_id = parseInt(orderId, 10);
+      }
+      
+      ticket = await insertTicketRecord(ticketData);
     } catch (ticketError) {
       console.error('Create ticket error:', ticketError);
       return {
@@ -354,11 +403,14 @@ async function handleUpdateTicket(user, data, headers) {
 async function handlePostActions(user, data, headers) {
   const { action } = data;
 
+  // Explicitly handle each action for clarity
   if (action === 'reply') {
     return await handleReplyTicket(user, data, headers);
+  } else if (action === 'close') {
+    return await handleCloseTicket(user, data, headers);
   }
 
-  // Default to create ticket
+  // Default to create ticket (no action or action === 'create')
   return await handleCreateTicket(user, data, headers);
 }
 
@@ -389,31 +441,76 @@ async function handleReplyTicket(user, data, headers) {
       };
     }
 
-    // Add reply to ticket (you may need a ticket_replies table)
-    // For now, we'll just update the ticket with a note
-    const updateData = {
-      last_reply: message,
-      last_reply_by: isAdmin ? 'admin' : user.email,
-      updated_at: new Date().toISOString()
-    };
-
-    if (autoClose) {
-      updateData.status = 'closed';
+    // Validate message length
+    if (message.length > 5000) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Message too long (max 5000 characters)' })
+      };
     }
 
-    const { error } = await supabaseAdmin
+    // Verify ticket exists and user has access
+    const { data: ticket, error: ticketError } = await supabaseAdmin
       .from('tickets')
-      .update(updateData)
-      .eq('id', ticketId);
+      .select('id, user_id, status')
+      .eq('id', ticketId)
+      .single();
 
-    if (error) {
-      console.error('Reply ticket error:', error);
+    if (ticketError || !ticket) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Ticket not found' })
+      };
+    }
+
+    // Check permissions
+    if (ticket.user_id !== user.userId && user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Forbidden' })
+      };
+    }
+
+    // UNIFIED LOGIC: Always insert into ticket_messages table
+    const { error: messageError } = await supabaseAdmin
+      .from('ticket_messages')
+      .insert({
+        ticket_id: ticketId,
+        user_id: user.userId,
+        message: message.trim(),
+        is_admin: user.role === 'admin' || isAdmin === true
+      });
+
+    if (messageError) {
+      console.error('Insert message error:', messageError);
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({ error: 'Failed to send reply' })
       };
     }
+
+    // Update ticket metadata
+    const updateData = {
+      last_reply_by: user.role === 'admin' ? 'admin' : user.email,
+      updated_at: new Date().toISOString()
+    };
+
+    if (autoClose) {
+      updateData.status = 'closed';
+      updateData.closed_at = new Date().toISOString();
+    } else if (ticket.status === 'closed') {
+      // Reopen if replying to closed ticket
+      updateData.status = 'open';
+    }
+
+    await supabaseAdmin
+      .from('tickets')
+      .update(updateData)
+      .eq('id', ticketId);
 
     return {
       statusCode: 200,

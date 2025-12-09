@@ -28,8 +28,32 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
     <!-- Supabase Real-Time -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-    <script src="js/supabase-client.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" defer></script>
+    <script src="js/supabase-client.js" defer></script>
+    
+    <!-- Toast Animations -->
+    <style>
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
+    </style>
 </head>
 <body>
     <!-- Navigation -->
@@ -60,7 +84,7 @@
         </div>
     </nav>
 
-    <main class="lightbox-main">
+    <main class="lightbox-main" role="main">
         <div class="lightbox-panel" data-popup-surface>
             <button type="button" class="lightbox-close" data-popup-close aria-label="Close tickets window">
                 <span aria-hidden="true">&times;</span>
@@ -69,7 +93,7 @@
             <!-- Hero Section -->
             <section class="tickets-hero">
                 <div class="container">
-                    <h1>Support Tickets</h1>
+                    <h1 id="tickets-title">Support Tickets</h1>
                     <p>Get help with your orders, payments, and more</p>
                 </div>
             </section>
@@ -92,14 +116,21 @@
                             </div>
 
                             <div class="tickets-filter">
-                                <button class="filter-btn active" data-status="all">All</button>
-                                <button class="filter-btn" data-status="open">Open</button>
-                                <button class="filter-btn" data-status="pending">Pending</button>
-                                <button class="filter-btn" data-status="closed">Closed</button>
+                                <button class="filter-btn active" data-status="all" aria-pressed="true">All</button>
+                                <button class="filter-btn" data-status="open" aria-pressed="false">Open</button>
+                                <button class="filter-btn" data-status="pending" aria-pressed="false">Pending</button>
+                                <button class="filter-btn" data-status="closed" aria-pressed="false">Closed</button>
                             </div>
 
-                            <div class="tickets-list" id="ticketsList">
-                                <!-- Tickets will be rendered here by JavaScript -->
+                            <div id="ticketsList" class="tickets-list" aria-live="polite" aria-busy="false">
+                                <!-- Tickets will be loaded here -->
+                                <div class="loading-state">
+                                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spinner">
+                                        <circle cx="12" cy="12" r="10" opacity="0.25"/>
+                                        <path d="M12 2a10 10 0 0 1 10 10" opacity="0.75"/>
+                                    </svg>
+                                    <p>Loading tickets...</p>
+                                </div>
                             </div>
                         </div>
 
@@ -116,7 +147,7 @@
                                 <p>Choose a ticket from the list or create a new one</p>
                             </div>
 
-                            <div class="ticket-details" id="ticketDetails" style="display: none;">
+                            <div class="ticket-details" id="ticketDetails" style="display: none;" aria-live="polite">
                                 <!-- Ticket details will be rendered here -->
                             </div>
                         </div>
@@ -125,10 +156,10 @@
             </section>
 
             <!-- New Ticket Modal -->
-            <div class="modal" id="newTicketModal">
-                <div class="modal-content">
+            <div class="modal" id="newTicketModal" aria-hidden="true">
+                <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="newTicketTitle">
                     <div class="modal-header">
-                        <h2>Create New Ticket</h2>
+                        <h2 id="newTicketTitle">Create New Ticket</h2>
                         <button class="close-btn" onclick="closeNewTicketModal()">&times;</button>
                     </div>
                     <form id="newTicketForm">
@@ -180,7 +211,7 @@
             <div class="footer-grid">
                 <div class="footer-col">
                     <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
-                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
+                    <p class="footer-desc">Professional SMM panel for resellers and agencies. Premium social media services with 37M+ orders completed since 2023.</p>
                 </div>
                 <div class="footer-col">
                     <h4 class="footer-heading">Quick Links</h4>
@@ -234,9 +265,11 @@
                     // Subscribe to ticket updates for current user
                     window.BOTZZZ773Realtime.subscribeToTickets(function(data) {
                         console.log('[BOTZZZ773] Ticket update:', data);
-                        // Reload tickets when there's an update
-                        if (typeof loadTickets === 'function') {
-                            loadTickets();
+                        // Reload tickets when there's an update and refresh UI
+                        if (typeof loadTickets === 'function' && typeof renderTickets === 'function') {
+                            loadTickets().then(function() {
+                                renderTickets();
+                            });
                         }
                     });
                     console.log('[BOTZZZ773] Tickets page real-time connected');

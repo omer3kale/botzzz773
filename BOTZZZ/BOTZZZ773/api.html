@@ -94,7 +94,7 @@
                             </div>
                             <div class="api-info-item">
                                 <span class="api-info-label">URL</span>
-                                <span class="api-info-value">https://api.botzzz773.pro/api/v2</span>
+                                <span class="api-info-value">https://www.botzzz773.pro/v2</span>
                             </div>
                             <div class="api-info-item">
                                 <span class="api-info-label">Format</span>
@@ -234,8 +234,10 @@
     "rate": "1.81",
     "min": "100",
     "max": "100000",
-    "refill": true,
-    "cancel": true
+    "dripfeed": 0,
+    "refill": 1,
+    "cancel": 1,
+    "desc": "High quality Instagram followers"
   },
   {
     "service": 2,
@@ -245,8 +247,10 @@
     "rate": "0.11",
     "min": "50",
     "max": "50000",
-    "refill": true,
-    "cancel": true
+    "dripfeed": 1,
+    "refill": 1,
+    "cancel": 1,
+    "desc": "Fast Instagram likes delivery"
   }
 ]</code></pre>
                 </div>
@@ -295,7 +299,7 @@
                         <span>JavaScript</span>
                         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                     </div>
-                    <pre><code>const response = await fetch('https://api.botzzz773.pro/api/v2', {
+                    <pre><code>const response = await fetch('https://www.botzzz773.pro/v2', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json'
@@ -328,8 +332,8 @@ console.log(data);</code></pre>
             <!-- Order Status -->
             <div class="endpoint-card">
                 <div class="endpoint-header">
-                    <h3>Check Order Status</h3>
-                    <span class="endpoint-badge">GET</span>
+                    <h3>Get Order Status</h3>
+                    <span class="endpoint-badge">POST</span>
                 </div>
                 <p>Get the current status of your order</p>
                 
@@ -372,7 +376,7 @@ console.log(data);</code></pre>
             <div class="endpoint-card">
                 <div class="endpoint-header">
                     <h3>Get Account Balance</h3>
-                    <span class="endpoint-badge">GET</span>
+                    <span class="endpoint-badge">POST</span>
                 </div>
                 <p>Check your current account balance</p>
                 

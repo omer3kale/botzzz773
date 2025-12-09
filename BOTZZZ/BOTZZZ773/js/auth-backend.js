@@ -4,19 +4,22 @@
 let authPopupMode = false;
 let popupSurfaceEl = null;
 
-// Public pages that must never force a sign-in redirect (e.g., API docs for provider pings)
+// Public pages that must never force a sign-in redirect or show auth errors
 function isPublicApiDocPage() {
     if (typeof window === 'undefined') {
         return false;
     }
     const path = window.location.pathname.replace(/^\/+/g, '').toLowerCase();
-    // Allow public access to homepage, services, and all API pages
+    // Allow public access to homepage, services, contact, tickets, and all API pages
+    // These pages are accessible to external providers (GroupSocial, PerfectPanel, etc.)
     return path === 'index.html' || 
            path === '' || 
            path === 'services.html' || 
            path === 'api.html' || 
            path === 'api-docs.html' ||
            path === 'api-dashboard.html' ||
+           path === 'contact.html' ||
+           path === 'tickets.html' ||
            path.startsWith('api');
 }
 

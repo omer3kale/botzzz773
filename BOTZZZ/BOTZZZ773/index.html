@@ -114,7 +114,7 @@
         </div>
     </nav>
 
-    <main class="lightbox-main">
+    <main class="lightbox-main" role="main">
         <div class="lightbox-panel" data-popup-surface>
             <button type="button" class="lightbox-close" data-popup-close aria-label="Close home window">
                 <span aria-hidden="true">&times;</span>
@@ -126,13 +126,12 @@
                 <div class="container">
                     <div class="hero-content">
                         <h1 class="hero-title">
-                            TRUSTED SINCE 2023<br>
-                            <span class="gradient-text">PREMIUM SMM PANEL</span>
+                            <span class="gradient-text">All-in-One SMM Panel for Resellers and Agencies</span><br>
+                            Fast, Automated Orders on Instagram, TikTok, YouTube & More
                         </h1>
-                        <p class="hero-subtitle">Professional social media marketing services with fast delivery and guaranteed quality</p>
+                        <p class="hero-subtitle">Standard API compatible with major SMM platforms. 37M+ orders completed since 2023. Real-time delivery tracking and 24/7 support.</p>
                         <div class="hero-buttons">
-                            <a href="services.html" class="btn btn-primary btn-large">View Services</a>
-                            <a href="order.html" class="btn btn-secondary btn-large">Order Now</a>
+                            <a href="services.html" class="btn btn-primary btn-large">Get Started</a>
                         </div>
                         <div class="hero-stats">
                             <div class="stat-item">
@@ -148,6 +147,38 @@
                                 <p class="stat-label">Active Services</p>
                             </div>
                         </div>
+                        <p style="text-align: center; margin-top: 20px; color: #94a3b8; font-size: 0.9em;">
+                            <a href="dashboard.html" style="color: #00ff7f; text-decoration: underline;">Manage orders in your dashboard →</a>
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Trust Elements -->
+            <section class="trust-section" style="background: rgba(255, 20, 148, 0.05); padding: 30px 0; margin: 40px 0;">
+                <div class="container">
+                    <p style="text-align: center; color: #94a3b8; margin-bottom: 20px; font-size: 0.9em;">Trusted by resellers worldwide</p>
+                    <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.5em; color: #00ff7f; margin-bottom: 5px;" aria-hidden="true">⚡</div>
+                            <p style="color: #e2e8f0; font-weight: 600;">99.9% Uptime</p>
+                            <p style="color: #64748b; font-size: 0.85em;">Always available</p>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.5em; color: #00ff7f; margin-bottom: 5px;" aria-hidden="true">🚀</div>
+                            <p style="color: #e2e8f0; font-weight: 600;">Under 5 min delivery</p>
+                            <p style="color: #64748b; font-size: 0.85em;">Average start time</p>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.5em; color: #00ff7f; margin-bottom: 5px;" aria-hidden="true">🔄</div>
+                            <p style="color: #e2e8f0; font-weight: 600;">Refill Guarantee</p>
+                            <p style="color: #64748b; font-size: 0.85em;">30-day warranty</p>
+                        </div>
+                        <div style="text-align: center;">
+                            <div style="font-size: 1.5em; color: #00ff7f; margin-bottom: 5px;" aria-hidden="true">🔌</div>
+                            <p style="color: #e2e8f0; font-weight: 600;">Standard API</p>
+                            <p style="color: #64748b; font-size: 0.85em;">SMM panel compatible</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -155,24 +186,24 @@
             <!-- How It Works -->
             <section class="how-it-works">
                 <div class="container">
-                    <h2 class="section-title">How You Operate</h2>
+                    <h2 class="section-title">How Our SMM Panel Works</h2>
                     <p class="section-subtitle">Get started in 3 simple steps</p>
 
                     <div class="steps-grid steps-grid--three">
                         <div class="step-card">
                             <div class="step-number">1</div>
                             <h3 class="step-title">Sign In</h3>
-                            <p class="step-description">Create your account in seconds and access our dashboard</p>
+                            <p class="step-description">Create account in seconds</p>
                         </div>
                         <div class="step-card">
                             <div class="step-number">2</div>
-                            <h3 class="step-title">Add Funds && Select Service</h3>
-                            <p class="step-description">Choose from multiple payment methods for your convenience. Browse our extensive catalog and place your order.</p>
+                            <h3 class="step-title">Add Funds & Select Service</h3>
+                            <p class="step-description">Choose payment method and browse services</p>
                         </div>
                         <div class="step-card">
                             <div class="step-number">3</div>
                             <h3 class="step-title">Watch Results</h3>
-                            <p class="step-description">See your social media grow with real-time updates</p>
+                            <p class="step-description">Track orders in real-time</p>
                         </div>
                     </div>
                 </div>
@@ -181,8 +212,8 @@
             <!-- Popular Services -->
             <section class="popular-services">
                 <div class="container">
-                    <h2 class="section-title">Popular Services</h2>
-                    <p class="section-subtitle">Most ordered services by our clients</p>
+                    <h2 class="section-title">Popular SMM Services</h2>
+                    <p class="section-subtitle">Most ordered by resellers. <a href="services.html" style="color: #ff1494;">Browse all SMM services →</a></p>
 
                     <div class="services-grid services-grid--icons" id="categoryCardsContainer">
                         <!-- Category cards will be loaded dynamically from database -->
@@ -193,42 +224,67 @@
                 </div>
             </section>
 
+            <!-- Social Proof / Testimonials -->
+            <section class="testimonials-section" style="background: linear-gradient(135deg, rgba(255, 20, 148, 0.1) 0%, rgba(0, 255, 127, 0.05) 100%); padding: 60px 0; margin: 40px 0;">
+                <div class="container">
+                    <div style="text-align: center; max-width: 800px; margin: 0 auto;">
+                        <div style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 20px;">
+                            <div style="display: flex; gap: 4px;">
+                                <span style="color: #fbbf24; font-size: 24px;" aria-hidden="true">★</span>
+                                <span style="color: #fbbf24; font-size: 24px;" aria-hidden="true">★</span>
+                                <span style="color: #fbbf24; font-size: 24px;" aria-hidden="true">★</span>
+                                <span style="color: #fbbf24; font-size: 24px;" aria-hidden="true">★</span>
+                                <span style="color: #fbbf24; font-size: 24px;" aria-hidden="true">★</span>
+                            </div>
+                            <span style="color: #e2e8f0; font-size: 20px; font-weight: 700;">4.9/5</span>
+                        </div>
+                        <p style="color: #94a3b8; font-size: 16px; margin-bottom: 15px;">Based on 37M+ orders completed</p>
+                        <blockquote style="color: #e2e8f0; font-size: 18px; font-style: italic; line-height: 1.6; margin: 0; padding: 20px; border-left: 3px solid #ff1494;">
+                            "Best SMM panel for resellers. Fast API, reliable delivery, great support. We process 500+ orders daily without issues."
+                        </blockquote>
+                        <p style="color: #94a3b8; margin-top: 15px; font-size: 14px;">
+                            <strong style="color: #e2e8f0;">— SocialBoost Agency</strong>, Premium Reseller
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <!-- Why Choose Us -->
             <section class="why-choose">
                 <div class="container">
-                    <h2 class="section-title">Why Choose BOTZZZ773?</h2>
-                    <p class="section-subtitle">We're the best in the business</p>
+                    <h2 class="section-title">Why Our SMM Panel</h2>
+                    <p class="section-subtitle">Standard API compatible. Real-time support. <a href="api.html" style="color: #ff1494;">View API docs →</a></p>
                     
                     <div class="features-grid">
                         <div class="feature-card">
-                            <div class="feature-icon">⚡</div>
-                            <h3 class="feature-title">Lightning Fast</h3>
-                            <p class="feature-desc">Automated order processing and instant delivery</p>
+                            <div class="feature-icon" aria-hidden="true">⚡</div>
+                            <h3 class="feature-title">Automated Processing</h3>
+                            <p class="feature-desc">Orders start within minutes via standard SMM API</p>
                         </div>
                         <div class="feature-card">
-                            <div class="feature-icon">💎</div>
-                            <h3 class="feature-title">Premium Quality</h3>
-                            <p class="feature-desc">High-quality services from verified providers</p>
+                            <div class="feature-icon" aria-hidden="true">💎</div>
+                            <h3 class="feature-title">Verified Providers</h3>
+                            <p class="feature-desc">High-retention services from trusted sources</p>
                         </div>
                         <div class="feature-card">
-                            <div class="feature-icon">💰</div>
-                            <h3 class="feature-title">Lowest Prices</h3>
-                            <p class="feature-desc">Best prices in the market, guaranteed</p>
+                            <div class="feature-icon" aria-hidden="true">💰</div>
+                            <h3 class="feature-title">Competitive Rates</h3>
+                            <p class="feature-desc">Wholesale pricing for resellers</p>
                         </div>
                         <div class="feature-card">
-                            <div class="feature-icon">🔒</div>
-                            <h3 class="feature-title">100% Secure</h3>
-                            <p class="feature-desc">Safe and encrypted transactions</p>
+                            <div class="feature-icon" aria-hidden="true">🔒</div>
+                            <h3 class="feature-title">Secure Platform</h3>
+                            <p class="feature-desc">Encrypted payments and data protection</p>
                         </div>
                         <div class="feature-card">
-                            <div class="feature-icon">🎯</div>
-                            <h3 class="feature-title">24/7 Support</h3>
-                            <p class="feature-desc">Always here to help you succeed</p>
+                            <div class="feature-icon" aria-hidden="true">🎯</div>
+                            <h3 class="feature-title">Real-time Tickets</h3>
+                            <p class="feature-desc">Supabase-powered support system. <a href="tickets.html" style="color: #ff1494; font-size: 0.9em;">Create ticket →</a></p>
                         </div>
                         <div class="feature-card">
-                            <div class="feature-icon">🌍</div>
-                            <h3 class="feature-title">Global Reach</h3>
-                            <p class="feature-desc">Services for all countries and platforms</p>
+                            <div class="feature-icon" aria-hidden="true">🌍</div>
+                            <h3 class="feature-title">Global Services</h3>
+                            <p class="feature-desc">Instagram, TikTok, YouTube, Spotify, Telegram</p>
                         </div>
                     </div>
                 </div>
@@ -253,7 +309,7 @@
             <div class="footer-grid">
                 <div class="footer-col">
                     <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
-                    <p class="footer-desc">The world's #1 SMM panel providing premium social media services at unbeatable prices.</p>
+                    <p class="footer-desc">Professional SMM panel for resellers and agencies. Premium social media services with 37M+ orders completed since 2023.</p>
                 </div>
                 <div class="footer-col">
                     <h4 class="footer-heading">Quick Links</h4>
@@ -288,14 +344,14 @@
         </div>
     </footer>
 
-    <script src="js/refund-state.js"></script>
-    <script src="js/refund-banner.js"></script>
-    <script src="js/api-client.js"></script>
-    <script src="js/main.js"></script>
-    <script src="js/auth-backend.js"></script>
+    <script src="js/refund-state.js" defer></script>
+    <script src="js/refund-banner.js" defer></script>
+    <script src="js/api-client.js" defer></script>
+    <script src="js/main.js" defer></script>
+    <script src="js/auth-backend.js" defer></script>
     <script src="js/services.js" defer></script>
     <!-- PWA Registration -->
-    <script src="/js/pwa.js"></script>
+    <script src="/js/pwa.js" defer></script>
 
 </body>
 </html>

@@ -265,22 +265,162 @@ exports.handler = async (event) => {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BOTZZZ773 API v2</title>
+    <title>BOTZZZ773 API v2 - SMM Panel Integration</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
-        h1 { background: linear-gradient(135deg, #ff1494 0%, #00ff7f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-        a { color: #ff1494; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        code { background: rgba(255, 20, 148, 0.1); padding: 2px 8px; border-radius: 4px; color: #00ff7f; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif; background: #0a0a0a; color: #e2e8f0; line-height: 1.6; }
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+        h1 { background: linear-gradient(135deg, #ff1494 0%, #00ff7f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-size: 2.5em; margin-bottom: 10px; }
+        h2 { color: #ff1494; margin-top: 40px; margin-bottom: 15px; font-size: 1.5em; }
+        h3 { color: #00ff7f; margin-top: 25px; margin-bottom: 10px; font-size: 1.2em; }
+        p { margin-bottom: 15px; color: #94a3b8; }
+        a { color: #ff1494; text-decoration: none; transition: all 0.2s; }
+        a:hover { color: #00ff7f; text-decoration: underline; }
+        code { background: rgba(255, 20, 148, 0.15); padding: 3px 8px; border-radius: 4px; color: #00ff7f; font-family: 'Courier New', monospace; font-size: 0.9em; }
+        pre { background: #1a1a1a; border: 1px solid rgba(255, 20, 148, 0.3); border-radius: 8px; padding: 20px; margin: 20px 0; overflow-x: auto; }
+        pre code { background: none; padding: 0; color: #e2e8f0; display: block; }
+        .endpoint { background: rgba(0, 255, 127, 0.1); border-left: 4px solid #00ff7f; padding: 15px 20px; margin: 20px 0; border-radius: 4px; }
+        .warning { background: rgba(255, 20, 148, 0.1); border-left: 4px solid #ff1494; padding: 15px 20px; margin: 20px 0; border-radius: 4px; }
+        .info { background: rgba(100, 116, 139, 0.2); border-left: 4px solid #64748b; padding: 15px 20px; margin: 20px 0; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+        th { background: rgba(255, 20, 148, 0.1); color: #ff1494; font-weight: 600; }
+        td { color: #94a3b8; }
+        .btn { display: inline-block; background: linear-gradient(135deg, #ff1494 0%, #00ff7f 100%); color: #fff; padding: 12px 24px; border-radius: 6px; margin-top: 10px; font-weight: 600; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(255, 20, 148, 0.4); text-decoration: none; }
+        hr { border: none; border-top: 1px solid rgba(255, 255, 255, 0.1); margin: 40px 0; }
     </style>
 </head>
 <body>
-    <h1>BOTZZZ773 API v2</h1>
-    <p>This is a JSON API endpoint for SMM panel integration.</p>
-    <p><strong>Endpoint:</strong> <code>https://www.botzzz773.pro/v2</code></p>
-    <p>For complete documentation, visit <a href="/api">/api</a></p>
-    <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 30px 0;">
-    <p>Supported actions: <code>services</code>, <code>add</code>, <code>status</code>, <code>balance</code>, <code>refill</code></p>
+    <div class="container">
+        <h1>🚀 BOTZZZ773 API v2</h1>
+        <p style="font-size: 1.1em; color: #64748b;">Standard SMM Panel API - Compatible with all major SMM platforms and reseller panels</p>
+        
+        <div class="endpoint">
+            <strong style="color: #00ff7f;">Base URL:</strong> <code style="font-size: 1.1em;">https://www.botzzz773.pro/v2</code>
+        </div>
+
+        <h2>📖 Quick Start</h2>
+        <p><strong>Request Method:</strong> POST (recommended) or GET<br>
+        <strong>Content-Type:</strong> <code>application/x-www-form-urlencoded</code> or <code>application/json</code><br>
+        <strong>API Key Format:</strong> All keys start with <code>sk_</code> (get yours from <a href="/api-dashboard.html">API Dashboard</a>)</p>
+
+        <h3>Test Your Connection</h3>
+        <div class="info">
+            <p><strong>Quick connectivity test:</strong> Send a POST request to check your balance</p>
+            <pre><code>POST https://www.botzzz773.pro/v2
+Content-Type: application/x-www-form-urlencoded
+
+key=YOUR_API_KEY&action=balance</code></pre>
+        </div>
+
+        <h2>🎯 Example Requests</h2>
+        
+        <h3>Get Services List</h3>
+        <pre><code>key=YOUR_API_KEY&action=services</code></pre>
+        <p><strong>Response:</strong> Array of available services with pricing and limits</p>
+
+        <h3>Create Order</h3>
+        <pre><code>key=YOUR_API_KEY&action=add&service=1&link=https://instagram.com/username&quantity=1000</code></pre>
+        <p><strong>Response:</strong> <code>{"order": 12345}</code></p>
+
+        <h3>Check Order Status</h3>
+        <pre><code>key=YOUR_API_KEY&action=status&order=12345</code></pre>
+        <p><strong>Response:</strong> <code>{"charge": "10.50", "start_count": "1500", "status": "Completed", "remains": "0", "currency": "USD"}</code></p>
+
+        <h3>Check Balance</h3>
+        <pre><code>key=YOUR_API_KEY&action=balance</code></pre>
+        <p><strong>Response:</strong> <code>{"balance": "250.00", "currency": "USD"}</code></p>
+
+        <h2>⚡ Advanced Features</h2>
+        
+        <h3>Multi-Status Check</h3>
+        <p>Check multiple orders at once (comma-separated IDs):</p>
+        <pre><code>key=YOUR_API_KEY&action=status&orders=123,456,789</code></pre>
+
+        <h3>Refill Order</h3>
+        <pre><code>key=YOUR_API_KEY&action=refill&order=12345</code></pre>
+        <p><strong>Response:</strong> <code>{"refill": 67890}</code></p>
+
+        <h3>Refill Status</h3>
+        <p>Single or multiple refills:</p>
+        <pre><code>key=YOUR_API_KEY&action=refill_status&refill=67890
+key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
+
+        <h2>📋 API Reference</h2>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th>Action</th>
+                    <th>Required Parameters</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>services</code></td>
+                    <td><code>key</code> (optional)</td>
+                    <td>Get list of all available services</td>
+                </tr>
+                <tr>
+                    <td><code>add</code></td>
+                    <td><code>key</code>, <code>service</code>, <code>link</code>, <code>quantity</code></td>
+                    <td>Create a new order</td>
+                </tr>
+                <tr>
+                    <td><code>status</code></td>
+                    <td><code>key</code>, <code>order</code> or <code>orders</code></td>
+                    <td>Get order status (single or multiple)</td>
+                </tr>
+                <tr>
+                    <td><code>balance</code></td>
+                    <td><code>key</code></td>
+                    <td>Check account balance</td>
+                </tr>
+                <tr>
+                    <td><code>refill</code></td>
+                    <td><code>key</code>, <code>order</code></td>
+                    <td>Request order refill</td>
+                </tr>
+                <tr>
+                    <td><code>refill_status</code></td>
+                    <td><code>key</code>, <code>refill</code> or <code>refills</code></td>
+                    <td>Check refill status (single or batch)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="warning">
+            <p><strong>⚠️ Security Notes:</strong></p>
+            <ul style="margin-left: 20px; color: #94a3b8;">
+                <li>Keep your API key secret - never share it publicly</li>
+                <li>Use HTTPS for all requests (enforced)</li>
+                <li>Rate limit: 120 requests per minute per key</li>
+                <li>All errors return HTTP 200 with <code>{"error": "message"}</code> for compatibility</li>
+            </ul>
+        </div>
+
+        <h2>🔗 Integration Guide</h2>
+        <p>Most SMM panel software and reseller platforms recognize this API format automatically.</p>
+        <p><strong>Setup in your panel:</strong></p>
+        <ol style="margin-left: 40px; color: #94a3b8;">
+            <li>Navigate to Providers or API Settings</li>
+            <li>Add new provider with URL: <code>https://www.botzzz773.pro/v2</code></li>
+            <li>Enter your API key (starts with <code>sk_</code>)</li>
+            <li>Test connection using the balance action</li>
+            <li>Sync services to import our catalog</li>
+        </ol>
+
+        <hr>
+        
+        <a href="/api" class="btn">📚 View Full Documentation</a>
+        <a href="/api-dashboard.html" class="btn" style="margin-left: 15px;">🔑 Get API Key</a>
+
+        <p style="margin-top: 40px; text-align: center; color: #64748b; font-size: 0.9em;">
+            BOTZZZ773 API v2 | <a href="https://www.botzzz773.pro">www.botzzz773.pro</a>
+        </p>
+    </div>
 </body>
 </html>`
           };
