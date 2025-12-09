@@ -287,11 +287,12 @@ exports.handler = async (event) => {
     }
 
     // Allow unauthenticated services list for provider discovery (goupsocial, etc.)
-    if (action === 'services' && !key) {
+    // This must work even if an invalid/test API key is provided
+    if (action === 'services') {
       return await handleServices(null, headers);
     }
 
-    // Validate API key for other actions
+    // Validate API key for other actions (add, status, balance, refill)
     if (!key) {
       console.warn('[API v2] Request attempted without API key');
       await auditLog(null, 'auth_failure_missing_key', { action, method: event.httpMethod }, 'warning');
