@@ -193,6 +193,11 @@ async function auditLog(userId, eventType, details, severity = 'info') {
 }
 
 exports.handler = async (event) => {
+  // Normalize request headers to lowercase for case-insensitive access
+  const reqHeaders = Object.fromEntries(
+    Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v])
+  );
+
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
@@ -233,8 +238,54 @@ exports.handler = async (event) => {
     
     if (event.httpMethod === 'GET') {
       // Allow basic GET usage for provider connectivity checks (some panels ping with GET)
-      params = event.queryStringParameters || {};
-      console.log('[API v2] GET request:', { action: params.action, hasKey: !!params.key });
+      const qs = event.queryStringParameters || {};
+      const { action, key } = qs;
+
+      // If panel/script probes with action/key, keep pure JSON responses
+      if (action || key) {
+        params = qs;
+        console.log('[API v2] GET request:', { action: params.action, hasKey: !!params.key });
+      } else {
+        // Check if headless client requesting JSON (no HTML)
+        const acceptHeader = reqHeaders['accept'] || '';
+        if (acceptHeader.includes('application/json')) {
+          // Return empty services list for JSON-only clients
+          params = { action: 'services' };
+          console.log('[API v2] GET request with JSON Accept header, returning services');
+        } else {
+          // Human browsing: return friendly HTML instead of raw JSON
+          return {
+          statusCode: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'text/html; charset=utf-8'
+          },
+          body: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOTZZZ773 API v2</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0a; color: #fff; padding: 40px; max-width: 800px; margin: 0 auto; }
+        h1 { background: linear-gradient(135deg, #ff1494 0%, #00ff7f 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+        a { color: #ff1494; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        code { background: rgba(255, 20, 148, 0.1); padding: 2px 8px; border-radius: 4px; color: #00ff7f; }
+    </style>
+</head>
+<body>
+    <h1>BOTZZZ773 API v2</h1>
+    <p>This is a JSON API endpoint for SMM panel integration.</p>
+    <p><strong>Endpoint:</strong> <code>https://www.botzzz773.pro/v2</code></p>
+    <p>For complete documentation, visit <a href="/api">/api</a></p>
+    <hr style="border: 1px solid rgba(255,255,255,0.1); margin: 30px 0;">
+    <p>Supported actions: <code>services</code>, <code>add</code>, <code>status</code>, <code>balance</code>, <code>refill</code></p>
+</body>
+</html>`
+          };
+        }
+      }
     } else {
       // Support both JSON and URL-encoded form data
       const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
@@ -272,7 +323,7 @@ exports.handler = async (event) => {
       console.warn('[API v2] Request attempted without API key');
       await auditLog(null, 'auth_failure_missing_key', { action, method: event.httpMethod }, 'warning');
       return {
-        statusCode: 401,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Unauthorized' })
       };
@@ -283,7 +334,7 @@ exports.handler = async (event) => {
       console.warn('[API v2] Request with invalid API key attempted');
       await auditLog(null, 'auth_failure_invalid_key', { action, keyPrefix: key.substring(0, 6), method: event.httpMethod }, 'warning');
       return {
-        statusCode: 401,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Unauthorized' })
       };
@@ -293,7 +344,7 @@ exports.handler = async (event) => {
       console.warn(`[API v2] Request from inactive account: user=${user.id}`);
       await auditLog(user.id, 'auth_failure_inactive_account', { action, status: user.status }, 'warning');
       return {
-        statusCode: 403,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Forbidden' })
       };
@@ -303,7 +354,7 @@ exports.handler = async (event) => {
     if (!await checkRateLimitPersistent(user.id)) {
       await auditLog(user.id, 'rate_limit_exceeded', { action }, 'warning');
       return {
-        statusCode: 429,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Rate limit exceeded. Maximum 120 requests per minute.' })
       };
@@ -314,18 +365,21 @@ exports.handler = async (event) => {
       case 'services':
         return await handleServices(user, headers);
       case 'add':
-        return await handleAddOrder(user, otherParams, headers);
+        return await handleAddOrder(user, otherParams, headers, reqHeaders);
       case 'status':
         return await handleOrderStatus(user, otherParams, headers);
       case 'balance':
         return await handleBalance(user, headers);
       case 'refill':
         return await handleRefill(user, otherParams, headers);
+      case 'refill_status':
+      case 'refills':
+        return await handleRefillStatus(user, otherParams, headers);
       default:
         return {
-          statusCode: 400,
+          statusCode: 200,
           headers,
-          body: JSON.stringify({ error: 'Invalid action. Supported: services, add, status, balance, refill' })
+          body: JSON.stringify({ error: 'Invalid action. Supported: services, add, status, balance, refill, refill_status' })
         };
     }
   } catch (error) {
@@ -377,7 +431,8 @@ async function handleServices(user, headers) {
       .from('services')
       .select('*')
       .eq('status', 'active')
-      .order('category', { ascending: true });
+      .order('category', { ascending: true })
+      .order('id', { ascending: true }); // Stable ordering within categories
 
     if (error) {
       console.error('[API v2] Services query error:', error);
@@ -438,10 +493,12 @@ async function handleServices(user, headers) {
             type: String(service.type || 'Default').substring(0, 50),
             category: String(service.category || 'General').substring(0, 50),
             rate: rate.toFixed(2),
-            min: minQty.toString(),
-            max: maxQty.toString(),
-            refill: service.refill !== false, // Default to true
-            cancel: service.cancel !== false  // Default to true
+            min: String(minQty),
+            max: String(maxQty),
+            dripfeed: service.dripfeed ? 1 : 0,
+            refill: service.refill === false ? 0 : 1,
+            cancel: service.cancel === false ? 0 : 1,
+            desc: service.description ? String(service.description).substring(0, 255) : ''
           };
         } catch (formatError) {
           console.error(`[API v2] Error formatting service ${service.id}:`, formatError);
@@ -450,6 +507,7 @@ async function handleServices(user, headers) {
       })
       .filter(s => s !== null); // Remove null entries
 
+    // Always return JSON for API compatibility
     return {
       statusCode: 200,
       headers,
@@ -467,12 +525,12 @@ async function handleServices(user, headers) {
 }
 
 // Add new order
-async function handleAddOrder(user, params, headers) {
+async function handleAddOrder(user, params, headers, reqHeaders) {
   try {
     const { service, link, quantity, runs, interval } = params;
 
-    // Extract idempotency key from headers (case-insensitive)
-    const idempotencyKey = headers['x-idempotency-key'] || headers['X-Idempotency-Key'];
+    // Extract idempotency key from request headers
+    const idempotencyKey = reqHeaders['x-idempotency-key'];
     
     // If idempotency key provided, check for existing order with same key
     if (idempotencyKey) {
@@ -501,7 +559,7 @@ async function handleAddOrder(user, params, headers) {
     // Validate required parameters
     if (!service || !link || !quantity) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Service, link, and quantity are required' })
       };
@@ -528,7 +586,7 @@ async function handleAddOrder(user, params, headers) {
         actualServiceId = await findServiceByNumericId(serviceIdNum);
         if (!actualServiceId) {
           return {
-            statusCode: 404,
+            statusCode: 200,
             headers,
             body: JSON.stringify({ error: 'Service not found' })
           };
@@ -541,34 +599,35 @@ async function handleAddOrder(user, params, headers) {
     const qty = parseInt(quantity, 10);
     if (isNaN(qty) || qty <= 0) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Quantity must be a positive integer' })
       };
     }
 
-    // Validate link is a proper URL
-    let linkUrl;
-    try {
-      linkUrl = new URL(link);
-      // Ensure it's http or https
-      if (!linkUrl.protocol.match(/^https?:$/)) {
-        throw new Error('Invalid protocol');
+    // Validate link (relaxed: accept URLs, usernames, or IDs)
+    if (link.startsWith('http://') || link.startsWith('https://')) {
+      try {
+        const linkUrl = new URL(link);
+        if (!/^https?:$/.test(linkUrl.protocol)) {
+          throw new Error('Invalid protocol');
+        }
+      } catch (urlError) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ error: 'Invalid URL format for link' })
+        };
       }
-    } catch (urlError) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Invalid URL format for link' })
-      };
     }
+    // Otherwise treat link as username/ID (no validation needed)
 
     // Optional: Validate runs and interval if provided
     if (runs !== undefined) {
       const runsNum = parseInt(runs, 10);
       if (isNaN(runsNum) || runsNum < 1) {
         return {
-          statusCode: 400,
+          statusCode: 200,
           headers,
           body: JSON.stringify({ error: 'Runs must be a positive integer' })
         };
@@ -579,7 +638,7 @@ async function handleAddOrder(user, params, headers) {
       const intervalNum = parseInt(interval, 10);
       if (isNaN(intervalNum) || intervalNum < 1 || intervalNum > 1440) {
         return {
-          statusCode: 400,
+          statusCode: 200,
           headers,
           body: JSON.stringify({ error: 'Interval must be between 1 and 1440 minutes' })
         };
@@ -595,7 +654,7 @@ async function handleAddOrder(user, params, headers) {
 
     if (serviceError || !serviceData) {
       return {
-        statusCode: 404,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Service not found' })
       };
@@ -603,7 +662,7 @@ async function handleAddOrder(user, params, headers) {
 
     if (serviceData.status !== 'active') {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Service is not available' })
       };
@@ -617,7 +676,7 @@ async function handleAddOrder(user, params, headers) {
       console.warn(`[API v2] Suspicious large order attempt: user=${user.id}, service=${actualServiceId}, qty=${qty}, cost=${totalCost}`);
       await auditLog(user.id, 'suspicious_large_order', { service: actualServiceId, quantity: qty, cost: totalCost }, 'critical');
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order amount exceeds maximum limit' })
       };
@@ -626,9 +685,9 @@ async function handleAddOrder(user, params, headers) {
     // Check balance
     if (parseFloat(user.balance) < parseFloat(totalCost)) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
-        body: JSON.stringify({ error: 'Insufficient balance' })
+        body: JSON.stringify({ error: 'Insufficient funds' })
       };
     }
 
@@ -655,7 +714,7 @@ async function handleAddOrder(user, params, headers) {
       console.error(`[API v2] Order creation failed: user=${user.id}`, orderError);
       await auditLog(user.id, 'order_creation_failed', { service: actualServiceId, error: orderError.message }, 'critical');
       return {
-        statusCode: 500,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Failed to create order' })
       };
@@ -705,22 +764,68 @@ async function handleAddOrder(user, params, headers) {
   } catch (error) {
     console.error('Add order error:', error);
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Service temporarily unavailable' })
     };
   }
 }
 
-// Get order status
+// Get order status (supports single or multiple orders)
 async function handleOrderStatus(user, params, headers) {
   try {
-    const { order } = params;
+    const { order, orders } = params;
 
+    // Support multi-status check (comma-separated order IDs)
+    if (orders) {
+      const orderIds = orders.split(',').map(id => id.trim());
+      const results = {};
+
+      for (const orderId of orderIds) {
+        const orderIdNum = parseInt(orderId, 10);
+        if (isNaN(orderIdNum) || orderIdNum <= 0) {
+          results[orderId] = { error: 'Invalid order ID' };
+          continue;
+        }
+
+        const { data: orderData } = await supabaseAdmin
+          .from('orders')
+          .select('*')
+          .eq('id', orderIdNum)
+          .eq('user_id', user.id)
+          .single();
+
+        if (!orderData) {
+          results[orderId] = { error: 'Order not found' };
+          continue;
+        }
+
+        const charge = parseFloat(orderData.charge || 0).toFixed(2);
+        const startCount = String(orderData.start_count || '0');
+        const remains = String(orderData.remains || '0');
+        const status = (orderData.status || 'unknown').toLowerCase();
+
+        results[orderId] = {
+          charge: charge,
+          start_count: startCount,
+          status: status.charAt(0).toUpperCase() + status.slice(1),
+          remains: remains,
+          currency: 'USD'
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(results)
+      };
+    }
+
+    // Single order status check
     // Validate order ID is provided
     if (!order) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order ID is required' })
       };
@@ -731,7 +836,7 @@ async function handleOrderStatus(user, params, headers) {
     if (isNaN(orderId) || orderId <= 0) {
       await auditLog(user.id, 'invalid_order_id_status', { providedId: order }, 'warning');
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Invalid order ID' })
       };
@@ -747,7 +852,7 @@ async function handleOrderStatus(user, params, headers) {
     if (error || !orderData) {
       console.warn(`[API v2] Status check on non-existent order: user=${user.id}, order=${orderId}`);
       return {
-        statusCode: 404,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order not found' })
       };
@@ -757,9 +862,9 @@ async function handleOrderStatus(user, params, headers) {
     if (!orderData.status || orderData.charge === undefined || orderData.charge === null) {
       console.error(`[API v2] Order missing required fields: order=${orderId}`, { status: orderData.status, charge: orderData.charge });
       return {
-        statusCode: 500,
+        statusCode: 200,
         headers,
-        body: JSON.stringify({ error: 'Internal server error' })
+        body: JSON.stringify({ error: 'Order data incomplete' })
       };
     }
 
@@ -789,9 +894,9 @@ async function handleOrderStatus(user, params, headers) {
   } catch (error) {
     console.error('Order status error:', error);
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Service temporarily unavailable' })
     };
   }
 }
@@ -810,9 +915,9 @@ async function handleBalance(user, headers) {
   } catch (error) {
     console.error('Balance error:', error);
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Service temporarily unavailable' })
     };
   }
 }
@@ -825,7 +930,7 @@ async function handleRefill(user, params, headers) {
     // Validate order ID is provided
     if (!order) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order ID is required' })
       };
@@ -836,7 +941,7 @@ async function handleRefill(user, params, headers) {
     if (isNaN(orderId) || orderId <= 0) {
       await auditLog(user.id, 'invalid_order_id_refill', { providedId: order }, 'warning');
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Invalid order ID' })
       };
@@ -854,7 +959,7 @@ async function handleRefill(user, params, headers) {
       console.warn(`[API v2] Refill attempt on non-existent order: user=${user.id}, order=${orderId}`);
       await auditLog(user.id, 'refill_nonexistent_order', { orderId }, 'warning');
       return {
-        statusCode: 404,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order not found' })
       };
@@ -863,7 +968,7 @@ async function handleRefill(user, params, headers) {
     // Verify order has provider order ID (was submitted to provider)
     if (!orderData.provider_order_id) {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'This order cannot be refilled' })
       };
@@ -872,7 +977,7 @@ async function handleRefill(user, params, headers) {
     // Check if order is already in a refill process
     if (orderData.status === 'refilling') {
       return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order is already being refilled' })
       };
@@ -895,7 +1000,7 @@ async function handleRefill(user, params, headers) {
         if (!providerResponse.data || !providerResponse.data.refill) {
           console.error(`[API v2] Invalid provider refill response: order=${orderId}`, providerResponse.data);
           return {
-            statusCode: 502,
+            statusCode: 200,
             headers,
             body: JSON.stringify({ error: 'Provider returned invalid response' })
           };
@@ -918,7 +1023,7 @@ async function handleRefill(user, params, headers) {
       } catch (providerError) {
         console.error(`[API v2] Provider refill error: order=${orderId}`, providerError.message);
         return {
-          statusCode: 502,
+          statusCode: 200,
           headers,
           body: JSON.stringify({ error: 'Provider request failed. Please try again later.' })
         };
@@ -926,16 +1031,120 @@ async function handleRefill(user, params, headers) {
     }
 
     return {
-      statusCode: 400,
+      statusCode: 200,
       headers,
       body: JSON.stringify({ error: 'Refill is not available for this order' })
     };
   } catch (error) {
     console.error('Refill error:', error);
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: 'Service temporarily unavailable' })
+    };
+  }
+}
+
+// Get refill status (supports single or multiple refills)
+async function handleRefillStatus(user, params, headers) {
+  try {
+    const { refill, refills } = params;
+
+    // Support multi-refill status check (comma-separated refill IDs)
+    if (refills) {
+      const refillIds = refills.split(',').map(id => id.trim());
+      const results = {};
+
+      for (const refillId of refillIds) {
+        const refillIdNum = parseInt(refillId, 10);
+        if (isNaN(refillIdNum) || refillIdNum <= 0) {
+          results[refillId] = { error: 'Invalid refill ID' };
+          continue;
+        }
+
+        // Check if refill_id exists in orders table
+        const { data: orderData } = await supabaseAdmin
+          .from('orders')
+          .select('id, status, charge')
+          .eq('refill_id', refillIdNum)
+          .eq('user_id', user.id)
+          .single();
+
+        if (!orderData) {
+          results[refillId] = { error: 'Refill not found' };
+          continue;
+        }
+
+        // Map order status to refill status
+        let refillStatus = 'processing';
+        if (orderData.status === 'completed') refillStatus = 'completed';
+        if (orderData.status === 'failed') refillStatus = 'rejected';
+        if (orderData.status === 'partial') refillStatus = 'partial';
+
+        results[refillId] = {
+          status: refillStatus.charAt(0).toUpperCase() + refillStatus.slice(1)
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify(results)
+      };
+    }
+
+    // Single refill status check
+    if (!refill) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ error: 'Refill ID is required' })
+      };
+    }
+
+    const refillIdNum = parseInt(refill, 10);
+    if (isNaN(refillIdNum) || refillIdNum <= 0) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ error: 'Invalid refill ID' })
+      };
+    }
+
+    const { data: orderData, error } = await supabaseAdmin
+      .from('orders')
+      .select('id, status, charge')
+      .eq('refill_id', refillIdNum)
+      .eq('user_id', user.id)
+      .single();
+
+    if (error || !orderData) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ error: 'Refill not found' })
+      };
+    }
+
+    // Map order status to refill status
+    let refillStatus = 'processing';
+    if (orderData.status === 'completed') refillStatus = 'completed';
+    if (orderData.status === 'failed') refillStatus = 'rejected';
+    if (orderData.status === 'partial') refillStatus = 'partial';
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        status: refillStatus.charAt(0).toUpperCase() + refillStatus.slice(1)
+      })
+    };
+  } catch (error) {
+    console.error('Refill status error:', error);
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ error: 'Service temporarily unavailable' })
     };
   }
 }
