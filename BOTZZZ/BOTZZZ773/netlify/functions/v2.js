@@ -641,7 +641,7 @@ async function handleServices(user, headers, reqId) {
     
     const { data: services, error } = await supabaseAdmin
       .from('services')
-      .select('id, public_id, name, type, category, rate, min_quantity, max_quantity, dripfeed, refill, cancel, description, status')
+      .select('id, public_id, name, type, category, rate, min_quantity, max_quantity, dripfeed_supported, refill_supported, cancel_supported, description, status')
       .eq('status', 'active')
       .order('category', { ascending: true })
       .order('public_id', { ascending: true }); // Stable ordering by public_id for external consistency
@@ -714,9 +714,9 @@ async function handleServices(user, headers, reqId) {
             rate: rate.toFixed(2),  // 2 decimal places (standard for price per 1000)
             min: String(minQty),
             max: String(maxQty),
-            dripfeed: service.dripfeed ? true : false,
-            refill: service.refill !== false,  // Default true unless explicitly false
-            cancel: service.cancel !== false,  // Default true unless explicitly false
+            dripfeed: service.dripfeed_supported ? true : false,
+            refill: service.refill_supported !== false,  // Default true unless explicitly false
+            cancel: service.cancel_supported !== false,  // Default true unless explicitly false
             description: service.description ? String(service.description).substring(0, 255) : ''
           };
         } catch (formatError) {
