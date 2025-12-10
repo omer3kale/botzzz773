@@ -145,9 +145,12 @@ function checkRateLimit(userId) {
 }
 
 // Persistent rate limiting using Supabase
-async function checkRateLimitPersistent(userId) {
+async function checkRateLimitPersistent(userId, isPublicAccess = false) {
   const now = new Date();
   const oneMinuteAgo = new Date(now - 60000); // 1 minute ago
+
+  // Separate limits: authenticated = 120/min, public discovery = 30/min
+  const limit = isPublicAccess ? 30 : 120;
 
   try {
     // Get request count from database for last minute
@@ -171,9 +174,9 @@ async function checkRateLimitPersistent(userId) {
       .insert({ user_id: userId, created_at: now.toISOString() })
       .catch(err => console.error('[API v2] Failed to log rate limit:', err));
 
-    // Check if limit exceeded (120 requests per minute)
-    if (requestCount >= 120) {
-      console.warn(`[API v2] Rate limit exceeded: user=${userId}, requests=${requestCount}`);
+    // Check if limit exceeded (separate limits for public vs authenticated)
+    if (requestCount >= limit) {
+      console.warn(`[API v2] Rate limit exceeded: user=${userId}, requests=${requestCount}, limit=${limit}, type=${isPublicAccess ? 'public' : 'authenticated'}`);
       return false;
     }
 
@@ -212,6 +215,9 @@ async function auditLog(userId, eventType, details, severity = 'info') {
 }
 
 exports.handler = async (event) => {
+  // Generate correlation ID for request tracing
+  const reqId = `req_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
+  
   // Normalize request headers to lowercase for case-insensitive access
   const reqHeaders = Object.fromEntries(
     Object.entries(event.headers || {}).map(([k, v]) => [k.toLowerCase(), v])
@@ -263,14 +269,14 @@ exports.handler = async (event) => {
       // If panel/script probes with action/key, keep pure JSON responses
       if (action || key) {
         params = qs;
-        console.log('[API v2] GET request:', { action: params.action, hasKey: !!params.key });
+        console.log(`[API v2][${reqId}] GET request:`, { action: params.action, hasKey: !!params.key });
       } else {
         // Check if headless client requesting JSON (no HTML)
         const acceptHeader = reqHeaders['accept'] || '';
         if (acceptHeader.includes('application/json')) {
           // Return empty services list for JSON-only clients
           params = { action: 'services' };
-          console.log('[API v2] GET request with JSON Accept header, returning services');
+          console.log(`[API v2][${reqId}] GET request with JSON Accept header, returning services`);
         } else {
           // Human browsing: return friendly HTML instead of raw JSON
           return {
@@ -449,7 +455,7 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
       // Support both JSON and URL-encoded form data
       const contentType = event.headers['content-type'] || event.headers['Content-Type'] || '';
       
-      console.log('[API v2] Request received:', {
+      console.log(`[API v2][${reqId}] Request received:`, {
         method: event.httpMethod,
         contentType: contentType,
         origin: event.headers.origin || event.headers.Origin || 'unknown',
@@ -460,11 +466,11 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
         // Parse URL-encoded form data
         const querystring = require('querystring');
         params = querystring.parse(event.body || '');
-        console.log('[API v2] Parsed URL-encoded params:', { action: params.action, hasKey: !!params.key });
+        console.log(`[API v2][${reqId}] Parsed URL-encoded params:`, { action: params.action, hasKey: !!params.key });
       } else {
         // Parse JSON
         params = JSON.parse(event.body || '{}');
-        console.log('[API v2] Parsed JSON params:', { action: params.action, hasKey: !!params.key });
+        console.log(`[API v2][${reqId}] Parsed JSON params:`, { action: params.action, hasKey: !!params.key });
       }
     }
     
@@ -473,7 +479,7 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     // Log when both action and key are missing (potential misconfiguration)
     if (!action && !key) {
       const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
-      console.warn('[API v2] Request with no action or key (possible misconfiguration):', {
+      console.warn(`[API v2][${reqId}] Request with no action or key (possible misconfiguration):`, {
         method: event.httpMethod,
         contentType: event.headers['content-type'] || event.headers['Content-Type'],
         bodyLength: (event.body || '').length,
@@ -490,8 +496,8 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
         if (!user) {
           const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
           const hasCorrectFormat = key.startsWith('sk_');
-          console.warn('[API v2] Services request with invalid API key:', { 
-            keyPrefix: key.substring(0, 8),
+          console.warn(`[API v2][${reqId}] Services request with invalid API key:`, { 
+            keyPrefix: key.substring(0, 6),
             keyLength: key.length,
             startsWithSk: hasCorrectFormat,
             method: event.httpMethod,
@@ -518,7 +524,7 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
         }
         
         if (user.status !== 'active') {
-          console.warn(`[API v2] Services request from inactive account: user=${user.id}, status=${user.status}`);
+          console.warn(`[API v2][${reqId}] Services request from inactive account: user=${user.id}, status=${user.status}`);
           await auditLog(user.id, 'auth_failure_services_inactive', { 
             user_status: user.status,
             reason: 'user_inactive',
@@ -532,28 +538,28 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
         }
         
         // Authenticated services request
-        console.log('[API v2] Services list requested with authentication:', { 
+        console.log(`[API v2][${reqId}] Services list requested with authentication:`, { 
           user: user.id, 
           method: event.httpMethod
         });
-        return await handleServices(user, headers);
+        return await handleServices(user, headers, reqId);
       } else {
         // Unauthenticated services request (public discovery)
-        console.log('[API v2] Services list requested without authentication (public discovery mode)');
-        return await handleServices(null, headers);
+        console.log(`[API v2][${reqId}] Services list requested without authentication (public discovery mode)`);
+        return await handleServices(null, headers, reqId);
       }
     }
     
     // Default to services list when no action specified (unauthenticated)
     if (!action) {
-      console.log('[API v2] No action specified, returning services list (public discovery)');
-      return await handleServices(null, headers);
+      console.log(`[API v2][${reqId}] No action specified, returning services list (public discovery)`);
+      return await handleServices(null, headers, reqId);
     }
 
     // Validate API key for other actions (add, status, balance, refill)
     if (!key) {
       const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
-      console.warn('[API v2] Request attempted without API key:', { 
+      console.warn(`[API v2][${reqId}] Request attempted without API key:`, { 
         action, 
         method: event.httpMethod,
         contentType: event.headers['content-type'] || event.headers['Content-Type'],
@@ -577,9 +583,9 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     if (!user) {
       const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
       const hasCorrectFormat = key.startsWith('sk_');
-      console.warn('[API v2] Request with invalid API key attempted:', { 
+      console.warn(`[API v2][${reqId}] Request with invalid API key attempted:`, { 
         action, 
-        keyPrefix: key.substring(0, 8),
+        keyPrefix: key.substring(0, 6),
         keyLength: key.length,
         startsWithSk: hasCorrectFormat,
         method: event.httpMethod,
@@ -608,7 +614,7 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     }
 
     if (user.status !== 'active') {
-      console.warn(`[API v2] Request from inactive account: user=${user.id}, status=${user.status}, action=${action}`);
+      console.warn(`[API v2][${reqId}] Request from inactive account: user=${user.id}, status=${user.status}, action=${action}`);
       await auditLog(user.id, 'auth_failure_inactive_account', { 
         action, 
         user_status: user.status,
@@ -635,16 +641,16 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     // Route to appropriate handler based on action
     switch (action) {
       case 'add':
-        return await handleAddOrder(user, otherParams, headers, reqHeaders);
+        return await handleAddOrder(user, otherParams, headers, reqHeaders, reqId);
       case 'status':
-        return await handleOrderStatus(user, otherParams, headers);
+        return await handleOrderStatus(user, otherParams, headers, reqId);
       case 'balance':
-        return await handleBalance(user, headers);
+        return await handleBalance(user, headers, reqId);
       case 'refill':
-        return await handleRefill(user, otherParams, headers);
+        return await handleRefill(user, otherParams, headers, reqId);
       case 'refill_status':
       case 'refills':
-        return await handleRefillStatus(user, otherParams, headers);
+        return await handleRefillStatus(user, otherParams, headers, reqId);
       default:
         return {
           statusCode: 200,
@@ -695,13 +701,13 @@ async function findServiceByNumericId(numericId) {
 }
 
 // Get services list
-async function handleServices(user, headers) {
+async function handleServices(user, headers, reqId) {
   try {
     // Log service access (authenticated vs unauthenticated)
     if (user) {
-      console.log(`[API v2] Services list requested by authenticated user: user=${user.id}`);
+      console.log(`[API v2][${reqId}] Services list requested by authenticated user: user=${user.id}`);
     } else {
-      console.log('[API v2] Services list requested without authentication (public discovery mode)');
+      console.log(`[API v2][${reqId}] Services list requested without authentication (public discovery mode)`);
     }
     
     const { data: services, error } = await supabaseAdmin
@@ -712,7 +718,12 @@ async function handleServices(user, headers) {
       .order('public_id', { ascending: true }); // Stable ordering by public_id for external consistency
 
     if (error) {
-      console.error('[API v2] Services query error:', error);
+      console.error(`[API v2][${reqId}] Services query error:`, { 
+        errorCode: error.code,
+        errorMessage: error.message,
+        expectedCount: 'unknown',
+        returningEmptyArray: true
+      });
       // Return empty array instead of error for reliability (graceful degradation)
       return {
         statusCode: 200,
@@ -723,7 +734,11 @@ async function handleServices(user, headers) {
 
     // Validate services array
     if (!Array.isArray(services)) {
-      console.error('[API v2] Services response is not an array:', typeof services);
+      console.error(`[API v2][${reqId}] Services response is not an array:`, { 
+        actualType: typeof services,
+        servicesValue: services,
+        returningEmptyArray: true
+      });
       return {
         statusCode: 200,
         headers,
@@ -760,7 +775,7 @@ async function handleServices(user, headers) {
           // Use public_id for external service ID (parallel IDs: UUID internal, numeric external)
           const serviceId = Number(service.public_id);
 
-          console.log(`[API v2] Exporting service: internal_id=${service.id}, public_id=${serviceId}, name=${service.name}`);
+          console.log(`[API v2][${reqId}] Exporting service: internal_id=${service.id}, public_id=${serviceId}, name=${service.name}`);
 
           return {
             service: serviceId,
@@ -783,9 +798,9 @@ async function handleServices(user, headers) {
       .filter(s => s !== null); // Remove null entries
 
     // Log services export summary
-    console.log(`[API v2] Exporting ${formattedServices.length} services total`);
+    console.log(`[API v2][${reqId}] Exporting ${formattedServices.length} services total`);
     if (formattedServices.length > 0) {
-      console.log(`[API v2] Sample service: id=${formattedServices[0].service}, name="${formattedServices[0].name}", rate=${formattedServices[0].rate}`);
+      console.log(`[API v2][${reqId}] Sample service: id=${formattedServices[0].service}, name="${formattedServices[0].name}", rate=${formattedServices[0].rate}`);
     }
 
     // Always return JSON for API compatibility (plain array, not wrapped in object)
@@ -795,7 +810,11 @@ async function handleServices(user, headers) {
       body: JSON.stringify(formattedServices)
     };
   } catch (error) {
-    console.error('[API v2] Services error:', error);
+    console.error(`[API v2][${reqId}] Services error:`, { 
+      errorMessage: error.message,
+      errorStack: error.stack,
+      returningEmptyArray: true
+    });
     // Return empty array on error for reliability
     return {
       statusCode: 200,
@@ -806,7 +825,7 @@ async function handleServices(user, headers) {
 }
 
 // Add new order
-async function handleAddOrder(user, params, headers, reqHeaders) {
+async function handleAddOrder(user, params, headers, reqHeaders, reqId) {
   try {
     const { service, link, quantity, runs, interval } = params;
 
@@ -823,7 +842,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
         .single();
 
       if (existingOrder) {
-        console.log(`[API v2] Duplicate request detected via idempotency key: user=${user.id}, key=${idempotencyKey}, public_order_id=${existingOrder.public_order_id}`);
+        console.log(`[API v2][${reqId}] Duplicate request detected via idempotency key: user=${user.id}, key=${idempotencyKey}, public_order_id=${existingOrder.public_order_id}`);
         return {
           statusCode: 200,
           headers,
@@ -849,7 +868,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
     // Parse incoming service parameter as public_id (parallel IDs: external=public_id, internal=UUID)
     const servicePublicId = parseInt(service, 10);
     if (isNaN(servicePublicId) || servicePublicId <= 0) {
-      console.error(`[API v2] Invalid service public_id: ${service}`);
+      console.error(`[API v2][${reqId}] Invalid service public_id: ${service}`);
       return {
         statusCode: 200,
         headers,
@@ -857,7 +876,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       };
     }
 
-    console.log(`[API v2] Looking up service by public_id=${servicePublicId}`);
+    console.log(`[API v2][${reqId}] Looking up service by public_id=${servicePublicId}`);
 
     // Lookup service by public_id, but retrieve UUID id for internal FK
     const { data: serviceData, error: serviceLookupError } = await supabaseAdmin
@@ -868,7 +887,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       .single();
 
     if (serviceLookupError || !serviceData) {
-      console.error(`[API v2] Service not found: public_id=${servicePublicId}`, serviceLookupError);
+      console.error(`[API v2][${reqId}] Service not found: public_id=${servicePublicId}`, serviceLookupError);
       return {
         statusCode: 200,
         headers,
@@ -876,7 +895,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       };
     }
 
-    console.log(`[API v2] Found service: internal_id=${serviceData.id}, public_id=${serviceData.public_id}, name=${serviceData.name}`);
+    console.log(`[API v2][${reqId}] Found service: internal_id=${serviceData.id}, public_id=${serviceData.public_id}, name=${serviceData.name}`);
 
     // actualServiceId is now the UUID for internal FK relations
     const actualServiceId = serviceData.id;
@@ -938,7 +957,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
 
     // Validate total cost is reasonable (prevent accidental massive orders)
     if (parseFloat(totalCost) > 10000) {
-      console.warn(`[API v2] Suspicious large order attempt: user=${user.id}, service=${actualServiceId}, qty=${qty}, cost=${totalCost}`);
+      console.warn(`[API v2][${reqId}] Suspicious large order attempt: user=${user.id}, service=${actualServiceId}, qty=${qty}, cost=${totalCost}`);
       await auditLog(user.id, 'suspicious_large_order', { service: actualServiceId, quantity: qty, cost: totalCost }, 'critical');
       return {
         statusCode: 200,
@@ -976,8 +995,8 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       .single();
 
     if (orderError) {
-      console.error(`[API v2] Order creation failed: user=${user.id}, service_public_id=${servicePublicId}`, orderError);
-      await auditLog(user.id, 'order_creation_failed', { service_public_id: servicePublicId, service_id: actualServiceId, error: orderError.message }, 'critical');
+      console.error(`[API v2][${reqId}] Order creation failed: user=${user.id}, service_public_id=${servicePublicId}`, orderError);
+      await auditLog(user.id, 'order_creation_failed', { reqId, service_public_id: servicePublicId, service_id: actualServiceId, error: orderError.message }, 'critical');
       return {
         statusCode: 200,
         headers,
@@ -985,7 +1004,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       };
     }
 
-    console.log(`[API v2] Order created: internal_id=${order.id}, public_order_id=${order.public_order_id}, charge=${order.charge}`);
+    console.log(`[API v2][${reqId}] Order created: internal_id=${order.id}, public_order_id=${order.public_order_id}, charge=${order.charge}`);
 
     // Deduct balance
     await supabaseAdmin
@@ -1039,13 +1058,24 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
 }
 
 // Get order status (supports single or multiple orders)
-async function handleOrderStatus(user, params, headers) {
+async function handleOrderStatus(user, params, headers, reqId) {
   try {
     const { order, orders } = params;
 
     // Support multi-status check (comma-separated order IDs)
     if (orders) {
       const orderIds = orders.split(',').map(id => id.trim());
+      
+      // Cap multi-status requests at 100 IDs to prevent abuse
+      const MAX_MULTI_STATUS = 100;
+      if (orderIds.length > MAX_MULTI_STATUS) {
+        console.warn(`[API v2][${reqId}] Multi-status request exceeds limit: user=${user.id}, requested=${orderIds.length}, limit=${MAX_MULTI_STATUS}`);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ error: `Maximum ${MAX_MULTI_STATUS} order IDs allowed per request` })
+        };
+      }
       const results = {};
 
       for (const orderId of orderIds) {
@@ -1055,7 +1085,7 @@ async function handleOrderStatus(user, params, headers) {
           continue;
         }
 
-        console.log(`[API v2] Status lookup by public_order_id=${publicOrderId}`);
+        console.log(`[API v2][${reqId}] Status lookup by public_order_id=${publicOrderId}`);
 
         const { data: orderData } = await supabaseAdmin
           .from('orders')
@@ -1065,12 +1095,12 @@ async function handleOrderStatus(user, params, headers) {
           .single();
 
         if (!orderData) {
-          console.warn(`[API v2] Order not found: public_order_id=${publicOrderId}, user_id=${user.id}`);
+          console.warn(`[API v2][${reqId}] Order not found: public_order_id=${publicOrderId}, user_id=${user.id}`);
           results[orderId] = { error: 'Order not found' };
           continue;
         }
 
-        console.log(`[API v2] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
+        console.log(`[API v2][${reqId}] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
 
         const charge = parseFloat(orderData.charge || 0).toFixed(2);
         const startCount = String(orderData.start_count || '0');
@@ -1114,7 +1144,7 @@ async function handleOrderStatus(user, params, headers) {
       };
     }
 
-    console.log(`[API v2] Status lookup by public_order_id=${publicOrderId}`);
+    console.log(`[API v2][${reqId}] Status lookup by public_order_id=${publicOrderId}`);
 
     const { data: orderData, error } = await supabaseAdmin
       .from('orders')
@@ -1124,7 +1154,7 @@ async function handleOrderStatus(user, params, headers) {
       .single();
 
     if (error || !orderData) {
-      console.warn(`[API v2] Status check on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
+      console.warn(`[API v2][${reqId}] Status check on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
       return {
         statusCode: 200,
         headers,
@@ -1132,7 +1162,7 @@ async function handleOrderStatus(user, params, headers) {
       };
     }
 
-    console.log(`[API v2] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
+    console.log(`[API v2][${reqId}] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
 
     // Validate required fields exist
     if (!orderData.status || orderData.charge === undefined || orderData.charge === null) {
@@ -1178,12 +1208,13 @@ async function handleOrderStatus(user, params, headers) {
 }
 
 // Get user balance
-async function handleBalance(user, headers) {
+async function handleBalance(user, headers, reqId) {
   try {
-    console.log(`[API v2] Balance request: user=${user.id}, email=${user.email}, balance=${user.balance}`);
+    console.log(`[API v2][${reqId}] Balance request: user=${user.id}, email=${user.email}, balance=${user.balance}`);
     
     // Audit successful balance check
-    await auditLog(user.id, 'balance_check', { 
+    await auditLog(user.id, 'balance_check', {
+      reqId, 
       balance: user.balance,
       success: true 
     }, 'info');
@@ -1192,7 +1223,7 @@ async function handleBalance(user, headers) {
       ? parseFloat(user.balance).toFixed(2) 
       : '0.00';
     
-    console.log(`[API v2] Returning balance: ${balance} USD`);
+    console.log(`[API v2][${reqId}] Returning balance: ${balance} USD`);
     
     return {
       statusCode: 200,
@@ -1206,7 +1237,8 @@ async function handleBalance(user, headers) {
     console.error('[API v2] Balance error:', error);
     
     // Audit balance check failure
-    await auditLog(user ? user.id : null, 'balance_check_error', { 
+    await auditLog(user ? user.id : null, 'balance_check_error', {
+      reqId, 
       error: error.message,
       success: false 
     }, 'critical');
@@ -1220,7 +1252,7 @@ async function handleBalance(user, headers) {
 }
 
 // Request refill
-async function handleRefill(user, params, headers) {
+async function handleRefill(user, params, headers, reqId) {
   try {
     const { order } = params;
 
@@ -1244,7 +1276,7 @@ async function handleRefill(user, params, headers) {
       };
     }
 
-    console.log(`[API v2] Refill request for public_order_id=${publicOrderId}`);
+    console.log(`[API v2][${reqId}] Refill request for public_order_id=${publicOrderId}`);
 
     // Get order and verify ownership (query by public_order_id, retrieve UUID for internal joins)
     const { data: orderData, error } = await supabaseAdmin
@@ -1255,8 +1287,8 @@ async function handleRefill(user, params, headers) {
       .single();
 
     if (error || !orderData) {
-      console.warn(`[API v2] Refill attempt on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
-      await auditLog(user.id, 'refill_nonexistent_order', { public_order_id: publicOrderId }, 'warning');
+      console.warn(`[API v2][${reqId}] Refill attempt on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
+      await auditLog(user.id, 'refill_nonexistent_order', { reqId, public_order_id: publicOrderId }, 'warning');
       return {
         statusCode: 200,
         headers,
@@ -1264,7 +1296,7 @@ async function handleRefill(user, params, headers) {
       };
     }
 
-    console.log(`[API v2] Order found for refill: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, provider_order_id=${orderData.provider_order_id}`);
+    console.log(`[API v2][${reqId}] Order found for refill: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, provider_order_id=${orderData.provider_order_id}`);
 
     // Verify order has provider order ID (was submitted to provider)
     if (!orderData.provider_order_id) {
@@ -1299,7 +1331,7 @@ async function handleRefill(user, params, headers) {
 
         // Validate provider response format
         if (!providerResponse.data || !providerResponse.data.refill) {
-          console.error(`[API v2] Invalid provider refill response: public_order_id=${orderData.public_order_id}`, providerResponse.data);
+          console.error(`[API v2][${reqId}] Invalid provider refill response: public_order_id=${orderData.public_order_id}`, providerResponse.data);
           return {
             statusCode: 200,
             headers,
@@ -1316,7 +1348,7 @@ async function handleRefill(user, params, headers) {
           })
           .eq('id', orderData.id);
 
-        console.log(`[API v2] Refill submitted: public_order_id=${orderData.public_order_id}, provider_refill_id=${providerResponse.data.refill}`);
+        console.log(`[API v2][${reqId}] Refill submitted: public_order_id=${orderData.public_order_id}, provider_refill_id=${providerResponse.data.refill}`);
 
         return {
           statusCode: 200,
@@ -1349,13 +1381,24 @@ async function handleRefill(user, params, headers) {
 }
 
 // Get refill status (supports single or multiple refills)
-async function handleRefillStatus(user, params, headers) {
+async function handleRefillStatus(user, params, headers, reqId) {
   try {
     const { refill, refills } = params;
 
     // Support multi-refill status check (comma-separated refill IDs)
     if (refills) {
       const refillIds = refills.split(',').map(id => id.trim());
+      
+      // Cap multi-refill requests at 100 IDs to prevent abuse
+      const MAX_MULTI_REFILL = 100;
+      if (refillIds.length > MAX_MULTI_REFILL) {
+        console.warn(`[API v2][${reqId}] Multi-refill status request exceeds limit: user=${user.id}, requested=${refillIds.length}, limit=${MAX_MULTI_REFILL}`);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ error: `Maximum ${MAX_MULTI_REFILL} refill IDs allowed per request` })
+        };
+      }
       const results = {};
 
       for (const refillId of refillIds) {
