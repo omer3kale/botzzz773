@@ -343,13 +343,10 @@ async function loadServicesFromAPI(options = {}) {
             'Content-Type': 'application/json'
         };
 
-        if (token) {
-            headers.Authorization = `Bearer ${token}`;
-        }
-
-        const endpoint = token
-            ? '/.netlify/functions/services?audience=customer'
-            : '/api?action=services';
+        // Public v2 API endpoint - no authentication required
+        // Returns standard SMM panel format: [{service, name, category, rate, min, max, ...}]
+        // Perfect Panel and other SMM software can ping this endpoint directly
+        const endpoint = '/v2?action=services';
 
         const response = await fetch(endpoint, {
             method: 'GET',
@@ -365,42 +362,41 @@ async function loadServicesFromAPI(options = {}) {
             throw new Error('Received invalid response while loading services');
         }
 
-        if (response.status === 401 || response.status === 403) {
-            console.warn('[SERVICES] Services request unauthorized. Response:', data);
-            container.innerHTML = `
-                <div style="text-align: center; padding: 80px 20px;">
-                    <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
-                    <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Session Expired</h3>
-                    <p style="color: #64748B; font-size: 16px; margin-bottom: 20px;">Please sign in again to view services.</p>
-                    <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
-                </div>
-            `;
-            servicesStatusController?.setState('error');
-            handleMissingAuth('services-response-unauthorized');
-            return false;
-        }
-
         if (!response.ok) {
             throw new Error(data.error || 'Failed to load services');
         }
 
-        const services = Array.isArray(data.services) ? data.services : Array.isArray(data) ? data : [];
+        // Handle both array response (from /v2) and object response (legacy)
+        let services = Array.isArray(data) ? data : (Array.isArray(data.services) ? data.services : []);
         
-        // For public/unauthenticated users, show all active services (no admin approval filter)
-        // For authenticated users, still filter by admin_approved
-        const approvedServices = token 
-            ? services.filter(service => service.admin_approved === true || service.adminApproved === true)
-            : services; // Show all services to public users
-            
-        approvedServicesCache = approvedServices;
-        console.log('[DEBUG] Loaded services:', services.length, 'approved:', approvedServices.length, 'auth:', !!token);
+        // Transform v2 API format to internal format
+        services = services.map(service => ({
+            id: service.service || service.id,
+            public_id: service.service || service.public_id,
+            name: service.name,
+            category: service.category,
+            type: service.type || 'Default',
+            rate: parseFloat(service.rate),
+            min_quantity: parseInt(service.min || service.min_quantity || 1),
+            max_quantity: parseInt(service.max || service.max_quantity || 10000),
+            description: service.description || '',
+            refill: service.refill !== false,
+            cancel: service.cancel !== false,
+            dripfeed: service.dripfeed === true,
+            currency: 'USD',
+            __clientKey: `service_${service.service || service.id}`
+        }));
         
-        if (approvedServices.length === 0) {
+        // Show all services - no authentication or approval filtering for public view
+        approvedServicesCache = services;
+        console.log('[DEBUG] Loaded public services:', services.length);
+        
+        if (services.length === 0) {
             container.innerHTML = `
                 <div style="text-align: center; padding: 80px 20px;">
                     <div style="font-size: 80px; margin-bottom: 20px;">📦</div>
                     <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">No Services Available</h3>
-                    <p style="color: #64748B; font-size: 16px;">Services will appear once an admin approves them for customers.</p>
+                    <p style="color: #64748B; font-size: 16px;">Check back soon for new services.</p>
                 </div>
             `;
             servicesStatusController?.setState('empty');
@@ -408,9 +404,9 @@ async function loadServicesFromAPI(options = {}) {
         }
         
         // Group services by category
-        const grouped = groupServicesByCategory(approvedServices);
+        const grouped = groupServicesByCategory(services);
         Object.keys(serviceDetailsMap).forEach((key) => delete serviceDetailsMap[key]);
-        approvedServices.forEach(service => {
+        services.forEach(service => {
             const serviceKey = assignServiceKey(service);
             serviceDetailsMap[serviceKey] = service;
         });
@@ -426,18 +422,6 @@ async function loadServicesFromAPI(options = {}) {
         
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
-
-        if (error.message && error.message.toLowerCase().includes('unauthorized')) {
-            container.innerHTML = `
-                <div style="text-align: center; padding: 80px 20px;">
-                    <div style="font-size: 80px; margin-bottom: 20px;">🔒</div>
-                    <h3 style="color: #1E293B; margin-bottom: 12px; font-size: 24px;">Sign in required</h3>
-                    <p style="color: #64748B; font-size: 16px; margin-bottom: 20px;">Please sign in to view available services.</p>
-                    <a href="signin.html" class="btn btn-primary">Go to Sign In</a>
-                </div>
-            `;
-            return false;
-        }
 
         container.innerHTML = `
             <div style="text-align: center; padding: 80px 20px;">

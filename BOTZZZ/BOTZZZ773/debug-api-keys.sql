@@ -1,52 +1,230 @@
 // Public API v2 - Standard SMM Panel API Format
 // Supports external integrations using API keys
-// NOTE: Uses simple plaintext key matching for reliability
-// Keys stored in api_keys.key column, matched directly without hashing
 const { supabaseAdmin } = require('./utils/supabase');
+const { hashApiKey, extractKeyPrefix, safeCompareHash } = require('./utils/apiKeys');
 
-// Simple plaintext API key verification (reverted from hash/prefix approach)
+// Verify API key and get user
 async function getUserFromApiKey(apiKey) {
   if (!apiKey) {
     console.warn('[API v2] getUserFromApiKey called without apiKey');
+    console.warn('[API v2] DEBUG: apiKey is null, undefined, or empty string');
     return null;
   }
+  
+  if (!apiKey.startsWith('sk_')) {
+    console.warn('[API v2] Invalid API key format (must start with sk_):', { 
+      keyPrefix: apiKey.substring(0, 6),
+      length: apiKey.length,
+      firstChar: apiKey.charAt(0),
+      hasWhitespace: apiKey !== apiKey.trim(),
+      actualValue: apiKey.substring(0, 15) + '...' // Show more for debugging
+    });
+    return null;
+  }
+  
+  console.log('[API v2] DEBUG: API key format validated:', {
+    startsWithSk: true,
+    keyLength: apiKey.length,
+    keyPrefix: apiKey.substring(0, 12),
+    hasWhitespace: apiKey !== apiKey.trim()
+  });
 
   try {
-    const { data: matches, error } = await supabaseAdmin
-      .from('api_keys')
-      .select('id, key, user:users(id, email, role, balance, status)')
-      .eq('key', apiKey)
-      .eq('status', 'active')
-      .limit(1);
+    const prefix = extractKeyPrefix(apiKey);
+    const hashed = hashApiKey(apiKey);
+    
+    console.log('[API v2] DEBUG: Key processing:', {
+      prefix: prefix,
+      prefixLength: prefix.length,
+      hashLength: hashed.length,
+      hashPrefix: hashed.substring(0, 16) + '...'
+    });
 
-    if (error) {
-      console.error('[API v2] API key lookup error:', error);
-      return null;
+    let candidates = [];
+
+    if (prefix) {
+      const { data: prefixMatches, error: prefixError } = await supabaseAdmin
+        .from('api_keys')
+        .select('id, key_hash, key_prefix, key, user:users(id, email, role, balance, status)')
+        .eq('key_prefix', prefix)
+        .eq('status', 'active');
+
+      if (prefixError) {
+        console.error('API key prefix lookup error:', prefixError);
+        console.error('[API v2] DEBUG: Database query failed for prefix lookup');
+        return null;
+      }
+
+      console.log('[API v2] DEBUG: Prefix lookup results:', {
+        prefix: prefix,
+        matchCount: prefixMatches ? prefixMatches.length : 0,
+        matches: prefixMatches ? prefixMatches.map(m => ({
+          id: m.id,
+          prefix: m.key_prefix,
+          hasHash: !!m.key_hash,
+          hasKey: !!m.key,
+          userId: m.user ? m.user.id : 'no_user'
+        })) : []
+      });
+
+      if (prefixMatches && prefixMatches.length) {
+        candidates = prefixMatches;
+      }
     }
 
-    if (!matches || !matches.length || !matches[0].user) {
-      console.warn('[API v2] No matching API key or user:', {
+    if (!candidates.length) {
+      const { data: legacyMatches, error: legacyError } = await supabaseAdmin
+        .from('api_keys')
+        .select('id, key_hash, key_prefix, key, user:users(id, email, role, balance, status)')
+        .eq('key', apiKey)
+        .eq('status', 'active');
+
+      if (legacyError) {
+        console.error('API key legacy lookup error:', legacyError);
+        console.error('[API v2] DEBUG: Database query failed for legacy lookup');
+        return null;
+      }
+
+      console.log('[API v2] DEBUG: Legacy lookup results:', {
+        matchCount: legacyMatches ? legacyMatches.length : 0,
+        matches: legacyMatches ? legacyMatches.map(m => ({
+          id: m.id,
+          prefix: m.key_prefix,
+          keyMatches: m.key === apiKey,
+          hasHash: !!m.key_hash,
+          userId: m.user ? m.user.id : 'no_user'
+        })) : []
+      });
+
+      if (legacyMatches && legacyMatches.length) {
+        candidates = legacyMatches;
+      }
+    }
+
+    if (!candidates.length) {
+      console.warn('[API v2] No API key candidates found in database:', { 
+        prefix: prefix || 'none',
         keyPrefix: apiKey.substring(0, 12) + '...',
-        hasMatches: !!matches && matches.length > 0
+        keyLength: apiKey.length
       });
       return null;
     }
 
-    console.log('[API v2] API key validated:', {
-      keyId: matches[0].id,
-      userId: matches[0].user.id,
-      userEmail: matches[0].user.email
+    console.log('[API v2] DEBUG: Starting candidate matching:', {
+      candidateCount: candidates.length,
+      hashedKeyLength: hashed.length
+    });
+
+    let matchingKey = candidates.find(candidate => {
+      console.log('[API v2] DEBUG: Testing candidate:', {
+        candidateId: candidate.id,
+        hasKeyHash: !!candidate.key_hash,
+        hasKey: !!candidate.key,
+        keyPrefix: candidate.key_prefix
+      });
+
+      if (candidate.key_hash) {
+        const hashMatches = safeCompareHash(hashed, candidate.key_hash);
+        console.log('[API v2] DEBUG: Hash comparison:', {
+          candidateId: candidate.id,
+          hashMatches: hashMatches,
+          providedHashPrefix: hashed.substring(0, 16) + '...',
+          storedHashPrefix: candidate.key_hash.substring(0, 16) + '...'
+        });
+        if (hashMatches) {
+          return true;
+        }
+      }
+
+      if (candidate.key) {
+        const keyMatches = candidate.key === apiKey;
+        console.log('[API v2] DEBUG: Plaintext key comparison:', {
+          candidateId: candidate.id,
+          keyMatches: keyMatches,
+          providedKeyPrefix: apiKey.substring(0, 12) + '...',
+          storedKeyPrefix: candidate.key.substring(0, 12) + '...'
+        });
+        if (keyMatches) {
+          return true;
+        }
+      }
+
+      return false;
+    });
+
+    if (!matchingKey) {
+      console.log('[API v2] DEBUG: No match found in candidates, trying legacy fallback');
+      
+      const { data: legacyMatches, error: legacyError } = await supabaseAdmin
+        .from('api_keys')
+        .select('id, key_hash, key_prefix, key, user:users(id, email, role, balance, status)')
+        .eq('key', apiKey)
+        .eq('status', 'active');
+
+      if (legacyError) {
+        console.error('API key legacy fallback error:', legacyError);
+        console.error('[API v2] DEBUG: Legacy fallback query failed');
+        return null;
+      }
+
+      console.log('[API v2] DEBUG: Legacy fallback results:', {
+        matchCount: legacyMatches ? legacyMatches.length : 0
+      });
+
+      if (legacyMatches && legacyMatches.length) {
+        matchingKey = legacyMatches.find(candidate => {
+          const matches = candidate.key === apiKey;
+          console.log('[API v2] DEBUG: Legacy fallback plaintext match:', {
+            candidateId: candidate.id,
+            matches: matches
+          });
+          return matches;
+        });
+
+        if (!matchingKey) {
+          matchingKey = legacyMatches.find(candidate => {
+            if (candidate.key_hash) {
+              const matches = safeCompareHash(hashed, candidate.key_hash);
+              console.log('[API v2] DEBUG: Legacy fallback hash match:', {
+                candidateId: candidate.id,
+                matches: matches
+              });
+              return matches;
+            }
+            return false;
+          });
+        }
+      }
+    }
+
+    if (!matchingKey || !matchingKey.user) {
+      console.warn('[API v2] API key validation failed:', {
+        hasMatchingKey: !!matchingKey,
+        hasUser: matchingKey ? !!matchingKey.user : false,
+        keyPrefix: apiKey.substring(0, 12) + '...',
+        candidatesChecked: candidates.length,
+        reason: !matchingKey ? 'no_matching_key_found' : 'no_user_attached'
+      });
+      console.warn('[API v2] DEBUG: Final validation failure - key not found or no user attached');
+      return null;
+    }
+    
+    console.log('[API v2] DEBUG: API key validation SUCCESS:', {
+      matchingKeyId: matchingKey.id,
+      userId: matchingKey.user.id,
+      userEmail: matchingKey.user.email,
+      userStatus: matchingKey.user.status
     });
 
     // Update last_used timestamp
     await supabaseAdmin
       .from('api_keys')
       .update({ last_used: new Date().toISOString() })
-      .eq('id', matches[0].id);
+      .eq('id', matchingKey.id);
 
-    return matches[0].user;
+    return matchingKey.user;
   } catch (error) {
-    console.error('[API v2] API key verification error:', error);
+    console.error('API key verification error:', error);
     return null;
   }
 }
@@ -404,6 +582,14 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     }
     
     const { key, action, ...otherParams } = params;
+    
+    console.log('[API v2] DEBUG: Parsed request parameters:', {
+      hasKey: !!key,
+      keyPrefix: key ? key.substring(0, 12) + '...' : 'none',
+      keyLength: key ? key.length : 0,
+      action: action || 'none',
+      otherParams: Object.keys(otherParams)
+    });
 
     // Log when both action and key are missing (potential misconfiguration)
     if (!action && !key) {
