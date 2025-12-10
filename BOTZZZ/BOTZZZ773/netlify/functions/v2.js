@@ -569,10 +569,10 @@ async function handleServices(user, headers) {
   try {
     const { data: services, error } = await supabaseAdmin
       .from('services')
-      .select('*')
+      .select('id, public_id, name, type, category, rate, min_quantity, max_quantity, dripfeed, refill, cancel, description, status')
       .eq('status', 'active')
       .order('category', { ascending: true })
-      .order('id', { ascending: true }); // Stable ordering within categories
+      .order('public_id', { ascending: true }); // Stable ordering by public_id for external consistency
 
     if (error) {
       console.error('[API v2] Services query error:', error);
@@ -602,6 +602,11 @@ async function handleServices(user, headers) {
           console.warn(`[API v2] Skipping invalid service:`, service);
           return false;
         }
+        // Must have public_id for external API compatibility
+        if (!service.public_id) {
+          console.warn(`[API v2] Skipping service without public_id:`, { id: service.id, name: service.name });
+          return false;
+        }
         return true;
       })
       .map(service => {
@@ -615,17 +620,10 @@ async function handleServices(user, headers) {
             return null;
           }
 
-          // Dual compatibility: support both UUID (pre-migration) and numeric (post-migration)
-          // If service.id is already a number, use it directly
-          // If it's a UUID string, convert to numeric for SMM panel compatibility
-          let serviceId;
-          if (typeof service.id === 'number') {
-            serviceId = service.id; // Post-migration: already numeric
-          } else if (typeof service.id === 'string' && /^[0-9]+$/.test(service.id)) {
-            serviceId = parseInt(service.id, 10); // String number
-          } else {
-            serviceId = uuidToNumericId(service.id); // Pre-migration: UUID
-          }
+          // Use public_id for external service ID (parallel IDs: UUID internal, numeric external)
+          const serviceId = Number(service.public_id);
+
+          console.log(`[API v2] Exporting service: internal_id=${service.id}, public_id=${serviceId}, name=${service.name}`);
 
           return {
             service: serviceId,
@@ -676,18 +674,18 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
     if (idempotencyKey) {
       const { data: existingOrder } = await supabaseAdmin
         .from('orders')
-        .select('*')
+        .select('id, public_order_id, charge, status')
         .eq('user_id', user.id)
         .eq('idempotency_key', idempotencyKey)
         .single();
 
       if (existingOrder) {
-        console.log(`[API v2] Duplicate request detected via idempotency key: user=${user.id}, key=${idempotencyKey}`);
+        console.log(`[API v2] Duplicate request detected via idempotency key: user=${user.id}, key=${idempotencyKey}, public_order_id=${existingOrder.public_order_id}`);
         return {
           statusCode: 200,
           headers,
           body: JSON.stringify({
-            order: existingOrder.id,
+            order: existingOrder.public_order_id,
             charge: existingOrder.charge,
             status: existingOrder.status,
             message: 'Order already exists (duplicate request prevented)'
@@ -705,35 +703,40 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       };
     }
 
-    // Dual compatibility: Accept both UUID (pre-migration) and numeric ID (post-migration)
-    let actualServiceId = service;
-    
-    // Check if it's a numeric ID (post-migration or hash-converted)
-    const serviceIdNum = parseInt(service, 10);
-    if (!isNaN(serviceIdNum) && serviceIdNum > 0) {
-      // Try direct numeric lookup first (post-migration)
-      const { data: numericService } = await supabaseAdmin
-        .from('services')
-        .select('id')
-        .eq('id', serviceIdNum)
-        .eq('status', 'active')
-        .single();
-      
-      if (numericService) {
-        actualServiceId = numericService.id; // Found by numeric ID
-      } else {
-        // Fallback: try reverse hash lookup (pre-migration with hash)
-        actualServiceId = await findServiceByNumericId(serviceIdNum);
-        if (!actualServiceId) {
-          return {
-            statusCode: 200,
-            headers,
-            body: JSON.stringify({ error: 'Service not found' })
-          };
-        }
-      }
+    // Parse incoming service parameter as public_id (parallel IDs: external=public_id, internal=UUID)
+    const servicePublicId = parseInt(service, 10);
+    if (isNaN(servicePublicId) || servicePublicId <= 0) {
+      console.error(`[API v2] Invalid service public_id: ${service}`);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ error: 'Invalid service ID' })
+      };
     }
-    // else: it's already a UUID, use as-is (pre-migration direct UUID)
+
+    console.log(`[API v2] Looking up service by public_id=${servicePublicId}`);
+
+    // Lookup service by public_id, but retrieve UUID id for internal FK
+    const { data: serviceData, error: serviceLookupError } = await supabaseAdmin
+      .from('services')
+      .select('id, public_id, name, rate, min_quantity, max_quantity, status, provider:providers(*)')
+      .eq('public_id', servicePublicId)
+      .eq('status', 'active')
+      .single();
+
+    if (serviceLookupError || !serviceData) {
+      console.error(`[API v2] Service not found: public_id=${servicePublicId}`, serviceLookupError);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ error: 'Service not found' })
+      };
+    }
+
+    console.log(`[API v2] Found service: internal_id=${serviceData.id}, public_id=${serviceData.public_id}, name=${serviceData.name}`);
+
+    // actualServiceId is now the UUID for internal FK relations
+    const actualServiceId = serviceData.id;
 
     // Validate quantity is a positive integer
     const qty = parseInt(quantity, 10);
@@ -785,28 +788,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       }
     }
 
-    // Get service details using the actual UUID
-    const { data: serviceData, error: serviceError } = await supabaseAdmin
-      .from('services')
-      .select('*, provider:providers(*)')
-      .eq('id', actualServiceId)
-      .single();
-
-    if (serviceError || !serviceData) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ error: 'Service not found' })
-      };
-    }
-
-    if (serviceData.status !== 'active') {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ error: 'Service is not available' })
-      };
-    }
+    // Service already validated as active in the lookup above
 
     // Calculate cost
     const totalCost = (serviceData.rate * qty).toFixed(2);
@@ -831,12 +813,12 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
       };
     }
 
-    // Create order
+    // Create order (service_id uses UUID for internal FK, public_order_id generated by trigger)
     const { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .insert({
         user_id: user.id,
-        service_id: actualServiceId,
+        service_id: actualServiceId, // UUID FK to services.id
         service_name: serviceData.name,
         link: link,
         quantity: quantity,
@@ -847,18 +829,20 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
         order_number: `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`,
         idempotency_key: idempotencyKey || null
       })
-      .select()
+      .select('id, public_order_id, charge, status')
       .single();
 
     if (orderError) {
-      console.error(`[API v2] Order creation failed: user=${user.id}`, orderError);
-      await auditLog(user.id, 'order_creation_failed', { service: actualServiceId, error: orderError.message }, 'critical');
+      console.error(`[API v2] Order creation failed: user=${user.id}, service_public_id=${servicePublicId}`, orderError);
+      await auditLog(user.id, 'order_creation_failed', { service_public_id: servicePublicId, service_id: actualServiceId, error: orderError.message }, 'critical');
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Failed to create order' })
       };
     }
+
+    console.log(`[API v2] Order created: internal_id=${order.id}, public_order_id=${order.public_order_id}, charge=${order.charge}`);
 
     // Deduct balance
     await supabaseAdmin
@@ -899,7 +883,7 @@ async function handleAddOrder(user, params, headers, reqHeaders) {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ order: order.id })
+      body: JSON.stringify({ order: order.public_order_id })
     };
   } catch (error) {
     console.error('Add order error:', error);
@@ -922,23 +906,28 @@ async function handleOrderStatus(user, params, headers) {
       const results = {};
 
       for (const orderId of orderIds) {
-        const orderIdNum = parseInt(orderId, 10);
-        if (isNaN(orderIdNum) || orderIdNum <= 0) {
+        const publicOrderId = parseInt(orderId, 10);
+        if (isNaN(publicOrderId) || publicOrderId <= 0) {
           results[orderId] = { error: 'Invalid order ID' };
           continue;
         }
 
+        console.log(`[API v2] Status lookup by public_order_id=${publicOrderId}`);
+
         const { data: orderData } = await supabaseAdmin
           .from('orders')
-          .select('*')
-          .eq('id', orderIdNum)
+          .select('id, public_order_id, charge, start_count, remains, status')
+          .eq('public_order_id', publicOrderId)
           .eq('user_id', user.id)
           .single();
 
         if (!orderData) {
+          console.warn(`[API v2] Order not found: public_order_id=${publicOrderId}, user_id=${user.id}`);
           results[orderId] = { error: 'Order not found' };
           continue;
         }
+
+        console.log(`[API v2] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
 
         const charge = parseFloat(orderData.charge || 0).toFixed(2);
         const startCount = String(orderData.start_count || '0');
@@ -971,9 +960,9 @@ async function handleOrderStatus(user, params, headers) {
       };
     }
 
-    // Validate order ID is numeric
-    const orderId = parseInt(order, 10);
-    if (isNaN(orderId) || orderId <= 0) {
+    // Validate order ID is numeric (public_order_id)
+    const publicOrderId = parseInt(order, 10);
+    if (isNaN(publicOrderId) || publicOrderId <= 0) {
       await auditLog(user.id, 'invalid_order_id_status', { providedId: order }, 'warning');
       return {
         statusCode: 200,
@@ -982,15 +971,17 @@ async function handleOrderStatus(user, params, headers) {
       };
     }
 
+    console.log(`[API v2] Status lookup by public_order_id=${publicOrderId}`);
+
     const { data: orderData, error } = await supabaseAdmin
       .from('orders')
-      .select('*')
-      .eq('id', orderId)
+      .select('id, public_order_id, charge, start_count, remains, status')
+      .eq('public_order_id', publicOrderId)
       .eq('user_id', user.id)
       .single();
 
     if (error || !orderData) {
-      console.warn(`[API v2] Status check on non-existent order: user=${user.id}, order=${orderId}`);
+      console.warn(`[API v2] Status check on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
       return {
         statusCode: 200,
         headers,
@@ -998,9 +989,11 @@ async function handleOrderStatus(user, params, headers) {
       };
     }
 
+    console.log(`[API v2] Order found: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, status=${orderData.status}`);
+
     // Validate required fields exist
     if (!orderData.status || orderData.charge === undefined || orderData.charge === null) {
-      console.error(`[API v2] Order missing required fields: order=${orderId}`, { status: orderData.status, charge: orderData.charge });
+      console.error(`[API v2] Order missing required fields: public_order_id=${orderData.public_order_id}`, { status: orderData.status, charge: orderData.charge });
       return {
         statusCode: 200,
         headers,
@@ -1076,9 +1069,9 @@ async function handleRefill(user, params, headers) {
       };
     }
 
-    // Validate order ID is numeric
-    const orderId = parseInt(order, 10);
-    if (isNaN(orderId) || orderId <= 0) {
+    // Validate order ID is numeric (public_order_id)
+    const publicOrderId = parseInt(order, 10);
+    if (isNaN(publicOrderId) || publicOrderId <= 0) {
       await auditLog(user.id, 'invalid_order_id_refill', { providedId: order }, 'warning');
       return {
         statusCode: 200,
@@ -1087,23 +1080,27 @@ async function handleRefill(user, params, headers) {
       };
     }
 
-    // Get order and verify ownership
+    console.log(`[API v2] Refill request for public_order_id=${publicOrderId}`);
+
+    // Get order and verify ownership (query by public_order_id, retrieve UUID for internal joins)
     const { data: orderData, error } = await supabaseAdmin
       .from('orders')
-      .select('*, service:services(*, provider:providers(*))')
-      .eq('id', orderId)
+      .select('id, public_order_id, provider_order_id, status, refill_id, service:services(id, name, refill, provider:providers(*))')
+      .eq('public_order_id', publicOrderId)
       .eq('user_id', user.id)
       .single();
 
     if (error || !orderData) {
-      console.warn(`[API v2] Refill attempt on non-existent order: user=${user.id}, order=${orderId}`);
-      await auditLog(user.id, 'refill_nonexistent_order', { orderId }, 'warning');
+      console.warn(`[API v2] Refill attempt on non-existent order: user=${user.id}, public_order_id=${publicOrderId}`);
+      await auditLog(user.id, 'refill_nonexistent_order', { public_order_id: publicOrderId }, 'warning');
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({ error: 'Order not found' })
       };
     }
+
+    console.log(`[API v2] Order found for refill: internal_id=${orderData.id}, public_order_id=${orderData.public_order_id}, provider_order_id=${orderData.provider_order_id}`);
 
     // Verify order has provider order ID (was submitted to provider)
     if (!orderData.provider_order_id) {
@@ -1138,7 +1135,7 @@ async function handleRefill(user, params, headers) {
 
         // Validate provider response format
         if (!providerResponse.data || !providerResponse.data.refill) {
-          console.error(`[API v2] Invalid provider refill response: order=${orderId}`, providerResponse.data);
+          console.error(`[API v2] Invalid provider refill response: public_order_id=${orderData.public_order_id}`, providerResponse.data);
           return {
             statusCode: 200,
             headers,
@@ -1146,14 +1143,16 @@ async function handleRefill(user, params, headers) {
           };
         }
 
-        // Update order with refill info
+        // Update order with refill info (use internal UUID id for update)
         await supabaseAdmin
           .from('orders')
           .update({ 
             status: 'refilling',
             refill_id: providerResponse.data.refill
           })
-          .eq('id', orderId);
+          .eq('id', orderData.id);
+
+        console.log(`[API v2] Refill submitted: public_order_id=${orderData.public_order_id}, provider_refill_id=${providerResponse.data.refill}`);
 
         return {
           statusCode: 200,
