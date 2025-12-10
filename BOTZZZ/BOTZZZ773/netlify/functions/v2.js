@@ -4,49 +4,57 @@
 // Keys stored in api_keys.key column, matched directly without hashing
 const { supabaseAdmin } = require('./utils/supabase');
 
-// Simple plaintext API key verification (reverted from hash/prefix approach)
+// --- ŞEMAYA UYGUN GÜNCELLENMİŞ AUTH FONKSİYONU ---
 async function getUserFromApiKey(apiKey) {
-  if (!apiKey) {
-    console.warn('[API v2] getUserFromApiKey called without apiKey');
-    return null;
-  }
+  if (!apiKey) return null;
 
   try {
-    const { data: matches, error } = await supabaseAdmin
+    // 1. api_keys tablosundan anahtarı ve sahibini (user) çekiyoruz
+    const { data: apiKeyData, error } = await supabaseAdmin
       .from('api_keys')
-      .select('id, key, user:users(id, email, role, balance, status)')
-      .eq('key', apiKey)
-      .eq('status', 'active')
-      .limit(1);
+      .select(`
+        id,
+        key,
+        user_id,
+        users (
+          id,
+          email,
+          role,
+          balance,
+          status
+        )
+      `)
+      .eq('key', apiKey) // Şemanızdaki 'key' sütunu
+      .eq('status', 'active') // Şemanızdaki 'status' sütunu
+      .single();
 
-    if (error) {
-      console.error('[API v2] API key lookup error:', error);
+    if (error || !apiKeyData) {
+      console.warn('[API v2] Key bulunamadı:', apiKey);
       return null;
     }
 
-    if (!matches || !matches.length || !matches[0].user) {
-      console.warn('[API v2] No matching API key or user:', {
-        keyPrefix: apiKey.substring(0, 12) + '...',
-        hasMatches: !!matches && matches.length > 0
-      });
+    // 2. İlişkili kullanıcı verisini kontrol et
+    // Supabase join işlemlerinde veri bazen 'users' dizisi bazen obje olarak gelir.
+    const user = Array.isArray(apiKeyData.users) ? apiKeyData.users[0] : apiKeyData.users;
+
+    if (!user) {
+      console.warn('[API v2] Key var ama kullanıcı bulunamadı (Yetim Key). ID:', apiKeyData.id);
       return null;
     }
 
-    console.log('[API v2] API key validated:', {
-      keyId: matches[0].id,
-      userId: matches[0].user.id,
-      userEmail: matches[0].user.email
-    });
-
-    // Update last_used timestamp
-    await supabaseAdmin
+    // 3. Son kullanım tarihini güncelle (last_used sütunu şemanızda mevcut)
+    // Bunu await etmeyerek yanıtı hızlandırıyoruz (fire-and-forget)
+    supabaseAdmin
       .from('api_keys')
       .update({ last_used: new Date().toISOString() })
-      .eq('id', matches[0].id);
+      .eq('id', apiKeyData.id)
+      .then(() => {})
+      .catch(err => console.error('Last used update failed', err));
 
-    return matches[0].user;
+    return user;
+
   } catch (error) {
-    console.error('[API v2] API key verification error:', error);
+    console.error('[API v2] Auth hatası:', error);
     return null;
   }
 }
@@ -675,56 +683,58 @@ async function handleServices(user, headers, reqId) {
       };
     }
 
-    // Format services in standard SMM panel format with strict validation
-    const formattedServices = services
-      .filter(service => {
-        // Filter out invalid services
-        if (!service.id || !service.name || service.rate === undefined) {
-          console.warn(`[API v2] Skipping invalid service:`, service);
-          return false;
-        }
-        // Must have public_id for external API compatibility
-        if (!service.public_id) {
-          console.warn(`[API v2] Skipping service without public_id:`, { id: service.id, name: service.name });
-          return false;
-        }
-        return true;
-      })
-      .map(service => {
-        try {
-          const rate = parseFloat(service.rate);
-          const minQty = parseInt(service.min_quantity || 1, 10);
-          const maxQty = parseInt(service.max_quantity || 1000, 10);
+    // --- HANDLE SERVICES İÇİN GÜNCEL KOD BLOĞU ---
 
-          if (isNaN(rate) || isNaN(minQty) || isNaN(maxQty)) {
-            console.warn(`[API v2] Service has invalid numeric values:`, { service: service.id, rate, minQty, maxQty });
-            return null;
-          }
+// ... (handleServices fonksiyonunun başındaki sorgu kısmı aynı kalsın) ...
 
-          // Use public_id for external service ID (parallel IDs: UUID internal, numeric external)
-          const serviceId = Number(service.public_id);
+// Format services loop'unu bununla değiştirin:
+const formattedServices = services
+  .filter(service => {
+    // ID, İsim ve Fiyat kontrolü
+    if (!service.id || !service.name || service.rate === undefined) {
+      return false;
+    }
+    return true; 
+  })
+  .map(service => {
+    try {
+      // DÜZELTME: public_id yerine direkt id kullanıyoruz.
+      // Eğer id string gelirse sayıya çevir, sayıysa direkt al.
+      let serviceId = service.id;
+      
+      // Güvenlik önlemi: Eğer ID "9072" gibi bir string ise integer yap
+      if (typeof serviceId === 'string') {
+           serviceId = parseInt(serviceId, 10);
+      }
+      // Eğer ID hala UUID formatındaysa (eski veri kalıntısı) özel fonksiyonu kullan
+      else if (typeof serviceId === 'string' && serviceId.includes('-')) {
+           serviceId = uuidToNumericId(serviceId);
+      }
 
-          console.log(`[API v2][${reqId}] Exporting service: internal_id=${service.id}, public_id=${serviceId}, name=${service.name}`);
+      const rate = parseFloat(service.rate);
+      const minQty = parseInt(service.min_quantity || 1, 10);
+      const maxQty = parseInt(service.max_quantity || 1000, 10);
 
-          return {
-            service: serviceId,
-            name: String(service.name || 'Unnamed Service').substring(0, 100),
-            type: String(service.type || 'Default').substring(0, 50),
-            category: String(service.category || 'General').substring(0, 50),
-            rate: rate.toFixed(2),  // 2 decimal places (standard for price per 1000)
-            min: String(minQty),
-            max: String(maxQty),
-            dripfeed: service.dripfeed_supported ? true : false,
-            refill: service.refill_supported !== false,  // Default true unless explicitly false
-            cancel: service.cancel_supported !== false,  // Default true unless explicitly false
-            description: service.description ? String(service.description).substring(0, 255) : ''
-          };
-        } catch (formatError) {
-          console.error(`[API v2] Error formatting service ${service.id}:`, formatError);
-          return null;
-        }
-      })
-      .filter(s => s !== null); // Remove null entries
+      return {
+        service: serviceId, // Perfect Panel'in beklediği sayısal ID
+        name: String(service.name).substring(0, 100),
+        type: String(service.type || 'Default').substring(0, 50),
+        category: String(service.category || 'General').substring(0, 50),
+        rate: rate.toFixed(2),
+        min: String(minQty),
+        max: String(maxQty),
+        dripfeed: service.dripfeed_supported ? true : false,
+        refill: service.refill_supported !== false,
+        cancel: service.cancel_supported !== false,
+        // Description varsa ekle
+        ...(service.description && { desc: String(service.description).substring(0, 255) })
+      };
+    } catch (formatError) {
+      console.error(`[API v2] Service format error ${service.id}:`, formatError);
+      return null;
+    }
+  })
+  .filter(s => s !== null); // Hatalı olanları temizle
 
     // Log services export summary
     console.log(`[API v2][${reqId}] Exporting ${formattedServices.length} services total`);
