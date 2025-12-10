@@ -1,7 +1,6 @@
-// Public API v6 - CANCEL & INSUFFICIENT BALANCE LOG
 const { supabaseAdmin } = require('./utils/supabase');
 
-// --- 1. AUTH VE USER ÇEKME ---
+// --- 1. AUTH ---
 async function getUserFromApiKey(apiKey) {
   if (!apiKey) return null;
   try {
@@ -23,6 +22,7 @@ async function getUserFromApiKey(apiKey) {
 
     if (userError || !userData) return null;
 
+    // Last used güncelle (Promise beklemeden)
     supabaseAdmin.from('api_keys').update({ last_used: new Date().toISOString() }).eq('id', keyData.id).then(() => {});
 
     return userData;
@@ -65,20 +65,48 @@ async function getServices() {
   }).filter(s => s && s.service > 0);
 }
 
-// --- 3. PARSE ---
+// --- 3. PARSE REQUEST (SORUN ÇÖZÜCÜ BÖLÜM) ---
+// Perfect Panel'in gönderdiği veriyi her ihtimale karşı okur.
 function parseRequest(event) {
   let params = {};
-  if (event.queryStringParameters) params = { ...event.queryStringParameters };
-  if (event.body) {
-    try {
-      if (event.headers['content-type']?.includes('application/json')) {
-        params = { ...params, ...JSON.parse(event.body) };
-      } else {
-        const searchParams = new URLSearchParams(event.body);
-        for (const [key, value] of searchParams) params[key] = value;
-      }
-    } catch (e) {}
+
+  // A. Query String (URL'den gelenler)
+  if (event.queryStringParameters) {
+    params = { ...event.queryStringParameters };
   }
+
+  // B. Body (Gövdeden gelenler)
+  if (event.body) {
+    let body = event.body;
+
+    // Eğer body zaten bir obje ise (bazı platformlar otomatik parse eder)
+    if (typeof body === 'object') {
+      params = { ...params, ...body };
+    } 
+    // Eğer body bir string ise (klasik durum)
+    else if (typeof body === 'string') {
+      try {
+        // Önce JSON mu diye dene
+        const jsonBody = JSON.parse(body);
+        params = { ...params, ...jsonBody };
+      } catch (e) {
+        // JSON değilse, URL Encoded Form Data'dır (Perfect Panel bunu sever)
+        try {
+          const searchParams = new URLSearchParams(body);
+          for (const [key, value] of searchParams) {
+            params[key] = value;
+          }
+        } catch (e2) {
+          console.error('Body parse edilemedi:', body);
+        }
+      }
+    }
+  }
+  
+  // Küçük harf/büyük harf sorunu olmasın diye trim yapalım
+  if(params.key) params.key = params.key.trim();
+  if(params.action) params.action = params.action.trim();
+
   return params;
 }
 
@@ -89,15 +117,23 @@ exports.handler = async (event) => {
 
   try {
     const params = parseRequest(event);
-    const action = params.action || 'services';
+    const action = params.action || 'services'; // Varsayılan services
     const apiKey = params.key;
 
-    // Auth
+    // API Key yoksa direkt hata dön (Services hariç, ama services de public değilse hata dönmeli)
+    // Debug için: console.log('Gelen İstek:', JSON.stringify(params));
+
     let user = null;
     if (apiKey) user = await getUserFromApiKey(apiKey);
 
+    // Services dışındaki her işlem için USER şarttır.
     if (action !== 'services' && !user) {
-      return { statusCode: 403, headers, body: JSON.stringify({ error: 'Invalid API key' }) };
+      // Perfect Panel bazen hatalı key durumunda boş JSON veya özel hata bekler.
+      return { 
+        statusCode: 200, // 403 yerine 200 dönüp içinde error verelim, panel daha iyi anlar.
+        headers, 
+        body: JSON.stringify({ error: 'Invalid API key' }) 
+      };
     }
 
     switch (action) {
@@ -105,22 +141,30 @@ exports.handler = async (event) => {
         const services = await getServices();
         return { statusCode: 200, headers, body: JSON.stringify(services) };
 
+      // --- BAKİYE (FIX) ---
       case 'balance':
-        const balanceFormatted = parseFloat(user.balance).toFixed(2);
+        // Eğer kullanıcı veritabanında varsa ama balance null ise 0 kabul et.
+        const rawBalance = user.balance !== null ? user.balance : 0;
+        
+        // Mutlaka string formatında ve 2 ondalıklı gönder (Örn: "100.00")
+        const balanceStr = parseFloat(rawBalance).toFixed(2);
+        
         return {
           statusCode: 200, 
           headers,
-          body: JSON.stringify({ balance: balanceFormatted, currency: 'USD' })
+          body: JSON.stringify({ 
+            balance: balanceStr, 
+            currency: 'USD' 
+          })
         };
 
-      // --- SİPARİŞ EKLEME (Yetersiz Bakiye Loglama Eklendi) ---
       case 'add':
         const incomingServiceId = params.service;
         const link = params.link;
         const quantity = parseInt(params.quantity);
 
         if (!incomingServiceId || !link || !quantity) {
-          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing parameters' }) };
+          return { statusCode: 200, headers, body: JSON.stringify({ error: 'Missing parameters' }) };
         }
 
         const { data: serviceData, error: sErr } = await supabaseAdmin
@@ -130,41 +174,35 @@ exports.handler = async (event) => {
           .single();
 
         if (sErr || !serviceData) {
-          return { statusCode: 404, headers, body: JSON.stringify({ error: 'Service not found' }) };
+          return { statusCode: 200, headers, body: JSON.stringify({ error: 'Service not found' }) };
         }
 
-        // Limit Kontrolü
         const min = parseInt(serviceData.min_quantity || 1);
         const max = parseInt(serviceData.max_quantity || 1000);
         if (quantity < min || quantity > max) {
-             return { statusCode: 400, headers, body: JSON.stringify({ error: `Quantity must be between ${min} and ${max}` }) };
+             return { statusCode: 200, headers, body: JSON.stringify({ error: `Quantity must be between ${min} and ${max}` }) };
         }
 
         const charge = (parseFloat(serviceData.rate) / 1000) * quantity;
 
-        // --- YETERSİZ BAKİYE KONTROLÜ VE LOGLAMA ---
+        // Bakiye Kontrol
         if (parseFloat(user.balance) < charge) {
-          
-          // Veritabanına "Failed" statüsünde kayıt atalım
-          await supabaseAdmin
-            .from('orders')
-            .insert({
+          await supabaseAdmin.from('orders').insert({
               user_id: user.id,
               service_id: serviceData.id,
               service_name: serviceData.name,
               link: link,
               quantity: quantity,
-              charge: 0, // Para çekilmedi
-              status: 'failed', // Şemanda bu statü vardı
-              failure_reason: 'Insufficient Balance', // Hata nedenini kaydet
+              charge: 0,
+              status: 'failed',
+              failure_reason: 'Insufficient Balance',
               mode: 'API',
               provider_currency: 'USD'
             });
-
-          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Not enough balance' }) };
+          return { statusCode: 200, headers, body: JSON.stringify({ error: 'Not enough balance' }) };
         }
 
-        // Bakiye düş ve Başarılı Sipariş Ekle
+        // Sipariş Geç
         const newBalance = parseFloat(user.balance) - charge;
         await supabaseAdmin.from('users').update({ balance: newBalance }).eq('id', user.id);
 
@@ -185,15 +223,14 @@ exports.handler = async (event) => {
           .single();
 
         if (oErr) {
-          return { statusCode: 500, headers, body: JSON.stringify({ error: 'Order creation failed' }) };
+          return { statusCode: 200, headers, body: JSON.stringify({ error: 'Order creation failed' }) };
         }
 
         return { statusCode: 200, headers, body: JSON.stringify({ order: newOrder.public_order_id }) };
 
-      // --- DURUM SORGULAMA ---
       case 'status':
         const orderCheckId = params.order;
-        if (!orderCheckId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing order ID' }) };
+        if (!orderCheckId) return { statusCode: 200, headers, body: JSON.stringify({ error: 'Missing order ID' }) };
 
         const { data: orderData } = await supabaseAdmin
           .from('orders')
@@ -202,7 +239,7 @@ exports.handler = async (event) => {
           .eq('user_id', user.id)
           .single();
 
-        if (!orderData) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Order not found' }) };
+        if (!orderData) return { statusCode: 200, headers, body: JSON.stringify({ error: 'Order not found' }) };
 
         return {
           statusCode: 200, headers,
@@ -215,54 +252,26 @@ exports.handler = async (event) => {
           })
         };
 
-      // --- İPTAL İŞLEMİ (YENİ EKLENDİ) ---
       case 'cancel':
         const orderCancelId = params.order;
-        if (!orderCancelId) return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing order ID' }) };
+        if (!orderCancelId) return { statusCode: 200, headers, body: JSON.stringify({ error: 'Missing order ID' }) };
 
-        // 1. Siparişi Bul
-        const { data: cancelOrderData, error: coErr } = await supabaseAdmin
+        const { data: cancelOrderData } = await supabaseAdmin
           .from('orders')
           .select('id, status, charge, user_id')
           .eq('public_order_id', orderCancelId)
-          .eq('user_id', user.id) // Sadece kendi siparişini iptal edebilir
+          .eq('user_id', user.id)
           .single();
 
-        if (coErr || !cancelOrderData) {
-          return { statusCode: 404, headers, body: JSON.stringify({ error: 'Order not found' }) };
+        if (!cancelOrderData || cancelOrderData.status !== 'pending') {
+          return { statusCode: 200, headers, body: JSON.stringify({ error: 'Cancel failed' }) };
         }
 
-        // 2. Durum Kontrolü (Sadece 'pending' iptal edilebilir)
-        if (cancelOrderData.status !== 'pending') {
-          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Order cannot be canceled (Not pending)' }) };
-        }
-
-        // 3. İade ve İptal İşlemi
         const refundAmount = parseFloat(cancelOrderData.charge);
-        const updatedBalance = parseFloat(user.balance) + refundAmount;
+        await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) + refundAmount }).eq('id', user.id);
+        await supabaseAdmin.from('orders').update({ status: 'canceled', customer_status: 'canceled' }).eq('id', cancelOrderData.id);
 
-        // A. Bakiyeyi Geri Yükle
-        await supabaseAdmin.from('users').update({ balance: updatedBalance }).eq('id', user.id);
-
-        // B. Siparişi İptal Olarak İşaretle
-        await supabaseAdmin
-            .from('orders')
-            .update({ 
-                status: 'canceled',
-                customer_status: 'canceled', // Şemanda varsa bunu da güncellemek iyidir
-                updated_at: new Date().toISOString()
-            })
-            .eq('id', cancelOrderData.id); // UUID ile güncellemek daha güvenli
-
-        return {
-          statusCode: 200, 
-          headers, 
-          body: JSON.stringify({ 
-              order: parseInt(orderCancelId), 
-              canceled: true,
-              message: 'Order canceled and refunded'
-          }) 
-        };
+        return { statusCode: 200, headers, body: JSON.stringify({ order: parseInt(orderCancelId), canceled: true }) };
 
       default:
         const defServices = await getServices();
@@ -270,7 +279,7 @@ exports.handler = async (event) => {
     }
 
   } catch (err) {
-    console.error('API Error:', err);
+    // 500 hatası panelde "System Error" olarak görünür.
     return { statusCode: 500, headers, body: JSON.stringify({ error: 'System error' }) };
   }
 };
