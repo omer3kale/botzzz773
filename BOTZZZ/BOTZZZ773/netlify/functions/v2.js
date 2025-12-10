@@ -482,14 +482,71 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
       });
     }
 
-    // Default to services list when no action specified
-    // This allows provider testing via browser (GET) or automated tools (POST)
-    if (!action || action === 'services') {
-      console.log('[API v2] Services list requested:', { 
-        hasKey: !!key, 
-        method: event.httpMethod,
-        note: 'Returning services (unauthenticated access allowed for provider discovery)'
-      });
+    // Handle services action - can be authenticated or unauthenticated
+    if (action === 'services') {
+      // If key provided, validate it first
+      if (key) {
+        const user = await getUserFromApiKey(key);
+        if (!user) {
+          const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
+          const hasCorrectFormat = key.startsWith('sk_');
+          console.warn('[API v2] Services request with invalid API key:', { 
+            keyPrefix: key.substring(0, 8),
+            keyLength: key.length,
+            startsWithSk: hasCorrectFormat,
+            method: event.httpMethod,
+            clientIp: clientIp
+          });
+          
+          let reason = 'key_not_found';
+          if (!hasCorrectFormat) {
+            reason = 'invalid_key_format';
+          }
+          
+          await auditLog(null, 'auth_failure_services', { 
+            keyPrefix: key.substring(0, 6), 
+            method: event.httpMethod,
+            reason: reason,
+            client_ip: clientIp
+          }, 'warning');
+          
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ error: 'Invalid API key' })
+          };
+        }
+        
+        if (user.status !== 'active') {
+          console.warn(`[API v2] Services request from inactive account: user=${user.id}, status=${user.status}`);
+          await auditLog(user.id, 'auth_failure_services_inactive', { 
+            user_status: user.status,
+            reason: 'user_inactive',
+            email: user.email 
+          }, 'warning');
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ error: 'Invalid API key' })
+          };
+        }
+        
+        // Authenticated services request
+        console.log('[API v2] Services list requested with authentication:', { 
+          user: user.id, 
+          method: event.httpMethod
+        });
+        return await handleServices(user, headers);
+      } else {
+        // Unauthenticated services request (public discovery)
+        console.log('[API v2] Services list requested without authentication (public discovery mode)');
+        return await handleServices(null, headers);
+      }
+    }
+    
+    // Default to services list when no action specified (unauthenticated)
+    if (!action) {
+      console.log('[API v2] No action specified, returning services list (public discovery)');
       return await handleServices(null, headers);
     }
 
@@ -577,8 +634,6 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
 
     // Route to appropriate handler based on action
     switch (action) {
-      case 'services':
-        return await handleServices(user, headers);
       case 'add':
         return await handleAddOrder(user, otherParams, headers, reqHeaders);
       case 'status':
@@ -712,13 +767,13 @@ async function handleServices(user, headers) {
             name: String(service.name || 'Unnamed Service').substring(0, 100),
             type: String(service.type || 'Default').substring(0, 50),
             category: String(service.category || 'General').substring(0, 50),
-            rate: rate.toFixed(2),
+            rate: rate.toFixed(2),  // 2 decimal places (standard for price per 1000)
             min: String(minQty),
             max: String(maxQty),
-            dripfeed: service.dripfeed ? 1 : 0,
-            refill: service.refill === false ? 0 : 1,
-            cancel: service.cancel === false ? 0 : 1,
-            desc: service.description ? String(service.description).substring(0, 255) : ''
+            dripfeed: service.dripfeed ? true : false,
+            refill: service.refill !== false,  // Default true unless explicitly false
+            cancel: service.cancel !== false,  // Default true unless explicitly false
+            description: service.description ? String(service.description).substring(0, 255) : ''
           };
         } catch (formatError) {
           console.error(`[API v2] Error formatting service ${service.id}:`, formatError);
@@ -727,14 +782,20 @@ async function handleServices(user, headers) {
       })
       .filter(s => s !== null); // Remove null entries
 
-    // Always return JSON for API compatibility
+    // Log services export summary
+    console.log(`[API v2] Exporting ${formattedServices.length} services total`);
+    if (formattedServices.length > 0) {
+      console.log(`[API v2] Sample service: id=${formattedServices[0].service}, name="${formattedServices[0].name}", rate=${formattedServices[0].rate}`);
+    }
+
+    // Always return JSON for API compatibility (plain array, not wrapped in object)
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify(formattedServices)
     };
   } catch (error) {
-    console.error('Services error:', error);
+    console.error('[API v2] Services error:', error);
     // Return empty array on error for reliability
     return {
       statusCode: 200,
