@@ -5,7 +5,16 @@ const { hashApiKey, extractKeyPrefix, safeCompareHash } = require('./utils/apiKe
 
 // Verify API key and get user
 async function getUserFromApiKey(apiKey) {
-  if (!apiKey || !apiKey.startsWith('sk_')) {
+  if (!apiKey) {
+    console.warn('[API v2] getUserFromApiKey called without apiKey');
+    return null;
+  }
+  
+  if (!apiKey.startsWith('sk_')) {
+    console.warn('[API v2] Invalid API key format (must start with sk_):', { 
+      keyPrefix: apiKey.substring(0, 6),
+      length: apiKey.length 
+    });
     return null;
   }
 
@@ -50,6 +59,11 @@ async function getUserFromApiKey(apiKey) {
     }
 
     if (!candidates.length) {
+      console.warn('[API v2] No API key candidates found in database:', { 
+        prefix: prefix || 'none',
+        keyPrefix: apiKey.substring(0, 12) + '...',
+        keyLength: apiKey.length
+      });
       return null;
     }
 
@@ -87,6 +101,11 @@ async function getUserFromApiKey(apiKey) {
     }
 
     if (!matchingKey || !matchingKey.user) {
+      console.warn('[API v2] API key found but no matching user:', {
+        hasMatchingKey: !!matchingKey,
+        hasUser: matchingKey ? !!matchingKey.user : false,
+        keyPrefix: apiKey.substring(0, 12) + '...'
+      });
       return null;
     }
 
@@ -451,42 +470,98 @@ key=YOUR_API_KEY&action=refill_status&refills=111,222,333</code></pre>
     
     const { key, action, ...otherParams } = params;
 
+    // Log when both action and key are missing (potential misconfiguration)
+    if (!action && !key) {
+      const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
+      console.warn('[API v2] Request with no action or key (possible misconfiguration):', {
+        method: event.httpMethod,
+        contentType: event.headers['content-type'] || event.headers['Content-Type'],
+        bodyLength: (event.body || '').length,
+        clientIp: clientIp,
+        allParams: Object.keys(params)
+      });
+    }
+
     // Default to services list when no action specified
     // This allows provider testing via browser (GET) or automated tools (POST)
     if (!action || action === 'services') {
-      console.log('[API v2] Returning services list (provider discovery mode)');
+      console.log('[API v2] Services list requested:', { 
+        hasKey: !!key, 
+        method: event.httpMethod,
+        note: 'Returning services (unauthenticated access allowed for provider discovery)'
+      });
       return await handleServices(null, headers);
     }
 
     // Validate API key for other actions (add, status, balance, refill)
     if (!key) {
-      console.warn('[API v2] Request attempted without API key');
-      await auditLog(null, 'auth_failure_missing_key', { action, method: event.httpMethod }, 'warning');
+      const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
+      console.warn('[API v2] Request attempted without API key:', { 
+        action, 
+        method: event.httpMethod,
+        contentType: event.headers['content-type'] || event.headers['Content-Type'],
+        bodyLength: (event.body || '').length,
+        clientIp: clientIp
+      });
+      await auditLog(null, 'auth_failure_missing_key', { 
+        action, 
+        method: event.httpMethod, 
+        reason: 'no_key_provided',
+        client_ip: clientIp 
+      }, 'warning');
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ error: 'Unauthorized' })
+        body: JSON.stringify({ error: 'Invalid API key' })
       };
     }
 
     const user = await getUserFromApiKey(key);
     if (!user) {
-      console.warn('[API v2] Request with invalid API key attempted');
-      await auditLog(null, 'auth_failure_invalid_key', { action, keyPrefix: key.substring(0, 6), method: event.httpMethod }, 'warning');
+      const clientIp = event.headers['x-forwarded-for'] || event.headers['x-real-ip'] || 'unknown';
+      const hasCorrectFormat = key.startsWith('sk_');
+      console.warn('[API v2] Request with invalid API key attempted:', { 
+        action, 
+        keyPrefix: key.substring(0, 8),
+        keyLength: key.length,
+        startsWithSk: hasCorrectFormat,
+        method: event.httpMethod,
+        clientIp: clientIp
+      });
+      
+      // Determine specific reason for failure
+      let reason = 'key_not_found';
+      if (!hasCorrectFormat) {
+        reason = 'invalid_key_format';
+      }
+      
+      await auditLog(null, 'auth_failure_invalid_key', { 
+        action, 
+        keyPrefix: key.substring(0, 6), 
+        method: event.httpMethod,
+        reason: reason,
+        client_ip: clientIp
+      }, 'warning');
+      
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ error: 'Unauthorized' })
+        body: JSON.stringify({ error: 'Invalid API key' })
       };
     }
 
     if (user.status !== 'active') {
-      console.warn(`[API v2] Request from inactive account: user=${user.id}`);
-      await auditLog(user.id, 'auth_failure_inactive_account', { action, status: user.status }, 'warning');
+      console.warn(`[API v2] Request from inactive account: user=${user.id}, status=${user.status}, action=${action}`);
+      await auditLog(user.id, 'auth_failure_inactive_account', { 
+        action, 
+        user_status: user.status,
+        reason: 'user_inactive',
+        email: user.email 
+      }, 'warning');
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ error: 'Forbidden' })
+        body: JSON.stringify({ error: 'Invalid API key' })
       };
     }
 
@@ -567,6 +642,13 @@ async function findServiceByNumericId(numericId) {
 // Get services list
 async function handleServices(user, headers) {
   try {
+    // Log service access (authenticated vs unauthenticated)
+    if (user) {
+      console.log(`[API v2] Services list requested by authenticated user: user=${user.id}`);
+    } else {
+      console.log('[API v2] Services list requested without authentication (public discovery mode)');
+    }
+    
     const { data: services, error } = await supabaseAdmin
       .from('services')
       .select('id, public_id, name, type, category, rate, min_quantity, max_quantity, dripfeed, refill, cancel, description, status')
@@ -1037,16 +1119,37 @@ async function handleOrderStatus(user, params, headers) {
 // Get user balance
 async function handleBalance(user, headers) {
   try {
+    console.log(`[API v2] Balance request: user=${user.id}, email=${user.email}, balance=${user.balance}`);
+    
+    // Audit successful balance check
+    await auditLog(user.id, 'balance_check', { 
+      balance: user.balance,
+      success: true 
+    }, 'info');
+    
+    const balance = user.balance !== null && user.balance !== undefined 
+      ? parseFloat(user.balance).toFixed(2) 
+      : '0.00';
+    
+    console.log(`[API v2] Returning balance: ${balance} USD`);
+    
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        balance: parseFloat(user.balance).toFixed(2),
+        balance: balance,
         currency: 'USD'
       })
     };
   } catch (error) {
-    console.error('Balance error:', error);
+    console.error('[API v2] Balance error:', error);
+    
+    // Audit balance check failure
+    await auditLog(user ? user.id : null, 'balance_check_error', { 
+      error: error.message,
+      success: false 
+    }, 'critical');
+    
     return {
       statusCode: 200,
       headers,
