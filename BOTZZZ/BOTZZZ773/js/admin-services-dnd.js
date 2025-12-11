@@ -112,13 +112,15 @@ async function handleServiceReorder(evt) {
       // Prefer explicit data attribute if available (this is internal DB id)
       const rowAttrId = row.getAttribute('data-service-id');
       const rowPublicId = row.getAttribute('data-public-id');
+      const rowCategory = row.getAttribute('data-category');
       if (rowAttrId) {
         const internalId = String(rowAttrId).trim();
         const service = getServiceById(internalId);
         console.log(`[DND] Row ${idx}: Using data-service-id (internal id)=${internalId}`);
         if (service) {
-          console.log(`[DND] Row ${idx}: FOUND via internal id ${internalId} (public_id: ${service.public_id}, child_category: ${service.child_category})`);
-          servicesInOrder.push(service);
+          const effectiveCategory = rowCategory || service.category || 'uncategorized';
+          console.log(`[DND] Row ${idx}: FOUND via internal id ${internalId} (public_id: ${service.public_id}, category: ${effectiveCategory})`);
+          servicesInOrder.push({ service, rowCategory: effectiveCategory });
           return;
         } else {
           console.warn(`[DND] Row ${idx}: NOT FOUND via internal id ${internalId}; will try parsing cell text`);
@@ -131,8 +133,9 @@ async function handleServiceReorder(evt) {
         const service = getServiceByPublicId(publicId);
         console.log(`[DND] Row ${idx}: Using data-public-id=${publicId}`);
         if (service) {
-          console.log(`[DND] Row ${idx}: FOUND via public_id ${publicId} (internal id: ${service.id}, child_category: ${service.child_category})`);
-          servicesInOrder.push(service);
+          const effectiveCategory = rowCategory || service.category || 'uncategorized';
+          console.log(`[DND] Row ${idx}: FOUND via public_id ${publicId} (internal id: ${service.id}, category: ${effectiveCategory})`);
+          servicesInOrder.push({ service, rowCategory: effectiveCategory });
           return;
         } else {
           console.warn(`[DND] Row ${idx}: NOT FOUND via public_id ${publicId}; will try parsing cell text`);
@@ -157,8 +160,9 @@ async function handleServiceReorder(evt) {
       if (parsedPublicId) {
         const service = getServiceByPublicId(parsedPublicId);
         if (service) {
-          console.log(`[DND] Row ${idx}: FOUND via public_id ${parsedPublicId} (internal id: ${service.id}, child_category: ${service.child_category})`);
-          servicesInOrder.push(service);
+          const effectiveCategory = rowCategory || service.category || 'uncategorized';
+          console.log(`[DND] Row ${idx}: FOUND via public_id ${parsedPublicId} (internal id: ${service.id}, category: ${effectiveCategory})`);
+          servicesInOrder.push({ service, rowCategory: effectiveCategory });
         } else {
           console.warn(`[DND] Row ${idx}: NOT FOUND via public_id ${parsedPublicId}`);
         }
@@ -173,22 +177,20 @@ async function handleServiceReorder(evt) {
   const reorderedServices = [];
   const categorySlotCounters = {}; // Track slot number per child_category
 
-  servicesInOrder.forEach(service => {
-    const category = service.child_category || 'uncategorized';
-    
-    // Initialize counter for this category if not exists
+  servicesInOrder.forEach(item => {
+    const category = item.rowCategory || (item.service ? item.service.child_category : null) || 'uncategorized';
+
     if (!categorySlotCounters[category]) {
       categorySlotCounters[category] = 0;
     }
-    
-    // Increment counter and assign slot
+
     const newSlot = ++categorySlotCounters[category];
-    const oldSlot = toNumeric(service.customer_portal_slot);
-    
-    console.log(`[DND] Service ${service.id}: slot ${oldSlot} → ${newSlot} (category: ${category})`);
-    
+    const oldSlot = toNumeric(item.service.customer_portal_slot);
+
+    console.log(`[DND] Service ${item.service.id}: slot ${oldSlot} → ${newSlot} (category: ${category})`);
+
     reorderedServices.push({
-      service,
+      service: item.service,
       newSlot,
       oldSlot
     });

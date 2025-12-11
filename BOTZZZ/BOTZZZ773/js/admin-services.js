@@ -364,7 +364,10 @@ async function parseApiResponse(response) {
 function buildProviderOptions(providers, includePlaceholder = true) {
     const placeholder = includePlaceholder ? '<option value="">Select provider</option>' : '';
     const options = (providers || []).map(provider => {
-        const statusLabel = provider.status ? ` (${provider.status})` : '';
+                const statusLabel = provider.status ? ` (${provider.status})` : '';
+                if (provider.child_category) {
+                    options.setAttribute('data-child-category', String(provider.child_category));
+                }
         return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}</option>`;
     }).join('');
     return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No providers available</option>'));
@@ -387,7 +390,10 @@ function buildCategoryOptions(categories, includePlaceholder = true) {
     }
     
     const options = categories.map(category => {
-        const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+                const slug = category.slug || category.name.toLowerCase().replace(/\s+/g, '-');
+                if (category.child_category) {
+                    options.setAttribute('data-child-category', String(category.child_category));
+                }
         const serviceCount = category.service_count ? ` (${category.service_count})` : '';
         return `<option value="${escapeHtml(slug)}">${escapeHtml(category.name)}${serviceCount}</option>`;
     }).join('');
@@ -2446,8 +2452,8 @@ async function loadServices() {
                 const serviceMetaMarkup = metaRows.join('');
                 
                 const row = `
-                    <tr data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}">
-                        <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
+                    <tr data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" data-category="${service.category ? String(service.category) : 'uncategorized'}">
+                        <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" data-category="${service.category ? String(service.category) : 'uncategorized'}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
                                 <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
