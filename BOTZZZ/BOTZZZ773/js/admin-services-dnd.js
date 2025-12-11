@@ -34,6 +34,13 @@ function initializeServicesTableDragDrop() {
   updateServiceRowDragHandles();
 }
 
+// Resolve a service from cache by public_id (displayed in the table)
+function getServiceByPublicId(publicId) {
+  const cache = window.servicesCache || [];
+  // public_id can be string or number; compare as strings
+  return cache.find(s => String(s.public_id) === String(publicId));
+}
+
 /**
  * Update drag handles on service rows after table refresh
  */
@@ -88,6 +95,7 @@ function handleDragMove(evt) {
  */
 async function handleServiceReorder(evt) {
   console.log('[DND] handleServiceReorder triggered');
+  console.log('[DND] servicesCache size:', window.servicesCache ? window.servicesCache.length : 'UNDEFINED');
   
   if (isUpdatingSlots) {
     console.log('[DND] Already updating slots, ignoring');
@@ -99,20 +107,37 @@ async function handleServiceReorder(evt) {
   
   const servicesInOrder = [];
 
-  // Extract services in new visual order
-  rows.forEach((row, idx) => {
-    const serviceIdCell = row.querySelector('td:nth-child(2)');
-    if (serviceIdCell) {
-      const serviceId = serviceIdCell.textContent.trim();
-      const service = getServiceById(serviceId);
-      if (service) {
-        console.log(`[DND] Row ${idx}: Service ${serviceId} (child_category: ${service.child_category})`);
-        servicesInOrder.push(service);
-      } else {
-        console.warn(`[DND] Row ${idx}: Service ${serviceId} not found in cache`);
+    // Extract services in new visual order
+    rows.forEach((row, idx) => {
+      // Prefer explicit data attribute if available
+      let rawId = row.getAttribute('data-service-id');
+      if (!rawId) {
+        const serviceIdCell = row.querySelector('td:nth-child(2)');
+        if (serviceIdCell) {
+          rawId = serviceIdCell.textContent || '';
+        }
       }
-    }
-  });
+
+      const rawTrimmed = (rawId || '').trim();
+      // Parse first numeric sequence, optionally after a leading '#'
+      const match = rawTrimmed.match(/#?(\d+)/);
+      const parsedId = match ? match[1] : null;
+
+      console.log(`[DND] Row ${idx}: Extracted raw ID="${rawTrimmed}", parsedId=${parsedId}`);
+
+      if (parsedId) {
+        // parsedId is actually public_id shown in the table
+        const service = getServiceByPublicId(parsedId);
+        if (service) {
+          console.log(`[DND] Row ${idx}: Service with public_id ${parsedId} FOUND (internal id: ${service.id}, child_category: ${service.child_category})`);
+          servicesInOrder.push(service);
+        } else {
+          console.warn(`[DND] Row ${idx}: Service with public_id ${parsedId} NOT FOUND in cache`);
+        }
+      } else {
+        console.warn(`[DND] Row ${idx}: Could not parse service ID from "${rawTrimmed}"`);
+      }
+    });
 
   console.log(`[DND] Extracted ${servicesInOrder.length} services from table`);
 
@@ -132,7 +157,7 @@ async function handleServiceReorder(evt) {
     const newSlot = ++categorySlotCounters[category];
     const oldSlot = toNumeric(service.customer_portal_slot);
     
-    console.log(`[DND] Service ${service.id}: ${oldSlot} → ${newSlot} (category: ${category})`);
+    console.log(`[DND] Service ${service.id}: slot ${oldSlot} → ${newSlot} (category: ${category})`);
     
     reorderedServices.push({
       service,
