@@ -602,13 +602,16 @@
             
             if (Array.isArray(data.services)) {
                 const services = data.services;
-                const approvedServices = services.filter(service => service.admin_approved === true || service.adminApproved === true);
+                // Filter for customer portal enabled services
+                const customerServices = services.filter(service => 
+                    service.customer_portal_enabled === true || service.customerPortalEnabled === true
+                );
 
-                if (approvedServices.length > 0) {
+                if (customerServices.length > 0) {
                     // Categorize services
                     servicesData = {};
                     categoryLabels = {};
-                    approvedServices.forEach(service => {
+                    customerServices.forEach(service => {
                         const rawCategory = service.category || 'Other';
                         const categorySlug = slugifyCategory(rawCategory);
                         const categoryLabel = formatCategoryLabel(rawCategory);
