@@ -235,25 +235,8 @@ async function updateServiceSlots(reorderedServices) {
       );
     }
 
-    const results = await Promise.allSettled(updates);
-    
-    // Check for failures
-    const failed = results.filter(r => r.status === 'rejected');
-    if (failed.length > 0) {
-      showNotification(
-        `Failed to update ${failed.length} service slot(s). Please try again.`,
-        'error'
-      );
-      // Reload to restore previous state
-      setTimeout(() => loadAdminServices(), 1500);
-    } else {
-      showNotification(
-        `Successfully reordered ${changedServices.length} service(s)`,
-        'success'
-      );
-      // Reload to confirm changes persisted
-      setTimeout(() => loadAdminServices(), 500);
-    }
+    // Use Promise.all instead of allSettled for faster execution
+    await Promise.all(updates);
   } catch (error) {
     console.error('Error updating service slots:', error);
     showNotification('Failed to reorder services. Please try again.', 'error');
@@ -261,7 +244,29 @@ async function updateServiceSlots(reorderedServices) {
   } finally {
     isUpdatingSlots = false;
     hideReorderingFeedback();
+    // Update DOM after success
+    showNotification(
+      `Successfully reordered ${changedServices?.length || 0} service(s)`,
+      'success'
+    );
+    updateServiceSlotsInDOM(reorderedServices);
   }
+}
+
+/**
+ * Update service slot values in DOM without full page reload
+ */
+function updateServiceSlotsInDOM(reorderedServices) {
+  reorderedServices.forEach(item => {
+    const row = document.querySelector(`tr[data-service-id="${item.service.id}"]`);
+    if (row) {
+      // Update the slot display in the service meta (if it exists)
+      const portalSlotTag = row.querySelector('.service-meta-tag');
+      if (portalSlotTag && item.service.customer_portal_enabled) {
+        portalSlotTag.textContent = `Portal Slot #${item.newSlot}`;
+      }
+    }
+  });
 }
 
 /**
@@ -315,39 +320,14 @@ async function updateServicePortalSlot(serviceId, newSlot) {
 }
 
 /**
- * Show reordering feedback UI
+ * Show reordering feedback UI (minimal, non-blocking)
  */
 function showReorderingFeedback() {
+  // Minimal visual feedback - just opacity change, no spinner
   const tbody = document.getElementById('servicesTableBody');
-  if (!tbody) return;
-
-  // Add loading class to table
-  tbody.style.opacity = '0.6';
-  tbody.style.pointerEvents = 'none';
-
-  // Show spinner in header or toast
-  if (!document.querySelector('.reorder-spinner')) {
-    const spinner = document.createElement('div');
-    spinner.className = 'reorder-spinner';
-    spinner.style.cssText = `
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      background: rgba(11,13,19,0.85);
-      backdrop-filter: blur(4px);
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-    `;
-    spinner.innerHTML = `
-      <div style="text-align: center; padding: 10px; color: #fff;">
-        <i class="fas fa-spinner fa-spin"></i> Updating order...
-      </div>
-    `;
-    const panel = document.querySelector('.services-table-panel') || document.querySelector('.admin-main');
-    if (panel) {
-      panel.prepend(spinner);
-    } else {
-      document.body.appendChild(spinner);
-    }
+  if (tbody) {
+    tbody.style.opacity = '0.7';
+    tbody.style.pointerEvents = 'none';
   }
 }
 
