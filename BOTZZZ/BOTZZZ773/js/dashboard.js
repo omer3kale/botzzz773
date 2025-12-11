@@ -602,10 +602,19 @@
             
             if (Array.isArray(data.services)) {
                 const services = data.services;
+                
+                // Debug: Log first service to see available fields
+                if (services.length > 0) {
+                    console.log('[DASHBOARD] Sample service data:', services[0]);
+                    console.log('[DASHBOARD] Total services from API:', services.length);
+                }
+                
                 // Filter for customer portal enabled services
                 const customerServices = services.filter(service => 
                     service.customer_portal_enabled === true || service.customerPortalEnabled === true
                 );
+                
+                console.log('[DASHBOARD] Filtered customer services:', customerServices.length);
 
                 if (customerServices.length > 0) {
                     // Categorize services
