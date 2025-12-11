@@ -178,7 +178,7 @@ async function handleServiceReorder(evt) {
   const categorySlotCounters = {}; // Track slot number per child_category
 
   servicesInOrder.forEach(item => {
-    const category = item.rowCategory || (item.service ? item.service.child_category : null) || 'uncategorized';
+    const category = item.rowCategory || (item.service ? item.service.category : null) || 'uncategorized';
 
     if (!categorySlotCounters[category]) {
       categorySlotCounters[category] = 0;
@@ -259,11 +259,14 @@ async function updateServiceSlots(reorderedServices) {
 function updateServiceSlotsInDOM(reorderedServices) {
   reorderedServices.forEach(item => {
     const row = document.querySelector(`tr[data-service-id="${item.service.id}"]`);
-    if (row) {
-      // Update the slot display in the service meta (if it exists)
-      const portalSlotTag = row.querySelector('.service-meta-tag');
-      if (portalSlotTag && item.service.customer_portal_enabled) {
-        portalSlotTag.textContent = `Portal Slot #${item.newSlot}`;
+    if (row && item.service.customer_portal_enabled) {
+      // Find all .service-meta-tag elements and update the one containing "Portal Slot"
+      const metaTags = row.querySelectorAll('.service-meta-tag');
+      for (const tag of metaTags) {
+        if (tag.textContent.includes('Portal Slot') || tag.textContent.includes('Portal Enabled')) {
+          tag.textContent = `Portal Slot #${item.newSlot}`;
+          break;
+        }
       }
     }
   });
