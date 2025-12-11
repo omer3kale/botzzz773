@@ -343,15 +343,19 @@ async function loadServicesFromAPI(options = {}) {
             'Content-Type': 'application/json'
         };
 
-        // Public v2 API endpoint - no authentication required
-        // Returns standard SMM panel format: [{service, name, category, rate, min, max, ...}]
-        // Perfect Panel and other SMM software can ping this endpoint directly
-        const endpoint = '/v2?action=services';
-
-        const response = await fetch(endpoint, {
+        // Prefer full services payload from Netlify Function (includes description + slots)
+        // Fallback to public v2 if function is not available
+        let response = await fetch('/.netlify/functions/services', {
             method: 'GET',
             headers
-        });
+        }).catch(() => null);
+
+        if (!response || !response.ok) {
+            response = await fetch('/v2?action=services', {
+                method: 'GET',
+                headers
+            });
+        }
 
         const rawBody = await response.text();
         let data;
@@ -366,26 +370,33 @@ async function loadServicesFromAPI(options = {}) {
             throw new Error(data.error || 'Failed to load services');
         }
 
-        // Handle both array response (from /v2) and object response (legacy)
+        // Handle both array response (from /v2) and object response (function)
         let services = Array.isArray(data) ? data : (Array.isArray(data.services) ? data.services : []);
         
-        // Transform v2 API format to internal format
-        services = services.map(service => ({
-            id: service.service || service.id,
-            public_id: service.service || service.public_id,
-            name: service.name,
-            category: service.category,
-            type: service.type || 'Default',
-            rate: parseFloat(service.rate),
-            min_quantity: parseInt(service.min || service.min_quantity || 1),
-            max_quantity: parseInt(service.max || service.max_quantity || 10000),
-            description: service.description || '',
-            refill: service.refill !== false,
-            cancel: service.cancel !== false,
-            dripfeed: service.dripfeed === true,
-            currency: 'USD',
-            __clientKey: `service_${service.service || service.id}`
-        }));
+        // Normalize to internal shape while preserving description and slots when available
+        services = services.map(service => {
+            const rateVal = service.rate ?? service.price;
+            const minVal = service.min_quantity ?? service.min_order ?? service.min;
+            const maxVal = service.max_quantity ?? service.max_order ?? service.max;
+            const publicId = service.public_id ?? service.publicId ?? service.service ?? service.id;
+            return {
+                id: service.id ?? service.service ?? publicId,
+                public_id: publicId,
+                name: service.name,
+                category: service.category,
+                type: service.type || 'Default',
+                rate: parseFloat(rateVal),
+                min_quantity: parseInt(minVal ?? 1),
+                max_quantity: parseInt(maxVal ?? 10000),
+                description: service.description || '',
+                customer_portal_slot: service.customer_portal_slot ?? service.customerPortalSlot ?? null,
+                refill: (service.refill_supported ?? service.refill) !== false,
+                cancel: (service.cancel_supported ?? service.cancel) !== false,
+                dripfeed: Boolean(service.dripfeed_supported ?? service.dripfeed ?? false),
+                currency: service.currency || 'USD',
+                __clientKey: `service_${publicId}`
+            };
+        });
         
         // Show all services - no authentication or approval filtering for public view
         approvedServicesCache = services;
@@ -416,6 +427,9 @@ async function loadServicesFromAPI(options = {}) {
         fullServicesHTMLCache = html;
         console.log('[SUCCESS] Services loaded and displayed');
         servicesStatusController?.setState('success');
+        
+        // Setup real-time listeners for service updates
+        setupServicesRealTimeListener();
         
         // Return true to signal completion
         return true;
@@ -1833,3 +1847,158 @@ function notifyOpener(payload) {
     }
     window.opener.postMessage(payload, window.location.origin);
 }
+// ==========================================
+// Real-Time Services Updates
+// ==========================================
+
+let servicesRealtimeListener = null;
+const REALTIME_CHECK_INTERVAL = 5000; // Poll every 5 seconds for changes
+
+/**
+ * Setup real-time listener for service updates
+ * Monitors for changes in customer_portal_slot and reloads if needed
+ */
+function setupServicesRealTimeListener() {
+    if (servicesRealtimeListener) {
+        console.log('[REALTIME] Services listener already active');
+        return;
+    }
+
+    // Use Supabase real-time if available
+    if (typeof supabase !== 'undefined' && supabase.realtime) {
+        subscribeToServiceUpdates();
+    } else {
+        // Fallback to polling for changes
+        startServicesPolling();
+    }
+}
+
+/**
+ * Subscribe to service updates via Supabase real-time
+ */
+function subscribeToServiceUpdates() {
+    try {
+        // Listen to services table for any updates
+        const subscription = supabase
+            .from('services')
+            .on('UPDATE', (payload) => {
+                const updatedService = payload.new;
+                if (updatedService && updatedService.customer_portal_slot !== undefined) {
+                    console.log('[REALTIME] Service slot updated:', updatedService.id);
+                    // Reload services to reflect new order
+                    reloadServicesForReordering();
+                }
+            })
+            .subscribe();
+
+        servicesRealtimeListener = subscription;
+        console.log('[REALTIME] Subscribed to service updates');
+    } catch (error) {
+        console.warn('[REALTIME] Failed to subscribe to updates, falling back to polling:', error);
+        startServicesPolling();
+    }
+}
+
+/**
+ * Poll for service changes periodically (fallback method)
+ */
+function startServicesPolling() {
+    // Store initial slot state
+    let previousSlotState = JSON.stringify(
+        approvedServicesCache.map(s => ({ id: s.id, slot: s.customer_portal_slot }))
+    );
+
+    servicesRealtimeListener = setInterval(async () => {
+        try {
+            // Fetch current services from API
+            const headers = { 'Content-Type': 'application/json' };
+            let response = await fetch('/.netlify/functions/services', { headers }).catch(() => null);
+
+            if (!response || !response.ok) {
+                response = await fetch('/v2?action=services', { headers });
+            }
+
+            if (!response || !response.ok) return;
+
+            const data = await response.json();
+            let services = Array.isArray(data) ? data : (Array.isArray(data.services) ? data.services : []);
+
+            // Compare slot states
+            const currentSlotState = JSON.stringify(
+                services.map(s => ({ id: s.id ?? s.public_id, slot: s.customer_portal_slot }))
+            );
+
+            if (currentSlotState !== previousSlotState) {
+                console.log('[REALTIME] Services reordered detected, refreshing UI');
+                previousSlotState = currentSlotState;
+                reloadServicesForReordering();
+            }
+        } catch (error) {
+            console.debug('[REALTIME] Polling check skipped:', error.message);
+        }
+    }, REALTIME_CHECK_INTERVAL);
+}
+
+/**
+ * Reload services when reordering is detected
+ */
+async function reloadServicesForReordering() {
+    console.log('[REALTIME] Reloading services due to detected changes');
+    
+    // Show subtle notification
+    showReorderingNotification();
+    
+    // Reload services (which will trigger UI update)
+    await loadServicesFromAPI({ skipNotification: true });
+}
+
+/**
+ * Show a subtle notification about service reordering
+ */
+function showReorderingNotification() {
+    // Only show if there's an existing toast area
+    const container = document.getElementById('servicesContainer');
+    if (!container) return;
+
+    // Create a subtle banner
+    let banner = document.querySelector('[data-realtime-banner]');
+    if (banner) return; // Already showing
+
+    banner = document.createElement('div');
+    banner.setAttribute('data-realtime-banner', 'true');
+    banner.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 6px;
+        font-size: 13px;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        animation: slideInRight 0.3s ease-out;
+    `;
+    banner.textContent = '✓ Services order updated';
+    
+    document.body.appendChild(banner);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        banner.style.animation = 'slideOutRight 0.3s ease-in';
+        setTimeout(() => banner.remove(), 300);
+    }, 3000);
+}
+
+/**
+ * Cleanup real-time listener when page unloads
+ */
+window.addEventListener('beforeunload', () => {
+    if (servicesRealtimeListener) {
+        if (servicesRealtimeListener.unsubscribe) {
+            servicesRealtimeListener.unsubscribe();
+        } else if (typeof servicesRealtimeListener === 'number') {
+            clearInterval(servicesRealtimeListener);
+        }
+    }
+});

@@ -483,16 +483,29 @@ async function handleGetServices(event, user, headers) {
       logger.warn('Service role key missing. Admin queries will use anon client.');
     }
 
-    let query = queryClient
-      .from('services')
-      .select(`
-        *,
-        provider:providers(id, name, status, markup)
-      `);
-
+    let query;
     if (!useAdminScope) {
-      // Customer scope: show ALL admin-curated services (unlimited)
-      query = query
+      // Customer scope: select ONLY public-safe fields (never expose markup, admin_approved, cost, internal IDs)
+      query = queryClient
+        .from('services')
+        .select(`
+          id,
+          public_id,
+          name,
+          type,
+          category,
+          rate,
+          min_quantity,
+          max_quantity,
+          description,
+          refill_supported,
+          cancel_supported,
+          dripfeed_supported,
+          customer_portal_slot,
+          average_time,
+          status,
+          provider:providers(id, name, status)
+        `)
         .eq('status', 'active')
         .eq('admin_approved', true)
         .eq('customer_portal_enabled', true)
@@ -501,7 +514,13 @@ async function handleGetServices(event, user, headers) {
         .order('category', { ascending: true })
         .order('name', { ascending: true });
     } else {
-      query = query
+      // Admin scope: full access to all fields
+      query = queryClient
+        .from('services')
+        .select(`
+          *,
+          provider:providers(id, name, status, markup)
+        `)
         .order('category', { ascending: true })
         .order('name', { ascending: true });
     }
@@ -536,6 +555,7 @@ async function handleGetServices(event, user, headers) {
     if (useAdminScope) {
       normalizedServices = await ensurePublicIdsForAdmin(normalizedServices);
     } else {
+      // Customer scope: additional safety filter and field sanitization
       normalizedServices = normalizedServices
         .filter(service => {
           const numericPublicId = toNumberOrNull(service?.public_id ?? service?.publicId);
@@ -546,8 +566,6 @@ async function handleGetServices(event, user, headers) {
           service.public_id = numericPublicId;
 
           const status = String(service?.status || '').toLowerCase();
-          const adminApproved = toBooleanFlag(service?.admin_approved ?? service?.adminApproved);
-          const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
           const portalSlotValue = toNumberOrNull(service?.customer_portal_slot ?? service?.customerPortalSlot);
           const providerStatus = String(service?.provider?.status || '').toLowerCase();
           const providerHealthy = !service?.provider || providerStatus === 'active';
@@ -558,10 +576,34 @@ async function handleGetServices(event, user, headers) {
 
           return (
             status === 'active' &&
-            adminApproved &&
-            portalEnabled &&
             providerHealthy
           );
+        })
+        .map(service => {
+          // Explicitly remove any sensitive fields that shouldn't reach customers
+          const safe = {
+            id: service.id,
+            public_id: service.public_id,
+            name: service.name,
+            type: service.type,
+            category: service.category,
+            rate: service.rate,
+            min_quantity: service.min_quantity,
+            max_quantity: service.max_quantity,
+            description: service.description,
+            refill_supported: service.refill_supported,
+            cancel_supported: service.cancel_supported,
+            dripfeed_supported: service.dripfeed_supported,
+            customer_portal_slot: service.customer_portal_slot,
+            average_time: service.average_time,
+            provider: service.provider ? {
+              id: service.provider.id,
+              name: service.provider.name,
+              status: service.provider.status
+              // Never include markup in customer response
+            } : null
+          };
+          return safe;
         })
         .sort((a, b) => {
           const slotA = toNumberOrNull(a?.customer_portal_slot) ?? Number.MAX_SAFE_INTEGER;
@@ -583,11 +625,17 @@ async function handleGetServices(event, user, headers) {
     }
 
     const servicesWithProviderIds = normalizedServices.map(service => {
-      const clone = { ...service };
-      const { providerServiceId, providerOrderId } = normalizeProviderIdentifiers(service);
-      clone.provider_service_id = providerServiceId;
-      clone.provider_order_id = providerOrderId;
-      return clone;
+      if (useAdminScope) {
+        // Admin: include provider_service_id and provider_order_id
+        const clone = { ...service };
+        const { providerServiceId, providerOrderId } = normalizeProviderIdentifiers(service);
+        clone.provider_service_id = providerServiceId;
+        clone.provider_order_id = providerOrderId;
+        return clone;
+      } else {
+        // Customer: return as-is (already sanitized, no internal IDs added)
+        return service;
+      }
     });
 
     return {
