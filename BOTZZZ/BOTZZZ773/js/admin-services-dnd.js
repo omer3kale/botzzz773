@@ -81,22 +81,39 @@ async function handleServiceReorder(evt) {
   if (isUpdatingSlots) return;
   
   const rows = Array.from(document.querySelectorAll('#servicesTableBody tr'));
-  const reorderedServices = [];
+  const servicesInOrder = [];
 
-  // Extract service IDs in new order
-  rows.forEach((row, newIndex) => {
+  // Extract services in new visual order
+  rows.forEach((row) => {
     const serviceIdCell = row.querySelector('td:nth-child(2)');
     if (serviceIdCell) {
       const serviceId = serviceIdCell.textContent.trim();
       const service = getServiceById(serviceId);
       if (service) {
-        reorderedServices.push({
-          service,
-          newSlot: newIndex + 1, // Slot numbers start at 1
-          oldSlot: toNumeric(service.customer_portal_slot)
-        });
+        servicesInOrder.push(service);
       }
     }
+  });
+
+  // Group by child category and renumber slots within each group
+  const grouped = {};
+  servicesInOrder.forEach(service => {
+    const key = service.child_category || 'uncategorized';
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(service);
+  });
+
+  // Build reordered services with correct slots per child category
+  const reorderedServices = [];
+  Object.values(grouped).forEach(group => {
+    group.forEach((service, index) => {
+      const newSlot = index + 1; // Start from 1 for each child category
+      reorderedServices.push({
+        service,
+        newSlot,
+        oldSlot: toNumeric(service.customer_portal_slot)
+      });
+    });
   });
 
   // Show visual feedback
