@@ -6,6 +6,15 @@ let draggedRowData = null;
 let isUpdatingSlots = false;
 
 /**
+ * Convert value to numeric, default to null if invalid
+ */
+function toNumeric(val) {
+  if (val === null || val === undefined) return null;
+  const num = Number(val);
+  return isNaN(num) ? null : num;
+}
+
+/**
  * Initialize drag-and-drop on services table
  */
 function initializeServicesTableDragDrop() {
@@ -95,24 +104,25 @@ async function handleServiceReorder(evt) {
     }
   });
 
-  // Group by child category and renumber slots within each group
-  const grouped = {};
-  servicesInOrder.forEach(service => {
-    const key = service.child_category || 'uncategorized';
-    if (!grouped[key]) grouped[key] = [];
-    grouped[key].push(service);
-  });
-
-  // Build reordered services with correct slots per child category
+  // Renumber slots: keep visual order but restart counting per child category
   const reorderedServices = [];
-  Object.values(grouped).forEach(group => {
-    group.forEach((service, index) => {
-      const newSlot = index + 1; // Start from 1 for each child category
-      reorderedServices.push({
-        service,
-        newSlot,
-        oldSlot: toNumeric(service.customer_portal_slot)
-      });
+  const categorySlotCounters = {}; // Track slot number per child_category
+
+  servicesInOrder.forEach(service => {
+    const category = service.child_category || 'uncategorized';
+    
+    // Initialize counter for this category if not exists
+    if (!categorySlotCounters[category]) {
+      categorySlotCounters[category] = 0;
+    }
+    
+    // Increment counter and assign slot
+    const newSlot = ++categorySlotCounters[category];
+    
+    reorderedServices.push({
+      service,
+      newSlot,
+      oldSlot: toNumeric(service.customer_portal_slot)
     });
   });
 
@@ -178,8 +188,12 @@ async function updateServiceSlots(reorderedServices) {
  * Update a single service's customer_portal_slot
  */
 async function updateServicePortalSlot(serviceId, newSlot) {
-  const token = localStorage.getItem('authToken');
+  const token = localStorage.getItem('token');
   
+  if (!token) {
+    throw new Error('Authentication token not found');
+  }
+
   const response = await fetch('/.netlify/functions/services', {
     method: 'PUT',
     headers: {
@@ -193,8 +207,12 @@ async function updateServicePortalSlot(serviceId, newSlot) {
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || `Failed to update service ${serviceId}`);
+    let errorMsg = `Failed to update service ${serviceId}`;
+    try {
+      const error = await response.json();
+      errorMsg = error.error || errorMsg;
+    } catch {}
+    throw new Error(errorMsg);
   }
 
   return response.json();
