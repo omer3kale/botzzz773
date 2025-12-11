@@ -14,8 +14,7 @@
   external_node_modules = ["@supabase/supabase-js", "stripe", "axios"]
 
 [dev]
-  command = "npm run dev"
-  targetPort = 3000
+  framework = "#static"
   port = 8888
 
 # API v2 endpoint - JSON endpoint for providers (main endpoint)

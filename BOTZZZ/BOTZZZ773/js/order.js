@@ -701,11 +701,12 @@ async function loadServices(options = {}) {
             const services = Array.isArray(data?.services) ? data.services : [];
             const curatedServices = services
                 .filter(service => {
-                    const status = String(service?.status || '').toLowerCase();
-                    const adminApproved = toBooleanFlag(service?.admin_approved ?? service?.adminApproved);
-                    const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
-                    const providerHealthy = !service?.provider || String(service?.provider?.status || '').toLowerCase() === 'active';
-                    return status === 'active' && adminApproved && portalEnabled && providerHealthy;
+                    const status = String(service?.status || 'active').toLowerCase();
+                    const portalSlot = toNumberOrNull(service?.customer_portal_slot ?? service?.customerPortalSlot);
+                    const hasPortalSlot = portalSlot !== null;
+                    const providerHealthy = !service?.provider || String(service?.provider?.status || 'active').toLowerCase() === 'active';
+                    // Accept services with a portal slot; ignore missing status by defaulting to active
+                    return hasPortalSlot && providerHealthy;
                 })
                 .sort((a, b) => {
                     const slotA = toNumberOrNull(a?.customer_portal_slot ?? a?.customerPortalSlot) ?? Number.MAX_SAFE_INTEGER;

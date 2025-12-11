@@ -225,15 +225,31 @@ exports.handler = async (event) => {
 
         // Provider Forwarding (with 10s Timeout)
         if (sData.provider && sData.provider.api_key) {
-             try {
-                const pParams = new URLSearchParams({ 
-                    key: sData.provider.api_key, action: 'add', service: sData.provider_service_id, link: params.link, quantity: qty 
-                });
-                const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000 });
-                if (pRes.data && pRes.data.order) {
-                    await supabaseAdmin.from('orders').update({ status: 'processing', provider_order_id: pRes.data.order }).eq('id', newOrder.id);
-                }
-             } catch (e) { await auditLog(user.id, 'provider_fail', { msg: e.message }, 'error'); }
+           try {
+            const pParams = new URLSearchParams({ 
+              key: sData.provider.api_key, action: 'add', service: sData.provider_service_id, link: params.link, quantity: qty 
+            });
+            const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000 });
+            if (pRes.data && pRes.data.order) {
+              await supabaseAdmin.from('orders').update({ 
+                status: 'processing',
+                customer_status: 'processing',
+                provider_status: 'processing',
+                provider_order_id: pRes.data.order 
+              }).eq('id', newOrder.id);
+            }
+           } catch (e) {
+            // If provider rejects (e.g., insufficient balance), mark the order as failed for admins
+            const providerErrorMessage = e?.response?.data?.error || e?.message || 'Provider request failed';
+            await supabaseAdmin.from('orders').update({
+              status: 'failed',
+              customer_status: 'pending',
+              provider_status: 'failed',
+              provider_error: providerErrorMessage,
+              last_status_sync: new Date().toISOString()
+            }).eq('id', newOrder.id);
+            await auditLog(user.id, 'provider_fail', { msg: providerErrorMessage }, 'error');
+           }
         }
         
         // Return Order Number as Integer (e.g. 37000040)
