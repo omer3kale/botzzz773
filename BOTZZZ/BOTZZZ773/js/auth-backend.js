@@ -609,7 +609,7 @@ function updateNavigation(isLoggedIn, user = null) {
                 <div class="user-account-nav">
                     <a href="dashboard.html" class="nav-link" style="display: flex; align-items: center; gap: 8px;">
                         <i class="fas fa-user-circle"></i>
-                        <span>${escapeHtml(user.full_name || user.username || user.email)}</span>
+                        <span>${escapeHtml(user.username || user.username || user.email)}</span>
                     </a>
                     <div class="user-dropdown">
                         <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
