@@ -5,6 +5,16 @@
     let isPopupMode = false;
     let authGuardTriggered = false;
 
+    // Helper: Convert various value types to boolean
+    function toBooleanFlag(value) {
+        if (value === undefined || value === null) return false;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value > 0;
+        const normalized = String(value).trim().toLowerCase();
+        if (!normalized) return false;
+        return ['1', 'true', 'yes', 'y', 'on', 'enabled'].includes(normalized);
+    }
+
     const AUTH_ALERT_MESSAGE = 'You must be signed in to access the dashboard. Please sign in or create an account.';
 
     function enablePopupSurface() {
@@ -600,19 +610,30 @@
                 throw new Error('Unauthorized access to services');
             }
             
+            // Debug: Log entire response
+            console.log('[DASHBOARD] API Response Status:', response.status);
+            console.log('[DASHBOARD] API Response Data:', data);
+            console.log('[DASHBOARD] Is services array?', Array.isArray(data.services));
+            if (data.services) {
+                console.log('[DASHBOARD] Services count:', data.services.length);
+            }
+            
             if (Array.isArray(data.services)) {
                 const services = data.services;
                 
                 // Debug: Log first service to see available fields
                 if (services.length > 0) {
-                    console.log('[DASHBOARD] Sample service data:', services[0]);
+                    console.log('[DASHBOARD] Sample service data:', JSON.stringify(services[0], null, 2));
                     console.log('[DASHBOARD] Total services from API:', services.length);
+                    console.log('[DASHBOARD] customer_portal_enabled value:', services[0].customer_portal_enabled);
+                    console.log('[DASHBOARD] customerPortalEnabled value:', services[0].customerPortalEnabled);
                 }
                 
                 // Filter for customer portal enabled services
-                const customerServices = services.filter(service => 
-                    service.customer_portal_enabled === true || service.customerPortalEnabled === true
-                );
+                const customerServices = services.filter(service => {
+                    const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
+                    return portalEnabled;
+                });
                 
                 console.log('[DASHBOARD] Filtered customer services:', customerServices.length);
 
