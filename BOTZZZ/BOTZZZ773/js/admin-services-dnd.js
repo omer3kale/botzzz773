@@ -109,30 +109,58 @@ async function handleServiceReorder(evt) {
 
     // Extract services in new visual order
     rows.forEach((row, idx) => {
-      // Prefer explicit data attribute if available
-      let rawId = row.getAttribute('data-service-id');
-      if (!rawId) {
-        const serviceIdCell = row.querySelector('td:nth-child(2)');
-        if (serviceIdCell) {
-          rawId = serviceIdCell.textContent || '';
+      // Prefer explicit data attribute if available (this is internal DB id)
+      const rowAttrId = row.getAttribute('data-service-id');
+      const rowPublicId = row.getAttribute('data-public-id');
+      if (rowAttrId) {
+        const internalId = String(rowAttrId).trim();
+        const service = getServiceById(internalId);
+        console.log(`[DND] Row ${idx}: Using data-service-id (internal id)=${internalId}`);
+        if (service) {
+          console.log(`[DND] Row ${idx}: FOUND via internal id ${internalId} (public_id: ${service.public_id}, child_category: ${service.child_category})`);
+          servicesInOrder.push(service);
+          return;
+        } else {
+          console.warn(`[DND] Row ${idx}: NOT FOUND via internal id ${internalId}; will try parsing cell text`);
         }
       }
 
-      const rawTrimmed = (rawId || '').trim();
-      // Parse first numeric sequence, optionally after a leading '#'
-      const match = rawTrimmed.match(/#?(\d+)/);
-      const parsedId = match ? match[1] : null;
-
-      console.log(`[DND] Row ${idx}: Extracted raw ID="${rawTrimmed}", parsedId=${parsedId}`);
-
-      if (parsedId) {
-        // parsedId is actually public_id shown in the table
-        const service = getServiceByPublicId(parsedId);
+      // If we have a public_id attribute, try that next
+      if (rowPublicId) {
+        const publicId = String(rowPublicId).trim();
+        const service = getServiceByPublicId(publicId);
+        console.log(`[DND] Row ${idx}: Using data-public-id=${publicId}`);
         if (service) {
-          console.log(`[DND] Row ${idx}: Service with public_id ${parsedId} FOUND (internal id: ${service.id}, child_category: ${service.child_category})`);
+          console.log(`[DND] Row ${idx}: FOUND via public_id ${publicId} (internal id: ${service.id}, child_category: ${service.child_category})`);
+          servicesInOrder.push(service);
+          return;
+        } else {
+          console.warn(`[DND] Row ${idx}: NOT FOUND via public_id ${publicId}; will try parsing cell text`);
+        }
+      }
+
+      // Fallback: parse from the ID cell (may contain public_id and other numbers)
+      const serviceIdCell = row.querySelector('td:nth-child(2)');
+      const rawTrimmed = (serviceIdCell ? (serviceIdCell.textContent || '') : '').trim();
+      const numbers = rawTrimmed.match(/\d+/g) || [];
+      // Heuristic: choose likely public_id (>=4 digits) else largest number
+      let parsedPublicId = null;
+      const longCandidates = numbers.filter(n => n.length >= 4);
+      if (longCandidates.length > 0) {
+        parsedPublicId = longCandidates[0];
+      } else if (numbers.length > 0) {
+        parsedPublicId = numbers.sort((a,b) => Number(b) - Number(a))[0];
+      }
+
+      console.log(`[DND] Row ${idx}: raw="${rawTrimmed}", numbers=${JSON.stringify(numbers)}, chosenPublicId=${parsedPublicId}`);
+
+      if (parsedPublicId) {
+        const service = getServiceByPublicId(parsedPublicId);
+        if (service) {
+          console.log(`[DND] Row ${idx}: FOUND via public_id ${parsedPublicId} (internal id: ${service.id}, child_category: ${service.child_category})`);
           servicesInOrder.push(service);
         } else {
-          console.warn(`[DND] Row ${idx}: Service with public_id ${parsedId} NOT FOUND in cache`);
+          console.warn(`[DND] Row ${idx}: NOT FOUND via public_id ${parsedPublicId}`);
         }
       } else {
         console.warn(`[DND] Row ${idx}: Could not parse service ID from "${rawTrimmed}"`);
@@ -172,10 +200,15 @@ async function handleServiceReorder(evt) {
   // Show visual feedback
   showReorderingFeedback();
 
-  console.log('[DND] Calling updateServiceSlots');
-  // Update slots in database
-  await updateServiceSlots(reorderedServices);
-  console.log('[DND] updateServiceSlots completed');
+  // Optional dry-run mode: set window.DND_DRY_RUN = true to skip updates
+  if (window.DND_DRY_RUN) {
+    console.log('[DND] Dry run enabled: skipping updateServiceSlots');
+  } else {
+    console.log('[DND] Calling updateServiceSlots');
+    // Update slots in database
+    await updateServiceSlots(reorderedServices);
+    console.log('[DND] updateServiceSlots completed');
+  }
 }
 
 /**

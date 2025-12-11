@@ -2276,6 +2276,8 @@ async function loadServices() {
 
     const data = await response.json();
     servicesCache = Array.isArray(data.services) ? data.services : [];
+    // Expose cache globally for DnD module lookups
+    window.servicesCache = servicesCache;
     pruneSelectedServiceIds();
 
         if (servicesCache.length > 0) {
@@ -2327,7 +2329,9 @@ async function loadServices() {
                 if (service.status === 'active') activeCount++;
 
         const serviceIdRaw = service.id !== undefined && service.id !== null ? String(service.id) : '';
+        const publicIdRaw = service.public_id !== undefined && service.public_id !== null ? String(service.public_id) : '';
         const serviceIdAttr = escapeHtml(serviceIdRaw);
+        const publicIdAttr = escapeHtml(publicIdRaw);
         const ariaLabelId = serviceIdRaw ? `Select service ${serviceIdRaw}` : 'Select service';
                 
                 const statusClass = service.status === 'active' ? 'completed' : 'pending';
@@ -2442,8 +2446,8 @@ async function loadServices() {
                 const serviceMetaMarkup = metaRows.join('');
                 
                 const row = `
-                    <tr data-service-id="${serviceIdAttr}">
-                        <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
+                    <tr data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}">
+                        <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
                             <div class="cell-stack cell-stack-ids">
                                 <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
