@@ -3249,5 +3249,130 @@ tr[data-status="error"]:hover {
         width: 95% !important;
         margin: 10px auto !important;
         max-height: 85vh !important;
+        
+    }
+}
+
+/* =================================================================
+   MOBİL İÇİN KESİN ÇÖZÜM (Sadece 768px Altı Ekranlarda Çalışır)
+   Bu kod masaüstü tasarımını etkilemez.
+   ================================================================= */
+@media (max-width: 768px) {
+    
+    /* 1. Sayfa Taşmalarını ve Kaymaları Engelle */
+    html, body {
+        overflow-x: hidden !important; /* Sağa sola oynamayı kapat */
+        width: 100% !important;
+        position: relative;
+    }
+
+    /* 2. Ana İçeriği Ekrana Tam Sığdır */
+    .admin-main {
+        margin-left: 0 !important;
+        width: 100% !important;
+        max-width: 100vw !important;
+        padding: 16px !important;
+        box-sizing: border-box !important; /* Padding yüzünden taşmayı engelle */
+    }
+
+    /* 3. Yan Menü (Sidebar) Ayarları - "Boşluk Oluşma" Sorunu Çözümü */
+    .admin-sidebar {
+        position: fixed !important; /* Sayfayı itmemesi için fixed yapıldı */
+        top: 0;
+        left: 0;
+        width: 280px !important; /* Biraz daha geniş ve rahat */
+        height: 100vh !important; /* Tüm yüksekliği kapla */
+        z-index: 9999 !important; /* Her şeyin üstünde dursun */
+        background-color: var(--admin-dark-bg) !important;
+        transform: translateX(-100%); /* Varsayılan olarak gizle */
+        transition: transform 0.3s ease-in-out; /* Yumuşak açılış */
+        box-shadow: 5px 0 15px rgba(0,0,0,0.5); /* Derinlik kat */
+        overflow-y: auto; /* Menü çok uzunsa scroll olsun */
+    }
+
+    /* Menü Açılınca Devreye Giren Kod (JS ile .active eklenince) */
+    .admin-sidebar.active {
+        transform: translateX(0) !important; /* Menüyü ekrana getir */
+    }
+
+    /* 4. Menü Açılınca Arka Planı Karart (Overlay) */
+    /* Menü açılınca içeriğin karışmasını engeller */
+    .sidebar-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7); /* Yarı saydam siyah */
+        z-index: 9998; /* Menünün bir tık altında */
+        backdrop-filter: blur(3px); /* Arkayı hafif bulanıklaştır */
+    }
+
+    .sidebar-overlay.active {
+        display: block !important;
+    }
+
+    /* 5. Üst Menü (Header) Düzenlemesi */
+    .admin-header {
+        padding: 0 16px !important;
+        width: 100% !important;
+        justify-content: space-between;
+    }
+
+    /* Arama kutusunu mobilde gizle (yer kaplamasın) */
+    .admin-search {
+        display: none !important; 
+    }
+
+    /* Hamburger Menü Butonunu Göster */
+    .sidebar-toggle {
+        display: flex !important;
+        z-index: 100;
+    }
+
+    /* 6. Tabloları Yatay Kaydırılabilir Yap (Sayfayı Patlatmasın) */
+    .table-container {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch; /* iPhone'da akıcı kaydırma */
+        margin-bottom: 20px;
+        display: block;
+    }
+    
+    .admin-table {
+        min-width: 800px; /* Tabloyu sıkıştırma, geniş kalsın, kullanıcı kaydırsın */
+    }
+
+    /* 7. Kartları ve Gridleri Alt Alta Diz */
+    .users-layout,
+    .services-layout,
+    .orders-layout,
+    .payments-layout,
+    .tickets-layout,
+    .settings-layout,
+    .settings-container,
+    .stats-grid,
+    .charts-grid,
+    .providers-grid,
+    .filter-bar,
+    .admin-page-header {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        gap: 16px !important;
+        grid-template-columns: 1fr !important; /* Grid yapısını iptal et */
+    }
+
+    /* Kartların Genişliğini Fulle */
+    .users-quick-card,
+    .services-quick-card,
+    .orders-quick-card,
+    .settings-quick-card,
+    .chart-card,
+    .table-card,
+    .stat-card {
+        width: 100% !important;
+        min-width: 0 !important;
     }
 }
