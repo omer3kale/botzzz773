@@ -1,0 +1,36 @@
+name: SMM Order Auto-Check
+
+on:
+  schedule:
+    # Runs every 30 minutes to stay within GitHub Free Tier limits.
+    # (Calculation: ~1 min execution * 2 times/hour * 24h * 30d = ~1440 mins/month)
+    # GitHub Free Tier limit is 2000 mins/month.
+    - cron: '*/30 * * * *'
+  
+  # Allows you to run this workflow manually from the Actions tab for testing
+  workflow_dispatch:
+
+jobs:
+  run-cron:
+    name: Execute Cron Job
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm' # Caches dependencies to speed up execution
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Run Cron Script
+        run: node cron.js
+        env:
+          # Injecting secrets from GitHub Repository Settings
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}

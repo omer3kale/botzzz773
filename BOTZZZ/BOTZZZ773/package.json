@@ -7,6 +7,7 @@
     "dev": "npx netlify dev",
     "deploy": "npx netlify deploy --prod",
     "build": "echo 'No build required for static site'",
+    "cron": "node cron.js",
     "test": "node tests/run-all-tests.js",
     "test:api": "node tests/api-tests.js",
     "test:api:auto": "node tests/run-with-server.js",
