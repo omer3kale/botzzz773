@@ -629,10 +629,11 @@
                     console.log('[DASHBOARD] customerPortalEnabled value:', services[0].customerPortalEnabled);
                 }
                 
-                // Filter for customer portal enabled services
+                // Filter for customer portal enabled services (has a slot assigned)
                 const customerServices = services.filter(service => {
-                    const portalEnabled = toBooleanFlag(service?.customer_portal_enabled ?? service?.customerPortalEnabled);
-                    return portalEnabled;
+                    const hasSlot = service?.customer_portal_slot !== null && 
+                                  service?.customer_portal_slot !== undefined;
+                    return hasSlot;
                 });
                 
                 console.log('[DASHBOARD] Filtered customer services:', customerServices.length);
