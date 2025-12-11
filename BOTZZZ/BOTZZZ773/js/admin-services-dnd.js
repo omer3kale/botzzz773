@@ -87,22 +87,34 @@ function handleDragMove(evt) {
  * Handle reorder event from drag-and-drop
  */
 async function handleServiceReorder(evt) {
-  if (isUpdatingSlots) return;
+  console.log('[DND] handleServiceReorder triggered');
+  
+  if (isUpdatingSlots) {
+    console.log('[DND] Already updating slots, ignoring');
+    return;
+  }
   
   const rows = Array.from(document.querySelectorAll('#servicesTableBody tr'));
+  console.log(`[DND] Found ${rows.length} rows in table`);
+  
   const servicesInOrder = [];
 
   // Extract services in new visual order
-  rows.forEach((row) => {
+  rows.forEach((row, idx) => {
     const serviceIdCell = row.querySelector('td:nth-child(2)');
     if (serviceIdCell) {
       const serviceId = serviceIdCell.textContent.trim();
       const service = getServiceById(serviceId);
       if (service) {
+        console.log(`[DND] Row ${idx}: Service ${serviceId} (child_category: ${service.child_category})`);
         servicesInOrder.push(service);
+      } else {
+        console.warn(`[DND] Row ${idx}: Service ${serviceId} not found in cache`);
       }
     }
   });
+
+  console.log(`[DND] Extracted ${servicesInOrder.length} services from table`);
 
   // Renumber slots: keep visual order but restart counting per child category
   const reorderedServices = [];
@@ -118,19 +130,27 @@ async function handleServiceReorder(evt) {
     
     // Increment counter and assign slot
     const newSlot = ++categorySlotCounters[category];
+    const oldSlot = toNumeric(service.customer_portal_slot);
+    
+    console.log(`[DND] Service ${service.id}: ${oldSlot} → ${newSlot} (category: ${category})`);
     
     reorderedServices.push({
       service,
       newSlot,
-      oldSlot: toNumeric(service.customer_portal_slot)
+      oldSlot
     });
   });
+
+  console.log(`[DND] Total reordered services: ${reorderedServices.length}`);
+  console.log('[DND] Showing reordering feedback');
 
   // Show visual feedback
   showReorderingFeedback();
 
+  console.log('[DND] Calling updateServiceSlots');
   // Update slots in database
   await updateServiceSlots(reorderedServices);
+  console.log('[DND] updateServiceSlots completed');
 }
 
 /**
@@ -191,8 +211,19 @@ async function updateServicePortalSlot(serviceId, newSlot) {
   const token = localStorage.getItem('token');
   
   if (!token) {
-    throw new Error('Authentication token not found');
+    const err = 'Authentication token not found';
+    console.error('[SLOT-UPDATE] ' + err);
+    throw new Error(err);
   }
+
+  console.log(`[SLOT-UPDATE] Updating service ${serviceId} slot to ${newSlot}`);
+
+  const requestBody = {
+    serviceId,
+    customer_portal_slot: newSlot
+  };
+
+  console.log('[SLOT-UPDATE] Request body:', requestBody);
 
   const response = await fetch('/.netlify/functions/services', {
     method: 'PUT',
@@ -200,22 +231,27 @@ async function updateServicePortalSlot(serviceId, newSlot) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     },
-    body: JSON.stringify({
-      serviceId,
-      customer_portal_slot: newSlot
-    })
+    body: JSON.stringify(requestBody)
   });
 
+  console.log(`[SLOT-UPDATE] Response status: ${response.status}`);
+
   if (!response.ok) {
-    let errorMsg = `Failed to update service ${serviceId}`;
+    let errorMsg = `Failed to update service ${serviceId}: ${response.status} ${response.statusText}`;
     try {
       const error = await response.json();
-      errorMsg = error.error || errorMsg;
-    } catch {}
+      console.log('[SLOT-UPDATE] Error response:', error);
+      errorMsg = error.error || error.message || errorMsg;
+    } catch (parseErr) {
+      console.log('[SLOT-UPDATE] Could not parse error response:', parseErr);
+    }
+    console.error('[SLOT-UPDATE] ' + errorMsg);
     throw new Error(errorMsg);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log('[SLOT-UPDATE] Success response:', result);
+  return result;
 }
 
 /**
