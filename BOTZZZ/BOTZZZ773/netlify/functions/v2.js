@@ -177,13 +177,28 @@ exports.handler = async (event) => {
         }
     }
 
-    // B. BAKİYE ÖZEL KONTROL
-    if (action === 'balance') {
-        const user = await getUserFromApiKey(apiKey);
-        if (!user) return { statusCode: 200, headers, body: JSON.stringify({ error: 'Invalid API key', balance: "0.00", currency: "USD" }) };
-        const balanceStr = parseFloat(user.balance || 0).toFixed(2);
-        return { statusCode: 200, headers, body: JSON.stringify({ balance: balanceStr, funds: balanceStr, currency: 'USD' }) };
-    }
+    // --- DEBUG MODU: SADECE BAKİYE TESTİ ---
+exports.handler = async (event) => {
+  const headers = { 
+    'Content-Type': 'application/json', 
+    'Access-Control-Allow-Origin': '*' 
+  };
+
+  // Gelen isteği logla (CloudWatch kullanıyorsan görebilirsin)
+  console.log("GELEN İSTEK:", event.body);
+
+  // HİÇBİR KONTROL YAPMADAN DİREKT BU CEVABI VER:
+  const response = {
+      "balance": "999.50",
+      "currency": "USD"
+  };
+
+  return {
+    statusCode: 200,
+    headers: headers,
+    body: JSON.stringify(response)
+  };
+};
 
     // C. GENEL AUTH VE USER
     let user = null;
