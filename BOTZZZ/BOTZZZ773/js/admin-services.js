@@ -2288,7 +2288,26 @@ async function loadServices() {
             let lastRenderedParent = null;
             let lastRenderedChild = null;
             
-            // Render services grouped by category
+            // Sort groups: within each child category by customer_portal_slot (1,2,3..)
+            groupedByCategory.sort((a, b) => {
+                const pa = String(a.parentCategory || '').toLowerCase();
+                const pb = String(b.parentCategory || '').toLowerCase();
+                if (pa !== pb) return pa.localeCompare(pb);
+                const ca = String(a.childCategory || '').toLowerCase();
+                const cb = String(b.childCategory || '').toLowerCase();
+                if (ca !== cb) return ca.localeCompare(cb);
+                const sa = toNumeric(a.service?.customer_portal_slot);
+                const sb = toNumeric(b.service?.customer_portal_slot);
+                const na = Number.isFinite(sa) ? sa : Number.MAX_SAFE_INTEGER;
+                const nb = Number.isFinite(sb) ? sb : Number.MAX_SAFE_INTEGER;
+                if (na !== nb) return na - nb;
+                // secondary tie-breaker: name
+                const naName = String(a.service?.name || '').toLowerCase();
+                const nbName = String(b.service?.name || '').toLowerCase();
+                return naName.localeCompare(nbName);
+            });
+
+            // Render services grouped by category in sorted order
             groupedByCategory.forEach(group => {
                 // Render parent category header if different from last
                 if (group.parentCategory && group.parentCategory !== lastRenderedParent) {

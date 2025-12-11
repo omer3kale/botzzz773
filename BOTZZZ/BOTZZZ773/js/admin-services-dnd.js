@@ -198,12 +198,25 @@ function showReorderingFeedback() {
   if (!document.querySelector('.reorder-spinner')) {
     const spinner = document.createElement('div');
     spinner.className = 'reorder-spinner';
+    spinner.style.cssText = `
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(11,13,19,0.85);
+      backdrop-filter: blur(4px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+    `;
     spinner.innerHTML = `
-      <div style="text-align: center; padding: 10px;">
+      <div style="text-align: center; padding: 10px; color: #fff;">
         <i class="fas fa-spinner fa-spin"></i> Updating order...
       </div>
     `;
-    document.querySelector('.admin-main')?.insertBefore(spinner, tbody.parentElement);
+    const panel = document.querySelector('.services-table-panel') || document.querySelector('.admin-main');
+    if (panel) {
+      panel.prepend(spinner);
+    } else {
+      document.body.appendChild(spinner);
+    }
   }
 }
 
