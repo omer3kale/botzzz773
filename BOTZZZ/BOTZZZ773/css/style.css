@@ -967,14 +967,25 @@ section {
 }
 
 /* ==========================================
-   FORMS
+   FORMS & LAYOUT FIX (UPDATED)
    ========================================== */
 .order-section,
 .contact-section {
     padding: var(--spacing-2xl) 0;
 }
 
-.order-wrapper,
+/* YENİ DÜZENLEME: Esnek Kutu Yapısı */
+.order-wrapper {
+    display: flex;
+    justify-content: center; /* Ortaya hizala */
+    align-items: flex-start; /* Üstten hizala */
+    gap: 25px; /* Kutular arasındaki boşluk */
+    max-width: 1100px; /* Çok yayılmasın */
+    margin: var(--spacing-xl) auto 0;
+    flex-wrap: wrap; /* Mobilde alt alta geçsin */
+}
+
+/* Kontakt sayfası için ayrı grid yapısı korunuyor */
 .contact-wrapper {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -982,7 +993,15 @@ section {
     margin-top: var(--spacing-xl);
 }
 
-.order-form-container,
+.order-form-container {
+    flex: 1.6; /* Sol taraf biraz daha geniş */
+    min-width: 320px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 20, 148, 0.1);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+}
+
 .contact-form-wrapper {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 20, 148, 0.1);
@@ -990,6 +1009,24 @@ section {
     padding: var(--spacing-xl);
 }
 
+/* Sağ taraftaki bilgi kutuları için kapsayıcı düzeni */
+.order-info {
+    flex: 1; /* Sağ taraf normal genişlikte */
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.contact-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+/* ==========================================
+   FORM ELEMENTS
+   ========================================== */
 .network-pill {
     display: inline-flex;
     align-items: center;
@@ -1254,16 +1291,6 @@ select option:checked {
 }
 
 /* ==========================================
-   ORDER INFO CARDS
-   ========================================== */
-.order-info,
-.contact-info {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-/* ==========================================
    POPUP / LIGHTBOX SHELL
    ========================================== */
 .lightbox-main {
@@ -1368,58 +1395,8 @@ body.popup-mode .page-header {
     font-size: 0.95rem;
 }
 
-.payment-method-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-lg);
-    cursor: pointer;
-    transition: all var(--transition-normal);
-}
-
-.payment-method-card:hover {
-    background: rgba(255, 20, 148, 0.05);
-    border-color: rgba(255, 20, 148, 0.3);
-}
-
-.payment-method-card:focus-visible {
-    outline: 2px solid var(--primary-pink);
-    outline-offset: 4px;
-}
-
-.payment-method-card.selected {
-    background: rgba(255, 20, 148, 0.1);
-    border-color: var(--primary-pink);
-    box-shadow: var(--shadow-pink);
-}
-
-.payment-title {
-    color: var(--text-white);
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: var(--spacing-sm);
-}
-
-.payment-icons {
-    display: flex;
-    gap: var(--spacing-md);
-    font-size: 2rem;
-    margin-bottom: var(--spacing-sm);
-}
-
-.payment-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.payment-text {
-    color: var(--text-gray);
-    font-size: 0.9rem;
-}
-
 /* ==========================================
-   ADD FUNDS PAGE
+   ADD FUNDS & PAYMENT
    ========================================== */
 .add-funds-section {
     padding: 120px 0 80px;
@@ -1689,14 +1666,6 @@ body.popup-mode .page-header {
     gap: var(--spacing-md);
 }
 
-.form-label {
-    color: var(--text-white);
-    font-size: 1rem;
-    font-weight: 600;
-    margin-bottom: var(--spacing-xs);
-}
-
-/* Amount Grid */
 .amount-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1764,32 +1733,6 @@ body.popup-mode .page-header {
 
 .input-with-icon input::placeholder {
     color: rgba(255, 255, 255, 0.45);
-}
-
-/* Payment Method Card */
-.payment-method-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-lg);
-    cursor: pointer;
-    transition: all var(--transition-normal);
-}
-
-.payment-method-card:hover {
-    background: rgba(255, 20, 148, 0.05);
-    border-color: rgba(255, 20, 148, 0.3);
-}
-
-.payment-method-card:focus-visible {
-    outline: 2px solid var(--primary-pink);
-    outline-offset: 4px;
-}
-
-.payment-method-card.selected {
-    background: rgba(255, 20, 148, 0.1);
-    border-color: var(--primary-pink);
-    box-shadow: var(--shadow-pink);
 }
 
 .payment-method-header {
@@ -2187,12 +2130,6 @@ body.popup-mode .page-header {
     border-color: rgba(255, 255, 255, 0.15);
 }
 
-@keyframes historyPulse {
-    0% { opacity: 0.5; }
-    50% { opacity: 1; }
-    100% { opacity: 0.5; }
-}
-
 /* Responsive Design for Add Funds */
 @media (max-width: 768px) {
     .add-funds-section {
@@ -2433,7 +2370,7 @@ body.popup-mode .page-header {
 }
 
 /* ==========================================
-   RESPONSIVE DESIGN
+   RESPONSIVE DESIGN (UPDATED)
    ========================================== */
 @media (max-width: 1024px) {
     .service-row {
@@ -2456,14 +2393,22 @@ body.popup-mode .page-header {
         font-weight: 600;
         color: var(--primary-pink);
     }
-    
-    .order-wrapper,
-    .contact-wrapper {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 768px) {
+    /* Mobilde form yapısının düzgün görünmesi için eklemeler */
+    .order-wrapper {
+        flex-direction: column; /* Alt alta diz */
+        align-items: stretch;   /* Genişliği fulle */
+        padding: 0 10px;        /* Kenarlardan az boşluk bırak */
+    }
+    
+    .order-form-container, 
+    .order-info {
+        width: 100% !important;     /* Tam genişlik ver */
+        flex: none;
+    }
+
     .nav-menu {
         position: fixed;
         top: 60px;
@@ -3167,6 +3112,19 @@ body.popup-mode .page-header {
 .no-services-message i {
     font-size: 3rem;
     color: var(--primary-pink);
+    margin-bottom: 20px;
+}
+
+.no-services-message h3 {
+    color: var(--text-white);
+    margin: 0 0 10px 0;
+    font-size: 1.5rem;
+}
+
+.no-services-message p {
+    margin: 0;
+    font-size: 1rem;
+}
 
 /* Refund broadcast banner */
 .refund-broadcast {
@@ -3227,19 +3185,6 @@ body.popup-mode .page-header {
 
 .refund-broadcast-close:hover {
     color: #ef4444;
-}
-    margin-bottom: 20px;
-}
-
-.no-services-message h3 {
-    color: var(--text-white);
-    margin: 0 0 10px 0;
-    font-size: 1.5rem;
-}
-
-.no-services-message p {
-    margin: 0;
-    font-size: 1rem;
 }
 
 /* Mobile responsiveness for subcategory modal */
