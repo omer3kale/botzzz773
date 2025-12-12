@@ -127,6 +127,62 @@ function parseRequest(event) {
   return params;
 }
 
+// Normalize incoming links for duplicate detection
+function normalizeLink(raw = '') {
+  try {
+    if (!raw || typeof raw !== 'string') return '';
+    const original = raw.trim();
+
+    // Fast cleanup for fragments and query
+    let cleaned = original.replace(/#.*$/, '')
+                          .replace(/\?.*$/, '')
+                          .replace(/\/+$/g, '');
+
+    // Try URL parsing for domain-aware normalization
+    try {
+      const u = new URL(cleaned.startsWith('http') ? cleaned : `https://${cleaned}`);
+      let host = u.hostname.toLowerCase();
+      let path = u.pathname || '/';
+
+      // Collapse multiple slashes in path
+      path = path.replace(/\/{2,}/g, '/');
+
+      // Instagram-specific normalization
+      const isInstagram = /(^|\.)instagram\.com$/.test(host) || host === 'instagr.am';
+      if (isInstagram) {
+        // Unify host variants to instagram.com
+        host = 'instagram.com';
+
+        // Lowercase path for consistent matching
+        path = decodeURIComponent(path).toLowerCase();
+
+        // Normalize common IG routes
+        // Profile: /username -> remove trailing slash
+        // Posts: /p/{id}, Reels: /reel/{id}
+        // Stories/highlights left as-is but cleaned
+        // Remove trailing slash once more after lowercasing
+        path = path.replace(/\/+$/g, '');
+
+        // Convert /m/ and other mobile prefixes
+        if (path.startsWith('/m/')) {
+          path = path.substring(2); // remove '/m'
+        }
+
+        // Normalize short domain instagr.am to instagram.com is done above
+      }
+
+      // Rebuild normalized URL without query/fragment
+      const normalized = `${host}${path || ''}`;
+      return normalized;
+    } catch {
+      // Fallback: return cleaned string
+      return cleaned;
+    }
+  } catch (_) {
+    return String(raw || '').trim();
+  }
+}
+
 // --- 5. HTML DOCUMENTATION ---
 const HTML_DOCS = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>API v2 Integration</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;padding:40px;max-width:800px;margin:0 auto}h1{color:#38bdf8}pre{background:#1e293b;padding:15px;border-radius:5px;overflow-x:auto}code{color:#f472b6}</style></head><body><h1>🚀 API Integration</h1><p>Endpoint: <code>POST /api</code></p><h3>Check Balance</h3><pre>key=API_KEY&action=balance</pre><h3>Add Order</h3><pre>key=API_KEY&action=add&service=1&link=url&quantity=100</pre></body></html>`;
 
@@ -205,6 +261,29 @@ exports.handler = async (event) => {
         const qty = parseInt(params.quantity);
         if (qty < (sData.min_quantity || 1) || qty > (sData.max_quantity || 1000)) return errorResponse('Quantity error');
 
+        // Duplicate Link Protection: reject same service+link if an active order exists
+        const normalizedLink = normalizeLink(params.link);
+        try {
+          const { data: dup } = await supabaseAdmin
+            .from('orders')
+            .select('id, status, customer_status')
+            .eq('service_id', sData.id)
+            .eq('link', normalizedLink)
+            .in('status', ['pending','processing','in progress','partial'])
+            .limit(1);
+
+          if (Array.isArray(dup) && dup.length > 0) {
+            await auditLog(user.id, 'duplicate_link_active', { service_id: sData.id, link: normalizedLink }, 'warning');
+            return errorResponse('Link duplicate. Order with this link already in progress.');
+          }
+        } catch (dupErr) {
+          // If duplicate check fails, be conservative and proceed (do not block orders)
+          await auditLog(user.id, 'duplicate_check_error', { msg: dupErr?.message }, 'warning');
+        }
+
+        // Note: No time-window duplicate block. Once provider marks completed,
+        // reseller can resend; only active statuses are blocked.
+
         // Balance Check
         const charge = (parseFloat(sData.rate) / 1000) * qty;
         if (parseFloat(user.balance) < charge) {
@@ -217,8 +296,8 @@ exports.handler = async (event) => {
         
         // Create Order (DB Trigger will generate public_order_id and order_number)
         const { data: newOrder, error: oErr } = await supabaseAdmin.from('orders').insert({
-            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge,
-            status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
+          user_id: user.id, service_id: sData.id, service_name: sData.name, link: normalizedLink, quantity: qty, charge: charge,
+            status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
         }).select('id, order_number').single();
 
         if (oErr) return errorResponse('Order failed');

@@ -223,7 +223,12 @@ function normalizeProviderStatus(rawStatus) {
     return 'pending';
   }
 
-  if (status.includes('progress') || status === 'processing' || status === 'started') {
+  // Separate "in progress" from "processing"
+  if (status === 'in progress' || status === 'inprogress' || status === 'in_progress') {
+    return 'in progress';
+  }
+
+  if (status === 'processing' || status === 'started') {
     return 'processing';
   }
 
@@ -232,7 +237,7 @@ function normalizeProviderStatus(rawStatus) {
   }
 
   if (status.includes('cancel') || status.includes('refunded') || status.includes('reversed')) {
-    return 'cancelled';
+    return 'canceled';
   }
 
   if (status.includes('fail')) {
@@ -2198,13 +2203,28 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       if (normalizedStatus) {
         updatePayload.status = normalizedStatus;
         
-        // Sync customer_status with provider status for completed/failed orders
+        // Sync customer_status with provider status based on rules:
+        // - completed → customer sees completed
+        // - partial → customer sees partial
+        // - cancelled → customer sees cancelled
+        // - failed/error → customer sees pending (admin sees failed)
+        // - in progress → customer sees in progress
+        // - processing → customer sees processing
+        // - pending → customer sees pending
         if (normalizedStatus === 'completed') {
           updatePayload.customer_status = 'completed';
         } else if (normalizedStatus === 'partial') {
           updatePayload.customer_status = 'partial';
-        } else if (normalizedStatus === 'processing' || normalizedStatus === 'pending') {
+        } else if (normalizedStatus === 'canceled') {
+          updatePayload.customer_status = 'canceled';
+        } else if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+          updatePayload.customer_status = 'pending';
+        } else if (normalizedStatus === 'in progress') {
+          updatePayload.customer_status = 'in progress';
+        } else if (normalizedStatus === 'processing') {
           updatePayload.customer_status = 'processing';
+        } else if (normalizedStatus === 'pending') {
+          updatePayload.customer_status = 'pending';
         }
       }
 
