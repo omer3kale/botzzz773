@@ -337,8 +337,8 @@
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
-    console.log('[ADMIN-AUTH] Token found:', !!token, token ? `(${token.length} chars)` : '');
-    console.log('[ADMIN-AUTH] User string found:', !!userStr);
+    console.log('[ADMIN-AUTH] Authentication check in progress...');
+    console.log('[ADMIN-AUTH] User data found:', !!userStr);
     
     // No token or user - redirect to admin login
     if (!token || !userStr) {
@@ -351,7 +351,7 @@
     let user;
     try {
         user = JSON.parse(userStr);
-        console.log('[ADMIN-AUTH] User parsed:', user?.email, user?.role);
+        console.log('[ADMIN-AUTH] User authenticated successfully');
     } catch (error) {
         console.error('[ADMIN-AUTH] Admin access denied: Invalid user data', error);
         localStorage.removeItem('token');

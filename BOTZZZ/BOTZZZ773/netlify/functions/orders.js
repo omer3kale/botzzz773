@@ -475,14 +475,23 @@ async function processOrderRefund(order, options = {}) {
 
   console.log(`[REFUND] Processing refund for order ${orderId}`, { userId, chargeAmount, source, reason });
 
+  // Validate order and user exist
   if (!orderId || !userId) {
     console.error(`[REFUND] Missing order ID or user ID`, { orderId, userId });
     return { success: false, error: 'Missing order or user ID' };
   }
 
+  // Validate charge amount: must be positive and reasonable
   if (chargeAmount <= 0) {
     console.log(`[REFUND] Order ${orderId} has no charge to refund (${chargeAmount})`);
     return { success: true, newBalance: null, refundAmount: 0, message: 'No charge to refund' };
+  }
+
+  // Security: Prevent excessive refunds (max $10,000 per refund)
+  const MAX_REFUND_AMOUNT = 10000;
+  if (chargeAmount > MAX_REFUND_AMOUNT) {
+    console.error(`[REFUND] Refund amount ${chargeAmount} exceeds maximum allowed (${MAX_REFUND_AMOUNT})`);
+    return { success: false, error: `Refund amount exceeds maximum limit of $${MAX_REFUND_AMOUNT}` };
   }
 
   // Check if order was already refunded (has refund payment record)
@@ -555,10 +564,23 @@ async function processOrderRefund(order, options = {}) {
 }
 
 const baseHandler = async (event) => {
+  // Restrict CORS to trusted origins only
+  const origin = event.headers.origin || event.headers.referer;
+  const trustedOrigins = [
+    'https://botzzz773.pro',
+    'https://botzzz773.netlify.app',
+    'http://localhost:3000',
+    'http://localhost:8888',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:8888'
+  ];
+  const allowedOrigin = origin && trustedOrigins.some(t => origin.includes(t)) ? origin : trustedOrigins[0];
+  
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Credentials': 'true',
     'Content-Type': 'application/json'
   };
 
@@ -1864,12 +1886,12 @@ async function handleCancelOrder(user, data, headers) {
       order_number: order.order_number
     });
 
-    // Can only cancel pending orders
-    if (order.status !== 'pending' && order.status !== 'processing') {
+    // Admin can cancel any order except those already cancelled
+    if (order.status === 'cancelled') {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Order cannot be cancelled' })
+        body: JSON.stringify({ error: 'Order is already cancelled' })
       };
     }
 
@@ -2313,11 +2335,30 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       });
     } catch (syncError) {
       console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
+      
+      // Provider hatasını kaydet ve siparişi failed olarak işaretle
+      const errorMessage = syncError.message || 'Provider sync failed';
+      const failurePayload = {
+        status: 'failed',
+        customer_status: 'pending',
+        provider_error: errorMessage,
+        last_status_sync: nowIso
+      };
+      
+      try {
+        await supabaseAdmin
+          .from('orders')
+          .update(failurePayload)
+          .eq('id', order.id);
+      } catch (updateError) {
+        console.error('[ORDER SYNC] Failed to mark order as failed:', order.id, updateError);
+      }
+      
       results.push({
         orderId: order.id,
         providerOrderId: order.provider_order_id,
         success: false,
-        error: syncError.message || 'Provider sync failed'
+        error: errorMessage
       });
     }
   }

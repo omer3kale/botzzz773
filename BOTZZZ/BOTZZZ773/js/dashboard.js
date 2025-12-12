@@ -431,11 +431,23 @@
         { key: 'subscription', label: 'Subscription' }
     ];
 
-    const CUSTOMER_PENDING_STATUS_KEYS = new Set([
-        'pending',
-        'processing',
+    // Statuses that indicate order is being processed by provider
+    const CUSTOMER_PROCESSING_STATUS_KEYS = new Set([
+        'processing'
+    ]);
+
+    // Statuses that indicate order is actively in progress
+    const CUSTOMER_INPROGRESS_STATUS_KEYS = new Set([
         'in-progress',
         'inprogress',
+        'partial',
+        'partialcompleted',
+        'partiallycompleted'
+    ]);
+
+    // Statuses that indicate order is waiting to be processed
+    const CUSTOMER_PENDING_STATUS_KEYS = new Set([
+        'pending',
         'awaiting',
         'awaiting-start',
         'awaitingstart',
@@ -476,6 +488,33 @@
             : 'pending';
         const normalizedKey = buildStatusKey(safeRaw);
 
+        // DEBUG: Log status mapping
+        console.log('🔍 Status Debug:', {
+            raw: safeRaw,
+            normalized: normalizedKey,
+            isProcessing: CUSTOMER_PROCESSING_STATUS_KEYS.has(normalizedKey),
+            isInProgress: CUSTOMER_INPROGRESS_STATUS_KEYS.has(normalizedKey)
+        });
+
+        // Check if order is being processed
+        if (CUSTOMER_PROCESSING_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'processing',
+                label: 'Processing',
+                raw: safeRaw
+            };
+        }
+
+        // Check if order is actively in progress
+        if (CUSTOMER_INPROGRESS_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'in-progress',
+                label: 'In Progress',
+                raw: safeRaw
+            };
+        }
+
+        // Check if order is waiting to start
         if (CUSTOMER_PENDING_STATUS_KEYS.has(normalizedKey)) {
             return {
                 key: 'pending',
@@ -492,10 +531,12 @@
             };
         }
 
+        // IMPORTANT: Hide "Failed" status from customers - show as "Pending" instead
+        // System will retry failed orders or route to another provider
         if (CUSTOMER_FAILED_STATUS_KEYS.has(normalizedKey)) {
             return {
-                key: 'failed',
-                label: 'Failed',
+                key: 'pending',
+                label: 'Pending',
                 raw: safeRaw
             };
         }

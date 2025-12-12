@@ -127,62 +127,6 @@ function parseRequest(event) {
   return params;
 }
 
-// Normalize incoming links for duplicate detection
-function normalizeLink(raw = '') {
-  try {
-    if (!raw || typeof raw !== 'string') return '';
-    const original = raw.trim();
-
-    // Fast cleanup for fragments and query
-    let cleaned = original.replace(/#.*$/, '')
-                          .replace(/\?.*$/, '')
-                          .replace(/\/+$/g, '');
-
-    // Try URL parsing for domain-aware normalization
-    try {
-      const u = new URL(cleaned.startsWith('http') ? cleaned : `https://${cleaned}`);
-      let host = u.hostname.toLowerCase();
-      let path = u.pathname || '/';
-
-      // Collapse multiple slashes in path
-      path = path.replace(/\/{2,}/g, '/');
-
-      // Instagram-specific normalization
-      const isInstagram = /(^|\.)instagram\.com$/.test(host) || host === 'instagr.am';
-      if (isInstagram) {
-        // Unify host variants to instagram.com
-        host = 'instagram.com';
-
-        // Lowercase path for consistent matching
-        path = decodeURIComponent(path).toLowerCase();
-
-        // Normalize common IG routes
-        // Profile: /username -> remove trailing slash
-        // Posts: /p/{id}, Reels: /reel/{id}
-        // Stories/highlights left as-is but cleaned
-        // Remove trailing slash once more after lowercasing
-        path = path.replace(/\/+$/g, '');
-
-        // Convert /m/ and other mobile prefixes
-        if (path.startsWith('/m/')) {
-          path = path.substring(2); // remove '/m'
-        }
-
-        // Normalize short domain instagr.am to instagram.com is done above
-      }
-
-      // Rebuild normalized URL without query/fragment
-      const normalized = `${host}${path || ''}`;
-      return normalized;
-    } catch {
-      // Fallback: return cleaned string
-      return cleaned;
-    }
-  } catch (_) {
-    return String(raw || '').trim();
-  }
-}
-
 // --- 5. HTML DOCUMENTATION ---
 const HTML_DOCS = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>API v2 Integration</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;padding:40px;max-width:800px;margin:0 auto}h1{color:#38bdf8}pre{background:#1e293b;padding:15px;border-radius:5px;overflow-x:auto}code{color:#f472b6}</style></head><body><h1>🚀 API Integration</h1><p>Endpoint: <code>POST /api</code></p><h3>Check Balance</h3><pre>key=API_KEY&action=balance</pre><h3>Add Order</h3><pre>key=API_KEY&action=add&service=1&link=url&quantity=100</pre></body></html>`;
 
@@ -254,28 +198,34 @@ exports.handler = async (event) => {
         if (!params.service || !params.link || !params.quantity) return errorResponse('Missing parameters');
         
         // Fetch Service & Provider info
-        const { data: sData } = await supabaseAdmin.from('services').select('*, provider:providers(*)').eq('public_id', params.service).single();
+        const { data: sData } = await supabaseAdmin.from('services').select('*, provider_id, provider:providers(id, name, api_url, api_key)').eq('public_id', params.service).single();
         if (!sData) return errorResponse('Service not found');
 
         // Quantity Check
         const qty = parseInt(params.quantity);
         if (qty < (sData.min_quantity || 1) || qty > (sData.max_quantity || 1000)) return errorResponse('Quantity error');
 
-        // Duplicate Link Protection: reject same service+link if an active order exists
-        const normalizedLink = normalizeLink(params.link);
+        // Duplicate Link Protection: allow only if previous order is COMPLETED
         try {
           const { data: dup } = await supabaseAdmin
             .from('orders')
-            .select('id, status, customer_status')
+            .select('id, status, customer_status, provider_error, order_number')
             .eq('service_id', sData.id)
-            .eq('link', normalizedLink)
-            .in('status', ['pending','processing','in progress','partial'])
+            .eq('link', params.link)
+            .in('status', ['pending', 'processing', 'in progress', 'failed', 'canceled'])
             .limit(1);
 
           if (Array.isArray(dup) && dup.length > 0) {
-            await auditLog(user.id, 'duplicate_link_active', { service_id: sData.id, link: normalizedLink }, 'warning');
-            return errorResponse('Link duplicate. Order with this link already in progress.');
+            const prev = dup[0];
+            await auditLog(user.id, 'duplicate_link_blocked_until_completed', { service_id: sData.id, link: params.link, previous_order: prev?.order_number, previous_status: prev?.status, previous_error: prev?.provider_error }, 'warning');
+            const msg = prev?.status === 'failed' && prev?.provider_error 
+              ? `Previous order failed: ${prev.provider_error}. You can reorder this link only after the previous order is completed.`
+              : 'Link duplicate. You can reorder this link only after the previous order is completed.';
+            return errorResponse(msg);
           }
+
+          // Allow retries when previous order is completed/failed/canceled.
+          // Only active statuses are blocked above.
         } catch (dupErr) {
           // If duplicate check fails, be conservative and proceed (do not block orders)
           await auditLog(user.id, 'duplicate_check_error', { msg: dupErr?.message }, 'warning');
@@ -296,30 +246,149 @@ exports.handler = async (event) => {
         
         // Create Order (DB Trigger will generate public_order_id and order_number)
         const { data: newOrder, error: oErr } = await supabaseAdmin.from('orders').insert({
-          user_id: user.id, service_id: sData.id, service_name: sData.name, link: normalizedLink, quantity: qty, charge: charge,
+          user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge,
             status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
         }).select('id, order_number').single();
 
         if (oErr) return errorResponse('Order failed');
 
+        // Post-Creation Race Condition Check: if another non-completed order with same service+link exists, delete this one and reject
+        try {
+          const { data: otherOrders } = await supabaseAdmin
+            .from('orders')
+            .select('id, created_at, status, provider_error, order_number')
+            .eq('service_id', sData.id)
+            .eq('link', params.link)
+            .in('status', ['pending', 'processing', 'in progress', 'failed', 'canceled'])
+            .neq('id', newOrder.id)
+            .limit(1);
+
+          if (Array.isArray(otherOrders) && otherOrders.length > 0) {
+            // Another order exists; delete this one and reject
+            await supabaseAdmin.from('orders').delete().eq('id', newOrder.id);
+            // Refund the charge
+            await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) }).eq('id', user.id);
+            const prev = otherOrders[0];
+            await auditLog(user.id, 'duplicate_link_race_blocked_until_completed', { service_id: sData.id, link: params.link, previous_order: prev?.order_number, previous_status: prev?.status, previous_error: prev?.provider_error, deleted_order_id: newOrder.id }, 'warning');
+            const msg = prev?.status === 'failed' && prev?.provider_error 
+              ? `Previous order failed: ${prev.provider_error}. You can reorder this link only after the previous order is completed.`
+              : 'Link duplicate. You can reorder this link only after the previous order is completed.';
+            return errorResponse(msg);
+          }
+        } catch (raceErr) {
+          console.error('[V2] Race condition check failed:', raceErr?.message);
+          // Continue anyway; if there's an issue, let sync handle it
+        }
+
         // Provider Forwarding (with 10s Timeout)
+        console.log('[V2 DEBUG] Checking provider:', { hasProvider: !!sData.provider, hasApiKey: !!sData.provider?.api_key });
         if (sData.provider && sData.provider.api_key) {
            try {
+            console.log('[V2 PROVIDER] Forwarding to provider:', sData.provider.name);
+            const providerServiceId = sData.provider_service_id || sData.public_id || sData.id;
             const pParams = new URLSearchParams({ 
-              key: sData.provider.api_key, action: 'add', service: sData.provider_service_id, link: params.link, quantity: qty 
+              key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: qty 
             });
+            console.log('[V2 PROVIDER] Request params:', { service: providerServiceId, link: params.link, quantity: qty });
             const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000 });
+            console.log('[V2 PROVIDER] Response:', pRes.data);
             if (pRes.data && pRes.data.order) {
+              // Provider accepted order; immediately check status to get real state
+              const providerOrderId = pRes.data.order;
+              let finalStatus = 'pending';
+              let finalCustomerStatus = 'pending';
+              let finalProviderStatus = 'pending';
+
+              try {
+                const statusParams = new URLSearchParams({
+                  key: sData.provider.api_key,
+                  action: 'status',
+                  order: providerOrderId
+                });
+                const statusRes = await axios.post(sData.provider.api_url, statusParams, { timeout: 5000 });
+                const providerStatusRaw = statusRes.data?.status || statusRes.data?.status_text || 'pending';
+                
+                // Normalize provider status using same logic as orders.js
+                const normalizeStatus = (raw) => {
+                  const s = String(raw).trim().toLowerCase();
+                  if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
+                  if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
+                  if (s === 'processing' || s === 'started') return 'processing';
+                  if (s.includes('partial')) return 'partial';
+                  if (s.includes('cancel')) return 'canceled';
+                  if (s.includes('fail')) return 'failed';
+                  if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
+                  return 'processing';
+                };
+                
+                finalProviderStatus = providerStatusRaw;
+                finalStatus = normalizeStatus(providerStatusRaw);
+                
+                // Sync customer_status: mirror provider status for in progress/processing
+                if (finalStatus === 'in progress') {
+                  finalCustomerStatus = 'in progress';
+                } else if (finalStatus === 'processing') {
+                  finalCustomerStatus = 'processing';
+                } else if (finalStatus === 'completed') {
+                  finalCustomerStatus = 'completed';
+                } else if (finalStatus === 'partial') {
+                  finalCustomerStatus = 'partial';
+                } else if (finalStatus === 'canceled') {
+                  finalCustomerStatus = 'canceled';
+                } else if (finalStatus === 'failed') {
+                  finalCustomerStatus = 'pending'; // admin sees failed, user sees pending
+                } else {
+                  finalCustomerStatus = 'pending';
+                }
+              } catch (statusErr) {
+                // Status check failed; default to pending and let sync job handle it later
+              }
+
               await supabaseAdmin.from('orders').update({ 
-                status: 'processing',
-                customer_status: 'processing',
-                provider_status: 'processing',
-                provider_order_id: pRes.data.order 
+                status: finalStatus,
+                customer_status: finalCustomerStatus,
+                provider_status: finalProviderStatus,
+                provider_order_id: providerOrderId,
+                last_status_sync: new Date().toISOString()
               }).eq('id', newOrder.id);
+            } else {
+              const providerErrorMessage = pRes?.data?.error 
+                || pRes?.data?.message 
+                || pRes?.data?.status_text
+                || 'Provider did not return order id';
+
+              await supabaseAdmin.from('orders').update({
+                status: 'failed',
+                customer_status: 'pending',
+                provider_status: 'failed',
+                provider_error: providerErrorMessage,
+                last_status_sync: new Date().toISOString()
+              }).eq('id', newOrder.id);
+
+              if (sData.provider && sData.provider.id) {
+                await supabaseAdmin.from('provider_errors').insert({
+                  provider_id: sData.provider.id,
+                  order_id: newOrder.id,
+                  error_type: 'forward_rejected',
+                  error_message: providerErrorMessage,
+                  error_context: { service_id: sData.id, service_name: sData.name, response: pRes?.data },
+                  resolved: false,
+                  error_timestamp: new Date().toISOString()
+                }).then(() => {}).catch(err => console.error('Failed to log provider_error:', err));
+              }
+
+              await auditLog(user.id, 'provider_fail', { msg: providerErrorMessage, response: pRes?.data }, 'error');
             }
            } catch (e) {
             // If provider rejects (e.g., insufficient balance), mark the order as failed for admins
-            const providerErrorMessage = e?.response?.data?.error || e?.message || 'Provider request failed';
+            const providerErrorMessage = e?.response?.data?.error 
+              || e?.response?.data?.message 
+              || e?.response?.data?.status_text
+              || e?.response?.data?.description
+              || (e?.response?.data ? JSON.stringify(e.response.data) : null)
+              || e?.message 
+              || 'Provider request failed';
+            
             await supabaseAdmin.from('orders').update({
               status: 'failed',
               customer_status: 'pending',
@@ -327,7 +396,25 @@ exports.handler = async (event) => {
               provider_error: providerErrorMessage,
               last_status_sync: new Date().toISOString()
             }).eq('id', newOrder.id);
-            await auditLog(user.id, 'provider_fail', { msg: providerErrorMessage }, 'error');
+            
+            // Log to provider_errors table for admin visibility
+            if (sData.provider && sData.provider.id) {
+              await supabaseAdmin.from('provider_errors').insert({
+                provider_id: sData.provider.id,
+                order_id: newOrder.id,
+                error_type: 'forward_failed',
+                error_message: providerErrorMessage,
+                error_context: { 
+                  service_id: sData.id,
+                  service_name: sData.name,
+                  response: e?.response?.data 
+                },
+                resolved: false,
+                error_timestamp: new Date().toISOString()
+              }).then(() => {}).catch(err => console.error('Failed to log provider_error:', err));
+            }
+            
+            await auditLog(user.id, 'provider_fail', { msg: providerErrorMessage, response: e?.response?.data }, 'error');
            }
         }
         
@@ -342,12 +429,12 @@ exports.handler = async (event) => {
              
              // Query using order_number (string in DB)
              const { data: mOrders } = await supabaseAdmin.from('orders')
-                .select('order_number, status, charge, start_count, remains')
+                .select('order_number, customer_status, charge, start_count, remains')
                 .in('order_number', ids)
                 .eq('user_id', user.id);
 
              let res = {};
-             if(mOrders) mOrders.forEach(o => res[o.order_number] = { status: o.status, charge: o.charge, start_count: o.start_count, remains: o.remains, currency: 'USD' });
+             if(mOrders) mOrders.forEach(o => res[o.order_number] = { status: o.customer_status || 'pending', charge: o.charge, start_count: o.start_count, remains: o.remains, currency: 'USD' });
              return { statusCode: 200, headers, body: JSON.stringify(res) };
          }
          
@@ -355,13 +442,13 @@ exports.handler = async (event) => {
          if (!params.order) return errorResponse('Missing order ID');
          
          const { data: oData } = await supabaseAdmin.from('orders')
-            .select('status, charge, start_count, remains')
+            .select('customer_status, charge, start_count, remains')
             .eq('order_number', params.order)
             .eq('user_id', user.id)
             .single();
 
          if (!oData) return errorResponse('Order not found');
-         return { statusCode: 200, headers, body: JSON.stringify({ status: oData.status, charge: oData.charge, start_count: oData.start_count || 0, remains: oData.remains || 0, currency: 'USD' }) };
+         return { statusCode: 200, headers, body: JSON.stringify({ status: oData.customer_status || 'pending', charge: oData.charge, start_count: oData.start_count || 0, remains: oData.remains || 0, currency: 'USD' }) };
 
       case 'refill':
          if (!params.order) return errorResponse('Missing order ID');

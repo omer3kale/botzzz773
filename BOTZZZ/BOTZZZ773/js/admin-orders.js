@@ -1,5 +1,35 @@
 // Admin Orders Management with Real Modals
 
+// ========================================
+// SECURITY: XSS Prevention
+// ========================================
+
+/**
+ * Safely escapes HTML special characters to prevent XSS attacks
+ * @param {string} text - Text to escape
+ * @returns {string} - Escaped text safe for HTML
+ */
+function escapeHtml(text) {
+    if (!text || typeof text !== 'string') return '';
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, char => map[char]);
+}
+
+/**
+ * Create a text node instead of using innerHTML for error messages
+ * @param {string} message - Error message to display
+ * @returns {Text} - Safe text node
+ */
+function createSafeTextNode(message) {
+    return document.createTextNode(escapeHtml(message));
+}
+
 let servicesCache = [];
 const ADMIN_SERVICES_ENDPOINT = '/.netlify/functions/services?audience=admin';
 let ordersCache = [];
@@ -7,7 +37,8 @@ let ordersAutoRefreshTimer = null;
 let lastOrderSyncTime = 0;
 let ordersSyncInFlight = false;
 const ORDERS_SYNC_MIN_INTERVAL = 30000; // 30 seconds
-const ORDERS_AUTO_REFRESH_INTERVAL = 10000; // 10 seconds - fallback polling interval
+// Fallback polling interval (only used when realtime yok). 30s'e çektik: daha az titreşim, daha az yük.
+const ORDERS_AUTO_REFRESH_INTERVAL = 30000; // 30 seconds - fallback polling interval
 const DEFAULT_ORDER_REFERENCE_BASE = 7000000;
 let highestOrderIdHint = DEFAULT_ORDER_REFERENCE_BASE;
 const selectedOrderIds = new Set();
@@ -414,15 +445,16 @@ function formatProviderOrderId(value) {
 }
 
 function getStatusKey(status) {
-    const normalized = String(status || '').toLowerCase();
-    if (!normalized) return 'unknown';
+    const normalized = String(status || '').toLowerCase().trim();
+    if (!normalized) return 'pending'; // Default to pending instead of unknown
     if (normalized === 'cancelled') return 'canceled';
     return normalized.replace(/[^a-z0-9]+/g, '-');
 }
 
 function formatStatusLabel(status) {
-    if (!status) return 'Unknown';
+    if (!status) return 'Pending'; // Default to Pending instead of Unknown
     const value = String(status).replace(/[_-]+/g, ' ').trim();
+    if (!value) return 'Pending'; // Double-check after trim
     return value.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
@@ -988,9 +1020,12 @@ function resolveProviderStatus(order) {
 }
 
 function resolveOrderStatusSummary(order) {
-    // Prefer backend-provided status_summary for consistency
+    // Prefer backend-provided status_summary for consistency, but validate it has values
     const summary = order?.status_summary;
-    if (summary && typeof summary === 'object') {
+    const hasValidSummary = summary && typeof summary === 'object' && 
+        (summary.customer?.key || summary.customer?.label || summary.provider?.key || summary.provider?.label);
+    
+    if (hasValidSummary) {
         const customerRaw = summary.customer?.raw ?? order?.customer_status ?? order?.status;
         const resolvedCustomerLabel = summary.customer?.label 
             ?? order?.customer_status_label 
@@ -1001,7 +1036,7 @@ function resolveOrderStatusSummary(order) {
 
         const providerRaw = summary.provider?.raw
             ?? order?.provider_status_raw
-            ?? order?.provider_status
+            ?? (order?.provider_status?.trim() || null)
             ?? order?.providerStatus
             ?? null;
         const providerExists = Boolean(summary.provider) || Boolean(providerRaw);
@@ -1013,6 +1048,10 @@ function resolveOrderStatusSummary(order) {
             ?? (providerRaw ? getStatusKey(providerRaw) : null);
 
         return {
+            admin: {
+                key: order?.status ? getStatusKey(order.status) : 'pending',
+                label: order?.status ? formatStatusLabel(order.status) : 'Pending'
+            },
             customer: {
                 key: resolvedCustomerKey,
                 label: resolvedCustomerLabel
@@ -1026,16 +1065,22 @@ function resolveOrderStatusSummary(order) {
         };
     }
 
-    // Fallback to manual resolution if status_summary is not available
+    // Fallback to manual resolution if status_summary is not available or empty
     const providerRaw = order?.provider_status_raw
-        ?? order?.provider_status 
+        ?? (order?.provider_status?.trim() || null)
         ?? order?.providerStatus
         ?? resolveProviderStatus(order);
 
     return {
+        // Admin sees actual status, not customer-facing status
+        admin: {
+            key: order?.status ? getStatusKey(order.status) : 'pending',
+            label: order?.status ? formatStatusLabel(order.status) : 'Pending'
+        },
+        // Customer sees sanitized status (failed -> pending)
         customer: {
-            key: order?.customer_status_key ?? getStatusKey(order?.status),
-            label: order?.customer_status_label ?? formatStatusLabel(order?.status)
+            key: order?.customer_status_key ?? order?.customer_status ?? getStatusKey(order?.status) ?? 'pending',
+            label: order?.customer_status_label ?? formatStatusLabel(order?.customer_status ?? order?.status) ?? 'Pending'
         },
         provider: providerRaw ? {
             key: order?.provider_status_key ?? getStatusKey(providerRaw),
@@ -1261,6 +1306,7 @@ function updateSelectedOrdersSummary() {
     const countEl = document.getElementById('selectedOrdersCount');
     const detailEl = document.getElementById('selectedOrdersDetail');
     const cardEl = document.getElementById('selectedOrdersCard');
+    const selectedActionsEl = document.getElementById('ordersSelectedActions');
 
     const count = selectedOrderIds.size;
 
@@ -1289,6 +1335,10 @@ function updateSelectedOrdersSummary() {
         const isActive = count > 0;
         cardEl.classList.toggle('is-active', isActive);
         cardEl.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    }
+
+    if (selectedActionsEl) {
+        selectedActionsEl.style.display = count > 0 ? 'flex' : 'none';
     }
 
     syncOrdersMasterToggle();
@@ -1776,7 +1826,7 @@ async function initializeOrdersPage() {
         startOrdersAutoRefresh();
     } else {
         // Use slower polling as backup when realtime is active
-        const BACKUP_POLL_INTERVAL = 60000; // 1 minute backup poll
+        const BACKUP_POLL_INTERVAL = 30000; // 30s backup poll when realtime is active
         if (ordersAutoRefreshTimer) {
             clearInterval(ordersAutoRefreshTimer);
         }
@@ -2516,6 +2566,8 @@ async function loadOrders({ skipSync = false } = {}) {
                 
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const statusSummary = resolveOrderStatusSummary(order);
+                // Admin panel: "CUSTOMER" shows customer_status (what customers see - always pending for failed orders)
+                // Admin panel: "PROVIDER" shows provider_status (actual failure reason)
                 const orderStatusKey = statusSummary.customer?.key || 'unknown';
                 const orderStatusLabel = statusSummary.customer?.label || 'Unknown';
                 const providerStatusKey = statusSummary.provider?.key || null;
@@ -3125,6 +3177,49 @@ async function bulkResendSelectedOrders() {
     }
 }
 
+async function bulkDeleteSelectedOrders() {
+    const resolvedOrders = getSelectedOrders();
+    if (resolvedOrders.length === 0) {
+        showNotification('Silinecek sipariş bulunamadı. Lütfen tekrar seçin.', 'error');
+        return;
+    }
+
+    const confirmationLines = [
+        `${resolvedOrders.length} siparişi silmek istediğinize emin misiniz?`,
+        'Bu işlem geri alınamaz.'
+    ];
+
+    if (!confirm(confirmationLines.join('\n\n'))) {
+        return;
+    }
+
+    const results = { success: [], failed: [] };
+    syncBulkActionControls({ loading: true, forceMessage: 'Deleting selected orders...' });
+
+    try {
+        for (const order of resolvedOrders) {
+            try {
+                await submitOrderDelete(order.id || order.order_id || order.orderId);
+                results.success.push(order);
+            } catch (error) {
+                results.failed.push({ order, message: error.message || 'Unknown error' });
+            }
+        }
+
+        if (results.success.length > 0 && results.failed.length === 0) {
+            showNotification(`${results.success.length} sipariş silindi.`, 'success');
+        } else if (results.success.length > 0) {
+            showNotification(`${results.success.length} silindi, ${results.failed.length} başarısız.`, 'warning');
+        } else {
+            showNotification('Seçili siparişler silinemedi.', 'error');
+        }
+
+        refreshOrdersAfterAdminChange();
+    } finally {
+        syncBulkActionControls();
+    }
+}
+
 async function submitOrderResend(orderId) {
     if (!orderId) {
         throw new Error('Order ID is required');
@@ -3182,6 +3277,64 @@ async function submitOrderResend(orderId) {
         if (error.name === 'AbortError') {
             throw new Error('Request timed out. The provider may be slow or unavailable. Please try again later.');
         }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function submitOrderDelete(orderId) {
+    if (!orderId) {
+        throw new Error('Order ID gerekli');
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        throw new Error('Oturum geçersiz. Tekrar giriş yapın.');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ orderId: String(orderId).trim() }),
+            signal: controller.signal
+        });
+
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('token');
+            window.location.href = '/signin.html';
+            throw new Error('Session expired. Please sign in again.');
+        }
+
+        const contentType = response.headers.get('content-type');
+        let data;
+
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            console.error('[DELETE ORDER] Non-JSON response:', text);
+            throw new Error('Invalid server response format');
+        }
+
+        if (!response.ok || data.error) {
+            const errorMsg = data.error || data.details || `Server error (${response.status})`;
+            throw new Error(errorMsg);
+        }
+
+        return data || { success: true };
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('İstek timeout. Lütfen tekrar deneyin.');
+        }
+        console.error('[DELETE ORDER] Error:', error);
         throw error;
     } finally {
         clearTimeout(timeoutId);

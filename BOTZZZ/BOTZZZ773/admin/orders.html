@@ -231,6 +231,14 @@
                 <span class="sync-status-dot" id="ordersSyncDot"></span>
                 <span id="ordersSyncStatus">Provider sync pending…</span>
             </div>
+            <div class="sync-actions" id="ordersSelectedActions" style="display:none; gap: 8px;">
+                <button class="btn-secondary" onclick="bulkResendSelectedOrders()">
+                    <i class="fas fa-redo"></i> Resend Selected
+                </button>
+                <button class="btn-secondary danger" onclick="bulkDeleteSelectedOrders()">
+                    <i class="fas fa-trash"></i> Delete Selected
+                </button>
+            </div>
             <button class="btn-secondary" id="ordersSyncButton" onclick="manualOrdersSync()">
                 <i class="fas fa-sync-alt"></i> Sync Now
             </button>

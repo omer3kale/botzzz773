@@ -23,8 +23,13 @@
         PRODUCT: 'BOTZZZ773',
         
         // Supabase credentials (anon key is safe for browser - RLS protects data)
-        SUPABASE_URL: 'https://qmnbwpmnidguccsiwoow.supabase.co',
-        SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtbmJ3cG1uaWRndWNjc2l3b293Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjIwNDk0MjgsImV4cCI6MjA3NzYyNTQyOH0.wVj6pxggBwhpdih0G0RmV2YQfA2n4s4N31_m73l1mc4',
+        // Use environment variables if available, fallback to hardcoded keys
+        SUPABASE_URL: typeof process !== 'undefined' && process.env?.SUPABASE_URL 
+            ? process.env.SUPABASE_URL 
+            : 'https://njnciktftnyxnbkyfxzx.supabase.co',
+        SUPABASE_ANON_KEY: typeof process !== 'undefined' && process.env?.SUPABASE_ANON_KEY 
+            ? process.env.SUPABASE_ANON_KEY 
+            : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qbmNpa3RmdG55eG5ia3lmeHp4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU5MzkxNTksImV4cCI6MjA3MTUxNTE1OX0.jMXBCyKs_BW-LASzUFWEum6XMh2TJLR6z2LEU7TVhiY',
         
         // Timing
         INIT_CHECK_INTERVAL_MS: 100,

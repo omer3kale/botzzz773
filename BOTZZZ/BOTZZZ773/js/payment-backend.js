@@ -1,9 +1,44 @@
 // Payment Integration with Backend
 // Load this AFTER api-client.js
 
+// Auto-refresh payment history every 10 seconds when page is visible
+let paymentHistoryPoller = null;
+const PAYMENT_POLL_INTERVAL = 10000; // 10 seconds
+
 document.addEventListener('DOMContentLoaded', () => {
     loadPaymentHistory();
+    startPaymentPolling();
 });
+
+// Handle page visibility to pause/resume polling
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopPaymentPolling();
+    } else {
+        startPaymentPolling();
+    }
+});
+
+function startPaymentPolling() {
+    if (paymentHistoryPoller) return; // Already polling
+    
+    const historyContainer = document.getElementById('paymentHistory');
+    if (!historyContainer) return;
+    
+    paymentHistoryPoller = setInterval(() => {
+        loadPaymentHistory();
+    }, PAYMENT_POLL_INTERVAL);
+    
+    console.log('[PAYMENT] Polling started - refreshing every 10 seconds');
+}
+
+function stopPaymentPolling() {
+    if (paymentHistoryPoller) {
+        clearInterval(paymentHistoryPoller);
+        paymentHistoryPoller = null;
+        console.log('[PAYMENT] Polling stopped');
+    }
+}
 
 // Load payment history
 async function loadPaymentHistory() {
@@ -15,8 +50,6 @@ async function loadPaymentHistory() {
         historyContainer.innerHTML = '<div class="history-placeholder">Sign in to view your recent payments.</div>';
         return;
     }
-
-    historyContainer.innerHTML = '<div class="history-placeholder loading">Loading your recent payments...</div>';
 
     try {
         const response = await fetch('/.netlify/functions/payments', {
@@ -36,12 +69,24 @@ async function loadPaymentHistory() {
 
         if (data.payments && data.payments.length > 0) {
             renderPaymentHistory(data.payments);
+            
+            // Check if any pending payment was just completed
+            const hasPending = data.payments.some(p => p.status === 'pending');
+            if (!hasPending) {
+                // All payments completed, can stop polling
+                stopPaymentPolling();
+            }
         } else {
             historyContainer.innerHTML = '<div class="history-placeholder empty">No payments found yet. Your future deposits will appear here.</div>';
+            stopPaymentPolling();
         }
     } catch (error) {
-        console.error('Failed to load payment history:', error);
-        historyContainer.innerHTML = `<div class="history-placeholder error">${error.message || 'Failed to load payment history.'}</div>`;
+        console.error('[PAYMENT] Failed to load payment history:', error);
+        // Don't show error on every poll - just log it
+        if (error instanceof TypeError) {
+            // Network error, likely offline - show placeholder
+            historyContainer.innerHTML = `<div class="history-placeholder error">Network error. Check your connection.</div>`;
+        }
     }
 }
 
