@@ -215,7 +215,7 @@ async function syncProviderServices(provider, options = {}) {
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
-    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name')
+    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name, category, description, min_quantity, max_quantity')
     .eq('provider_id', provider.id);
 
   if (existingError) {
@@ -348,6 +348,28 @@ async function syncProviderServices(provider, options = {}) {
       const existingName = existing.name ? String(existing.name).trim() : '';
       if (existingName) {
         basePayload.name = existing.name;
+      }
+
+      // Preserve admin-customized service category
+      const existingCategory = existing.category ? String(existing.category).trim() : '';
+      if (existingCategory) {
+        basePayload.category = existing.category;
+      }
+
+      // Preserve admin-customized service description
+      const existingDescription = existing.description ? String(existing.description).trim() : '';
+      if (existingDescription) {
+        basePayload.description = existing.description;
+      }
+
+      // Preserve admin-customized min_quantity if it was manually set
+      if (existing.min_quantity !== null && existing.min_quantity !== undefined) {
+        basePayload.min_quantity = existing.min_quantity;
+      }
+
+      // Preserve admin-customized max_quantity if it was manually set
+      if (existing.max_quantity !== null && existing.max_quantity !== undefined) {
+        basePayload.max_quantity = existing.max_quantity;
       }
 
       // Detect price changes before updating
