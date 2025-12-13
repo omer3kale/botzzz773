@@ -494,19 +494,45 @@ async function processOrderRefund(order, options = {}) {
     return { success: false, error: `Refund amount exceeds maximum limit of $${MAX_REFUND_AMOUNT}` };
   }
 
-  // Check if order was already refunded (has refund payment record)
+  // Check if order already has refund_applied_at set (primary guard)
+  const { data: existingRefundMarker } = await supabaseAdmin
+    .from('orders')
+    .select('refund_applied_at')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (existingRefundMarker?.refund_applied_at) {
+    console.log(`[REFUND] Order ${orderId} already has refund_applied_at set to ${existingRefundMarker.refund_applied_at}, skipping`);
+    return { success: true, alreadyRefunded: true, message: 'Already refunded' };
+  }
+
+  // Secondary check: verify no refund payment record exists (belt-and-suspenders)
   if (skipIfAlreadyRefunded) {
     const { data: existingRefund } = await supabaseAdmin
       .from('payments')
       .select('id')
       .eq('order_id', orderId)
       .eq('method', 'refund')
-      .single();
+      .maybeSingle();
 
     if (existingRefund) {
-      console.log(`[REFUND] Order ${orderId} already has a refund record, skipping`);
+      console.log(`[REFUND] Order ${orderId} already has a refund payment record, skipping`);
       return { success: true, alreadyRefunded: true, message: 'Already refunded' };
     }
+  }
+
+  // Now set refund_applied_at marker
+  const nowIso = new Date().toISOString();
+  const { error: refundMarkError } = await supabaseAdmin
+    .from('orders')
+    .update({ refund_applied_at: nowIso })
+    .eq('id', orderId);
+
+  if (refundMarkError) {
+    console.error(`[REFUND] Error marking refund for order ${orderId}:`, refundMarkError);
+    // Don't fail; continue to process refund
+  } else {
+    console.log(`[REFUND] Order ${orderId} marked with refund_applied_at = ${nowIso}`);
   }
 
   // Get user's current balance
@@ -1914,7 +1940,7 @@ async function handleCancelOrder(user, data, headers) {
     const refundResult = await processOrderRefund(order, {
       source: 'handleCancelOrder',
       reason: 'order_cancelled',
-      skipIfAlreadyRefunded: false // Always refund on explicit cancel
+      skipIfAlreadyRefunded: true // Prevent double refunds if already processed
     });
 
     if (!refundResult.success) {
@@ -1933,10 +1959,10 @@ async function handleCancelOrder(user, data, headers) {
     await supabaseAdmin
       .from('orders')
       .update({
-        status: 'cancelled',
+        status: 'canceled',
         customer_status: 'canceled',
-        provider_status: 'cancelled',
-        refill_status: 'cancelled',
+        provider_status: 'canceled',
+        refill_status: 'canceled',
         refill_completed_at: cancellationTime,
         last_status_sync: cancellationTime,
         remains: 0
@@ -2026,7 +2052,8 @@ async function recordRefundTransaction(order, amount, options = {}) {
 }
 
 async function performOrderStatusSync({ orderIds = null, providerId = null, limit = 100 } = {}) {
-  const statusesToSync = ['pending', 'processing', 'refilling', 'partial'];
+  // Do NOT include 'canceled' in active sync set to avoid reprocessing canceled orders
+  const statusesToSync = ['pending', 'processing', 'in progress', 'refilling', 'partial'];
   const providerFilter = providerId ? String(providerId) : null;
 
   let ordersQuery = supabaseAdmin
@@ -2339,8 +2366,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       // Provider hatasını kaydet ve siparişi failed olarak işaretle
       const errorMessage = syncError.message || 'Provider sync failed';
       const failurePayload = {
-        status: 'failed',
-        customer_status: 'pending',
+        // Preserve canceled status if already canceled; otherwise mark failed
+        status: (order.status === 'canceled' || order.status === 'cancelled') ? order.status : 'failed',
+        customer_status: (order.customer_status === 'canceled') ? 'canceled' : 'pending',
         provider_error: errorMessage,
         last_status_sync: nowIso
       };

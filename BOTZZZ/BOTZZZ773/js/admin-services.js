@@ -536,7 +536,10 @@ function parseNumberInput(value) {
         return null;
     }
     const numeric = Number(trimmed);
-    return Number.isFinite(numeric) ? numeric : null;
+    if (!Number.isFinite(numeric)) return null;
+    // DB numeric(10,4) max: 999999.9999
+    if (Math.abs(numeric) > 999999) return null;
+    return numeric;
 }
 
 function parseIntegerInput(value) {
@@ -548,7 +551,10 @@ function parseIntegerInput(value) {
         return null;
     }
     const numeric = Number.parseInt(trimmed, 10);
-    return Number.isFinite(numeric) ? numeric : null;
+    if (!Number.isFinite(numeric)) return null;
+    // PostgreSQL integer max: 2147483647
+    if (Math.abs(numeric) > 2147483647) return null;
+    return numeric;
 }
 
 function toBooleanInput(value) {
@@ -573,8 +579,9 @@ function normalizePortalSlotInput(value) {
     if (!Number.isFinite(numeric)) {
         return null;
     }
-    // Always unlimited slots now
-    return Math.max(numeric, 1);
+    // Limit to reasonable slot range (1-9999)
+    const bounded = Math.max(1, Math.min(numeric, 9999));
+    return bounded;
 }
 
 function getCuratedServicesCount(excludeServiceId = null) {
@@ -618,6 +625,33 @@ function getNextAvailablePortalSlot(excludeServiceId = null) {
         slot += 1;
     }
     return slot;
+}
+
+function getNextCategoryPortalSlot(categoryValue, excludeServiceId = null) {
+    if (!categoryValue) {
+        return 1;
+    }
+
+    const normalizedCategory = String(categoryValue).trim().toLowerCase();
+    if (!normalizedCategory) {
+        return 1;
+    }
+
+    let maxSlot = 0;
+    if (Array.isArray(servicesCache) && servicesCache.length > 0) {
+        servicesCache.forEach(service => {
+            if (!service) return;
+            if (excludeServiceId && String(service.id) === String(excludeServiceId)) return;
+            const serviceCategory = String(service.category || '').trim().toLowerCase();
+            if (serviceCategory !== normalizedCategory) return;
+            const slot = toNumeric(service.customer_portal_slot);
+            if (Number.isFinite(slot) && slot >= 1) {
+                if (slot > maxSlot) maxSlot = slot;
+            }
+        });
+    }
+
+    return maxSlot + 1;
 }
 
 function calculateMarkupPercent(providerRate, retailRate) {
@@ -683,6 +717,24 @@ function updateMarkupForForm(form, options = {}) {
         markupInput.value = markup.toFixed(2);
     } else if (options.force) {
         markupInput.value = '';
+    }
+}
+
+function calculateRetailRateFromMarkup(form) {
+    if (!form) return;
+    const providerInput = form.querySelector('[name="providerRate"]');
+    const retailInput = form.querySelector('[name="rate"]');
+    const markupInput = form.querySelector('[name="markup"]');
+    
+    if (!providerInput || !retailInput || !markupInput) return;
+    
+    const providerCost = parseNumberInput(providerInput.value);
+    const markupPercent = parseNumberInput(markupInput.value);
+    
+    if (providerCost !== null && providerCost > 0 && markupPercent !== null && markupPercent >= 0) {
+        // Formula: Retail Rate = Provider Cost * (1 + Markup / 100)
+        const retailRate = providerCost * (1 + markupPercent / 100);
+        retailInput.value = retailRate.toFixed(4);
     }
 }
 
@@ -906,100 +958,134 @@ async function addService() {
 
     const content = `
         <form id="addServiceForm" onsubmit="submitAddService(event)" class="admin-form">
-            <div class="form-group">
-                <label>Service Name *</label>
-                <input type="text" name="serviceName" placeholder="Instagram Followers - High Quality" required>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Category *</label>
-                    <select name="category" required>
-                        ${categoryOptions}
-                    </select>
-                    <small style="color: #94a3b8;">
-                        ${hasCategories ? `${categories.length} categories available` : 'Using default categories'}
-                        • <a href="#" onclick="event.preventDefault(); createCategory();" style="color: var(--admin-primary);">+ Create new category</a>
-                    </small>
+            <div class="add-service-layout">
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Service Basics</h4>
+                        <div class="form-group">
+                            <label>Service Name *</label>
+                            <input type="text" name="serviceName" placeholder="Instagram Followers - High Quality" required>
+                        </div>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Category *</label>
+                                <select name="category" required>
+                                    ${categoryOptions}
+                                </select>
+                                <small style="color: #94a3b8;">
+                                    ${hasCategories ? `${categories.length} categories available` : 'Using default categories'}
+                                    • <a href="#" onclick="event.preventDefault(); createCategory();" style="color: var(--admin-primary);">+ Create new category</a>
+                                </small>
+                            </div>
+                            <div class="form-group">
+                                <label>Type *</label>
+                                <select name="type" required>
+                                    <option value="service" selected>Standard</option>
+                                    <option value="subscription">Subscription</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Provider Mapping</h4>
+                        <div class="form-group">
+                            <label>Provider ${hasProviders ? '*' : '(none available)'}</label>
+                            <select name="provider" id="addServiceProviderSelect" ${hasProviders ? 'required' : 'disabled'} onchange="onProviderChange(this.value)">
+                                ${providerOptions}
+                            </select>
+                            ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to link services.</small>'}
+                        </div>
+                        <div class="form-group">
+                            <label>Provider Service ID *</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" name="providerServiceId" id="providerServiceIdInput" placeholder="Enter provider\'s service ID" required style="flex: 1;">
+                                <button type="button" onclick="autoFetchServiceDetails()" class="btn-secondary" style="white-space: nowrap; padding: 8px 12px;" title="Fetch details from provider">
+                                    🔄
+                                </button>
+                                <button type="button" onclick="showSyncedServices()" class="btn-secondary" style="white-space: nowrap;">
+                                    📋 Select from Synced
+                                </button>
+                            </div>
+                            <small style="color: #94a3b8;">Enter service ID and click 🔄 to auto-fill details from provider.</small>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Type *</label>
-                    <select name="type" required>
-                        <option value="service" selected>Standard</option>
-                        <option value="subscription">Subscription</option>
-                        <option value="custom">Custom</option>
-                    </select>
+
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Pricing</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Provider Cost per 1000</label>
+                                <input type="number" name="providerRate" placeholder="3.5000" min="0" step="0.0001" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
+                            </div>
+                            <div class="form-group">
+                                <label>Retail Rate per 1000 *</label>
+                                <input type="number" name="rate" placeholder="5.0000" min="0" step="0.0001" required oninput="updateMarkupForForm(this.closest('form'))">
+                            </div>
+                            <div class="form-group">
+                                <label>Markup %</label>
+                                <input type="number" name="markup" placeholder="40" step="0.01" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
+                            </div>
+                        </div>
+                        <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Limits & Status</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Min Quantity *</label>
+                                <input type="number" name="min" placeholder="100" min="1" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Max Quantity *</label>
+                                <input type="number" name="max" placeholder="10000" min="1">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="active" selected>Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="form-group">
-                <label>Provider ${hasProviders ? '*' : '(none available)'}</label>
-                <select name="provider" id="addServiceProviderSelect" ${hasProviders ? 'required' : 'disabled'} onchange="onProviderChange(this.value)">
-                    ${providerOptions}
-                </select>
-                ${hasProviders ? '' : '<small style="color: #f87171;">Add a provider first to link services.</small>'}
-            </div>
-            <div class="form-group">
-                <label>Provider Service ID *</label>
-                <div style="display: flex; gap: 8px;">
-                    <input type="text" name="providerServiceId" id="providerServiceIdInput" placeholder="Enter provider's service ID" required style="flex: 1;">
-                    <button type="button" onclick="showSyncedServices()" class="btn-secondary" style="white-space: nowrap;">
-                        📋 Select from Synced
-                    </button>
+
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Customer Portal</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Show in Customer Portal</label>
+                                <select name="customerPortalEnabled">
+                                    <option value="false" selected>Hidden (default)</option>
+                                    <option value="true">Visible to customers</option>
+                                </select>
+                                <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
+                                <input type="number" name="customerPortalSlot" placeholder="1" min="1" ${PORTAL_SLOT_MAX_ATTR}>
+                                <small style="color: #94a3b8;">Controls dropdown order when visible.</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Customer Portal Notes</label>
+                            <textarea name="customerPortalNotes" rows="2" placeholder="Optional tagline or reminder for this curated slot"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Description</h4>
+                        <div class="form-group">
+                            <textarea name="description" rows="4" placeholder="Service description..."></textarea>
+                        </div>
+                    </div>
                 </div>
-                <small style="color: #94a3b8;">Get this ID from your provider panel or sync list.</small>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Provider Cost per 1000</label>
-                    <input type="number" name="providerRate" placeholder="3.5000" min="0" step="0.0001">
-                </div>
-                <div class="form-group">
-                    <label>Retail Rate per 1000 *</label>
-                    <input type="number" name="rate" placeholder="5.0000" min="0" step="0.0001" required>
-                </div>
-                <div class="form-group">
-                    <label>Markup %</label>
-                    <input type="number" name="markup" placeholder="40" step="0.01">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Min Quantity *</label>
-                    <input type="number" name="min" placeholder="100" min="1" required>
-                </div>
-                <div class="form-group">
-                    <label>Max Quantity *</label>
-                    <input type="number" name="max" placeholder="10000" min="1">
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Description</label>
-                <textarea name="description" rows="3" placeholder="Service description..."></textarea>
-            </div>
-            <div class="form-group">
-                <label>Status</label>
-                <select name="status">
-                    <option value="active" selected>Active</option>
-                    <option value="inactive">Inactive</option>
-                </select>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Show in Customer Portal</label>
-                    <select name="customerPortalEnabled">
-                        <option value="false" selected>Hidden (default)</option>
-                        <option value="true">Visible to customers</option>
-                    </select>
-                    <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
-                </div>
-                <div class="form-group">
-                    <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
-                    <input type="number" name="customerPortalSlot" placeholder="1" min="1" ${PORTAL_SLOT_MAX_ATTR}>
-                    <small style="color: #94a3b8;">Controls dropdown order when visible.</small>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Customer Portal Notes</label>
-                <textarea name="customerPortalNotes" rows="2" placeholder="Optional tagline or reminder for this curated slot"></textarea>
             </div>
         </form>
     `;
@@ -1014,6 +1100,46 @@ async function addService() {
     createModal('Add New Service', content, actions);
     setupPricingInteraction('addServiceForm');
     setupCategorySuggestion('addServiceForm');
+
+    // Auto-set portal slot: use next slot within selected category
+    // Automatically updates when category changes (unless user is actively typing)
+    setTimeout(() => {
+        try {
+            const slotInput = document.querySelector('#addServiceForm input[name="customerPortalSlot"]');
+            const categorySelect = document.querySelector('#addServiceForm select[name="category"]');
+            let userIsTypingSlot = false;
+            
+            if (slotInput) {
+                slotInput.addEventListener('focus', () => { userIsTypingSlot = true; });
+                slotInput.addEventListener('blur', () => { userIsTypingSlot = false; });
+            }
+            
+            if (categorySelect) {
+                categorySelect.addEventListener('change', () => {
+                    if (!slotInput) return;
+                    const categoryValue = categorySelect.value;
+                    if (!categoryValue) {
+                        slotInput.value = ''; // clear slot if no category
+                        return;
+                    }
+                    // Always update slot when category changes (unless user is actively in the field)
+                    if (!userIsTypingSlot) {
+                        const nextSlot = getNextCategoryPortalSlot(categoryValue);
+                        console.log('Auto-updating portal slot on category change:', {
+                            category: categoryValue,
+                            nextSlot,
+                            servicesInCategory: servicesCache.filter(s => 
+                                String(s.category || '').trim().toLowerCase() === String(categoryValue || '').trim().toLowerCase()
+                            ).map(s => ({ id: s.id, name: s.name, slot: s.customer_portal_slot }))
+                        });
+                        slotInput.value = nextSlot;
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Failed to auto-set portal slot:', error);
+        }
+    }, 100);
 }
 
 async function submitAddService(event) {
@@ -1039,32 +1165,37 @@ async function submitAddService(event) {
 
     try {
         const token = localStorage.getItem('token');
-    const response = await fetch(buildAdminServicesUrl(), {
+        
+        const payload = {
+            action: 'create',
+            name: serviceData.serviceName,
+            category: serviceData.category,
+            type: serviceData.type || 'service',
+            rate: retailRateValue ?? 0,
+            retailRate: retailRateValue,
+            providerRate: providerRateValue,
+            markupPercentage: markupValue,
+            min_quantity: minQuantityValue ?? 0,
+            max_quantity: maxQuantityValue,
+            description: serviceData.description || '',
+            status: (serviceData.status || 'active').toLowerCase(),
+            providerId: serviceData.provider || null,
+            providerServiceId: serviceData.providerServiceId || null,
+            adminApproved: customerPortalEnabledFlag,
+            customerPortalEnabled: customerPortalEnabledFlag,
+            customerPortalSlot: customerPortalSlotValue,
+            customerPortalNotes: customerPortalNotesValue || null
+        };
+        
+        console.log('Create service payload:', payload);
+        
+        const response = await fetch(buildAdminServicesUrl(), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                action: 'create',
-                name: serviceData.serviceName,
-                category: serviceData.category,
-                type: serviceData.type || 'service',
-                rate: retailRateValue ?? 0,
-                retailRate: retailRateValue,
-                providerRate: providerRateValue,
-                markupPercentage: markupValue,
-                min_quantity: minQuantityValue ?? 0,
-                max_quantity: maxQuantityValue,
-                description: serviceData.description || '',
-                status: (serviceData.status || 'active').toLowerCase(),
-                providerId: serviceData.provider || null,
-                providerServiceId: serviceData.providerServiceId || null,
-                adminApproved: customerPortalEnabledFlag,
-                customerPortalEnabled: customerPortalEnabledFlag,
-                customerPortalSlot: customerPortalSlotValue,
-                customerPortalNotes: customerPortalNotesValue || null
-            })
+            body: JSON.stringify(payload)
         });
 
         const data = await parseApiResponse(response);
@@ -1154,86 +1285,130 @@ async function editService(serviceId) {
 
     const content = `
         <form id="editServiceForm" onsubmit="submitEditService(event, '${serviceId}')" class="admin-form">
-            <div class="form-group" style="display: flex; gap: 16px; font-size: 13px; color: #94a3b8;">
-                <span><strong>Our ID:</strong> ${publicIdDisplay}</span>
-                <span><strong>Provider ID:</strong> ${providerIdDisplay}</span>
-            </div>
-            <div class="form-group">
-                <label>Service Name *</label>
-                <input type="text" name="serviceName" value="${escapeHtml(service.name)}" required>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Category *</label>
-                    <select name="category" required>
-                        ${categoryOptions}
-                    </select>
+            <div class="add-service-layout">
+                <div class="form-group" style="display: flex; gap: 16px; font-size: 13px; color: #94a3b8; margin-bottom: 12px;">
+                    <span><strong>Our ID:</strong> ${publicIdDisplay}</span>
+                    <span><strong>Provider ID:</strong> ${providerIdDisplay}</span>
                 </div>
-                <div class="form-group">
-                    <label>Status</label>
-                    <select name="status">
-                        <option value="active"${service.status === 'active' ? ' selected' : ''}>Active</option>
-                        <option value="inactive"${service.status === 'inactive' ? ' selected' : ''}>Inactive</option>
-                    </select>
+
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Service Basics</h4>
+                        <div class="form-group">
+                            <label>Service Name *</label>
+                            <input type="text" name="serviceName" value="${escapeHtml(service.name)}" required>
+                        </div>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Category *</label>
+                                <select name="category" required>
+                                    ${categoryOptions}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Type</label>
+                                <select name="type" disabled>
+                                    <option value="${service.type || 'service'}" selected>${service.type === 'subscription' ? 'Subscription' : service.type === 'custom' ? 'Custom' : 'Standard'}</option>
+                                </select>
+                                <small style="color: #94a3b8;">Cannot be changed after creation</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Provider Mapping</h4>
+                        <div class="form-group">
+                            <label>Provider</label>
+                            <select name="provider">
+                                ${providerOptions}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Provider Service ID</label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text" name="providerServiceId" id="editProviderServiceIdInput" value="${providerIdDisplay !== '—' ? providerIdDisplay : ''}" placeholder="Enter provider service ID" style="flex: 1;">
+                                <button type="button" onclick="autoFetchServiceDetails()" class="btn-secondary" style="white-space: nowrap; padding: 8px 12px;" title="Fetch details from provider">
+                                    🔄
+                                </button>
+                            </div>
+                            <small style="color: #94a3b8;">Click 🔄 to auto-fetch details. Leave blank to detach from provider.</small>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="form-group">
-                <label>Provider</label>
-                <select name="provider">
-                    ${providerOptions}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Provider Service ID</label>
-                <input type="text" name="providerServiceId" value="${providerIdDisplay !== '—' ? providerIdDisplay : ''}" placeholder="Enter provider service ID">
-                <small style="color: #94a3b8;">Leave blank to detach from provider.</small>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Provider Cost per 1000</label>
-                    <input type="number" name="providerRate" step="0.0001" min="0" value="${formatNumberForInput(providerCost)}">
+
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Pricing</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Provider Cost per 1000</label>
+                                <input type="number" name="providerRate" step="0.0001" min="0" value="${formatNumberForInput(providerCost)}" oninput="updateMarkupForForm(this.closest('form'))">
+                            </div>
+                            <div class="form-group">
+                                <label>Retail Rate per 1000 *</label>
+                                <input type="number" name="rate" step="0.0001" min="0" value="${formatNumberForInput(retailDisplayRate)}" required oninput="updateMarkupForForm(this.closest('form'))">
+                            </div>
+                            <div class="form-group">
+                                <label>Markup %</label>
+                                <input type="number" name="markup" step="0.01" value="${markupValue !== null ? markupValue : ''}" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
+                            </div>
+                        </div>
+                        <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Limits & Status</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Min Quantity *</label>
+                                <input type="number" name="min" min="1" value="${minValue !== null ? minValue : ''}" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Max Quantity *</label>
+                                <input type="number" name="max" min="1" value="${maxValue !== null ? maxValue : ''}">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Status</label>
+                            <select name="status">
+                                <option value="active"${service.status === 'active' ? ' selected' : ''}>Active</option>
+                                <option value="inactive"${service.status === 'inactive' ? ' selected' : ''}>Inactive</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Retail Rate per 1000 *</label>
-                    <input type="number" name="rate" step="0.0001" min="0" value="${formatNumberForInput(retailDisplayRate)}" required>
+
+                <div class="add-service-grid">
+                    <div class="add-service-card">
+                        <h4>Customer Portal</h4>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Show in Customer Portal</label>
+                                <select name="customerPortalEnabled">
+                                    <option value="false"${customerPortalEnabled ? '' : ' selected'}>Hidden from storefront</option>
+                                    <option value="true"${customerPortalEnabled ? ' selected' : ''}>Visible to customers</option>
+                                </select>
+                                <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
+                                <input type="number" name="customerPortalSlot" min="1" ${PORTAL_SLOT_MAX_ATTR} value="${customerPortalSlot !== null ? customerPortalSlot : ''}" placeholder="1">
+                                <small style="color: #94a3b8;">Controls ordering in the public dropdown.</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Customer Portal Notes</label>
+                            <textarea name="customerPortalNotes" rows="2" placeholder="Optional">${escapeHtml(customerPortalNotes)}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Description</h4>
+                        <div class="form-group">
+                            <textarea name="description" rows="4" placeholder="Optional">${escapeHtml(service.description || '')}</textarea>
+                        </div>
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Markup %</label>
-                    <input type="number" name="markup" step="0.01" value="${markupValue !== null ? markupValue : ''}">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Min Quantity *</label>
-                    <input type="number" name="min" min="1" value="${minValue !== null ? minValue : ''}" required>
-                </div>
-                <div class="form-group">
-                    <label>Max Quantity *</label>
-                    <input type="number" name="max" min="1" value="${maxValue !== null ? maxValue : ''}">
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Description</label>
-                <textarea name="description" rows="3" placeholder="Optional">${escapeHtml(service.description || '')}</textarea>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Show in Customer Portal</label>
-                    <select name="customerPortalEnabled">
-                        <option value="false"${customerPortalEnabled ? '' : ' selected'}>Hidden from storefront</option>
-                        <option value="true"${customerPortalEnabled ? ' selected' : ''}>Visible to customers</option>
-                    </select>
-                    <small style="color: #94a3b8;">${PORTAL_SLOT_LIMIT_MESSAGE}</small>
-                </div>
-                <div class="form-group">
-                    <label>Portal Slot (${PORTAL_SLOT_RANGE_LABEL})</label>
-                    <input type="number" name="customerPortalSlot" min="1" ${PORTAL_SLOT_MAX_ATTR} value="${customerPortalSlot !== null ? customerPortalSlot : ''}" placeholder="1">
-                    <small style="color: #94a3b8;">Controls ordering in the public dropdown.</small>
-                </div>
-            </div>
-            <div class="form-group">
-                <label>Customer Portal Notes</label>
-                <textarea name="customerPortalNotes" rows="2" placeholder="Optional">${escapeHtml(customerPortalNotes)}</textarea>
             </div>
         </form>
     `;
@@ -2651,3 +2826,81 @@ function onProviderChange(providerId) {
     // Optional: Could auto-clear or validate fields when provider changes
     console.log('Provider changed to:', providerId);
 }
+
+// Auto-fetch service details from provider API when service ID is entered
+async function autoFetchServiceDetails() {
+    const serviceIdInput = document.querySelector('#providerServiceIdInput');
+    const providerSelect = document.querySelector('#addServiceProviderSelect');
+    
+    if (!serviceIdInput || !providerSelect) return;
+    
+    const serviceId = serviceIdInput.value.trim();
+    const providerId = providerSelect.value;
+    
+    if (!serviceId || !providerId) return;
+    
+    try {
+        // Show loading indicator
+        serviceIdInput.disabled = true;
+        serviceIdInput.style.opacity = '0.5';
+        
+        // Fetch service details through backend proxy
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'fetch-service-details',
+                provider_id: providerId,
+                service_id: serviceId
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to fetch service details');
+        }
+        
+        const result = await response.json();
+        
+        if (!result.success || !result.service) {
+            throw new Error('Invalid response from server');
+        }
+        
+        const service = result.service;
+        
+        // Auto-fill form fields (excluding service name)
+        const providerRateInput = document.querySelector('input[name="providerRate"]');
+        const minInput = document.querySelector('input[name="min"]');
+        const maxInput = document.querySelector('input[name="max"]');
+        
+        if (providerRateInput && service.rate) {
+            providerRateInput.value = service.rate;
+        }
+        if (minInput && service.min) {
+            minInput.value = service.min;
+        }
+        if (maxInput && service.max) {
+            maxInput.value = service.max;
+        }
+        
+        // Trigger pricing calculation if available
+        const form = document.querySelector('#addServiceForm');
+        if (form && typeof updateMarkupForForm === 'function') {
+            updateMarkupForForm(form, { force: true });
+        }
+        
+        showNotification('Service details loaded successfully! ✓', 'success');
+        
+    } catch (error) {
+        console.error('Failed to fetch service details:', error);
+        showNotification(error.message || 'Failed to load service details', 'error');
+    } finally {
+        serviceIdInput.disabled = false;
+        serviceIdInput.style.opacity = '1';
+    }
+}
+

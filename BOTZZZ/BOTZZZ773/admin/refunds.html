@@ -3,8 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Payments - BOTZZZ773 Admin</title>
+    <title>Refunds - BOTZZZ773 Admin</title>
     <link rel="stylesheet" href="../css/admin-styles.css">
+            <style>
+                /* Refunds table column tweaks */
+                .admin-table th.col-reason, .admin-table td.col-reason {
+                    text-align: left;
+                    white-space: normal;
+                    word-break: break-word;
+                    min-width: 260px;
+                }
+                .admin-table td.col-source {
+                    white-space: nowrap;
+                }
+                /* Make table layout fixed so widths apply predictably */
+                #refundsTable { table-layout: fixed; width: 100%; }
+                /* Narrow some columns to free room for Reason */
+                .admin-table th:nth-child(1), .admin-table td:nth-child(1) { width: 44px; }
+                .admin-table th:nth-child(2), .admin-table td:nth-child(2) { width: 18%; }
+                .admin-table th:nth-child(3), .admin-table td:nth-child(3) { width: 12%; }
+                .admin-table th:nth-child(4), .admin-table td:nth-child(4) { width: 10%; }
+                /* Reason gets more space; Source stays compact */
+                .admin-table th:nth-child(6), .admin-table td:nth-child(6) { width: 22%; }
+                .admin-table th:nth-child(7), .admin-table td:nth-child(7) { width: 10%; }
+                .admin-table th:nth-child(8), .admin-table td:nth-child(8) { width: 11%; }
+                .admin-table th:nth-child(9), .admin-table td:nth-child(9) { width: 8%; }
+                .admin-table th:nth-child(10), .admin-table td:nth-child(10) { width: 7%; }
+            </style>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- Supabase JS Client for Real-time -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -31,10 +56,10 @@
     <link rel="apple-touch-icon" sizes="512x512" href="/img/icons/icon-512x512.png">
 
 </head>
-<body class="admin-body admin-payments-page">
+<body class="admin-body admin-refunds-page">
     <main class="lightbox-main">
         <div class="lightbox-panel" data-popup-surface>
-            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin payments window">
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin refunds window">
                 <span aria-hidden="true">&times;</span>
             </button>
 
@@ -47,7 +72,7 @@
         <div class="admin-header-right">
             <div class="admin-search">
                 <i class="fas fa-search"></i>
-                <input type="text" placeholder="Search by user..." id="paymentSearch">
+                <input type="text" placeholder="Kullanıcı veya order ara..." id="refundSearch">
             </div>
             <div class="admin-notifications">
                 <i class="fas fa-bell"></i>
@@ -98,11 +123,11 @@
                 <i class="fas fa-box"></i>
                 <span>Services</span>
             </a>
-            <a href="payments.html" class="admin-nav-item active">
+            <a href="payments.html" class="admin-nav-item">
                 <i class="fas fa-credit-card"></i>
                 <span>Payments</span>
             </a>
-            <a href="refunds.html" class="admin-nav-item">
+            <a href="refunds.html" class="admin-nav-item active">
                 <i class="fas fa-rotate-left"></i>
                 <span>Refunds</span>
             </a>
@@ -125,16 +150,10 @@
     <!-- Main Content -->
     <section class="admin-main" role="main">
         <div class="admin-page-header">
-            <h1>Payments</h1>
+            <h1>Refunds</h1>
             <div class="page-actions">
-                <button class="btn-secondary" onclick="openExportPaymentsModal()">
-                    <i class="fas fa-download"></i> Export
-                </button>
-                <button class="btn-danger" id="deleteSelectedPaymentsBtn" style="display:none;" onclick="deleteSelectedPayments()">
-                    <i class="fas fa-trash"></i> Delete Selected
-                </button>
-                <button class="btn-primary" onclick="addPayment()">
-                    <i class="fas fa-plus"></i> Add Payment
+                <button class="btn-secondary" onclick="refreshRefunds()">
+                    <i class="fas fa-rotate"></i> Yenile
                 </button>
             </div>
         </div>
@@ -142,35 +161,32 @@
         <div class="payments-layout no-quick-actions">
             <div class="payments-table-panel">
                 <div class="table-container">
-                    <table class="admin-table" id="paymentsTable">
+                    <table class="admin-table" id="refundsTable">
                         <thead>
                             <tr>
-                                <th><input type="checkbox" onclick="toggleAllPayments(this)" aria-label="Select all payments"></th>
+                                <th><input type="checkbox" onclick="toggleAllRefunds(this)" aria-label="Select all refunds"></th>
                                 <th>User</th>
-                                <th onclick="sortTable('balance')">Balance <i class="fas fa-sort"></i></th>
-                                <th onclick="sortTable('amount')">Amount <i class="fas fa-sort"></i></th>
-                                   <th>Payment Method</th>
+                                <th>Order ID</th>
+                                <th>Total Amount</th>
+                                <th>Amount</th>
+                                <th class="col-reason">Reason</th>
+                                <th>Source</th>
+                                <th>Created</th>
+                                <th>Refund Applied</th>
                                 <th>Status</th>
-                                <th>Fraud Risk</th>
-                                <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
-                                <th>Updated</th>
-                                <th>Mode</th>
-                                <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="paymentsTableBody">
-                            <!-- Payments will be loaded dynamically from database -->
+                        <tbody id="refundsTableBody">
+                            <!-- Refunds will be loaded dynamically -->
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- Pagination -->
+        <!-- Pagination placeholder (future) -->
         <div class="pagination">
-            <button class="btn-secondary" id="prevPage" disabled>Previous</button>
-            <span class="pagination-info" id="paginationInfo">Showing 0-0 of 0</span>
-            <button class="btn-secondary" id="nextPage">Next</button>
+            <span class="pagination-info" id="refundsPaginationInfo">Showing latest 500 refunds</span>
         </div>
     </section>
 
@@ -179,51 +195,8 @@
 
     <!-- BOTZZZ773 Core Scripts -->
     <script src="../js/admin.js"></script>
-    <script src="../js/admin-payments.js"></script>
+    <script src="../js/admin-refunds.js"></script>
     <script src="../js/botzzz773-realtime.js"></script>
-    
-    <!-- BOTZZZ773 Real-Time Integration -->
-    <script>
-        (function() {
-            'use strict';
-            
-            console.log('[BOTZZZ773] Admin Payments real-time loading...');
-            
-            // Wait for Supabase ready
-            document.addEventListener('supabase:ready', function() {
-                if (typeof BOTZZZ773Realtime === 'undefined') {
-                    console.warn('[BOTZZZ773] Realtime module not found');
-                    return;
-                }
-                
-                // Initialize real-time
-                BOTZZZ773Realtime.init().then(function() {
-                    console.log('[BOTZZZ773] Admin Payments real-time connected');
-                    
-                    // Subscribe to payment updates
-                    BOTZZZ773Realtime.subscribeToPayments(function(data) {
-                        console.log('[BOTZZZ773 Payments] Update:', data.type, data.record?.id);
-                        if (typeof loadPayments === 'function') {
-                            loadPayments();
-                        }
-                    });
-                    
-                    // Handle completed payments
-                    BOTZZZ773Realtime.on('payments:completed', function(data) {
-                        console.log('[BOTZZZ773 Payments] COMPLETED:', data.record?.transaction_id);
-                    });
-                    
-                    // Handle failed payments
-                    BOTZZZ773Realtime.on('payments:failed', function(data) {
-                        console.log('[BOTZZZ773 Payments] FAILED:', data.record?.transaction_id);
-                    });
-                }).catch(function(err) {
-                    console.warn('[BOTZZZ773] Payments real-time error:', err);
-                });
-            });
-        })();
-    </script>
-    
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

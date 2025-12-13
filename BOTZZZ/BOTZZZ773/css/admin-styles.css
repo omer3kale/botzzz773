@@ -2612,6 +2612,40 @@ body.sidebar-collapsed .admin-main {
     padding: 8px 16px !important; /* More compact */
 }
 
+/* Add Service modal layout */
+.add-service-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.add-service-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.add-service-card {
+    background: var(--admin-darker-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.add-service-card h4 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: var(--admin-light-text);
+    letter-spacing: 0.01em;
+}
+
+.add-service-inline {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+}
+
 .settings-form {
     display: flex;
     flex-direction: column;

@@ -16,6 +16,9 @@
 [dev]
   framework = "#static"
   port = 8888
+  functions = "netlify/functions"
+  publish = "."
+  targetPort = 3999
 
 # API v2 endpoint - JSON endpoint for providers (main endpoint)
 [[redirects]]
@@ -73,6 +76,10 @@
 # Order status sync - runs every 10 minutes
 [functions.order-status-sync]
   schedule = "*/10 * * * *"
+
+# Provider service sync - hourly to refresh prices with markup preserved
+[functions.sync-service-catalog]
+  schedule = "0 */3 * * *"
 
 # Security headers
 [[headers]]

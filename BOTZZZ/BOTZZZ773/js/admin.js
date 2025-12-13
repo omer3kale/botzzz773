@@ -168,6 +168,33 @@ const adminNetworkNotice = (() => {
     if (typeof window === 'undefined') {
         return;
     }
+    // ===== Admin-only navigation visibility =====
+    function getUserRoleFromToken() {
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) return null;
+            const parts = token.split('.');
+            if (parts.length !== 3) return null;
+            const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+            return payload.role || payload.userRole || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function enforceAdminNavVisibility() {
+        const role = getUserRoleFromToken();
+        const refundsLink = document.querySelector('a.admin-nav-item[href="refunds.html"]');
+        if (!refundsLink) return;
+        if (role !== 'admin') {
+            refundsLink.style.display = 'none';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        try { enforceAdminNavVisibility(); } catch (e) {}
+    });
+
 
     let lastFailureToast = 0;
     const failureCooldownMs = 7000;

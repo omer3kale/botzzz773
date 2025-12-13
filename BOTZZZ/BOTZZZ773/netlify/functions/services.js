@@ -874,7 +874,7 @@ async function handleCreateService(user, data, headers) {
   const adminApprovedFlag = adminApprovalRaw !== undefined ? toBooleanFlag(adminApprovalRaw) : false;
   const adminVisibilityNotesValue = admin_visibility_notes ?? adminVisibilityNotes ?? null;
   const adminApprovedAtValue = adminApprovedFlag ? new Date().toISOString() : null;
-  const adminApprovedByValue = adminApprovedFlag ? (user.userId || null) : null;
+  const adminApprovedByValue = adminApprovedFlag ? (user.id || null) : null;
   const customerPortalEnabledRaw = customer_portal_enabled ?? customerPortalEnabled;
   const customerPortalEnabledFlag = customerPortalEnabledRaw !== undefined ? toBooleanFlag(customerPortalEnabledRaw) : false;
   const customerPortalSlotValue = toNumberOrNull(customer_portal_slot ?? customerPortalSlot);
@@ -925,7 +925,10 @@ async function handleCreateService(user, data, headers) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create service' })
+        body: JSON.stringify({ 
+          error: 'Failed to create service',
+          details: error.message || error.hint || 'Unknown database error'
+        })
       };
     }
 

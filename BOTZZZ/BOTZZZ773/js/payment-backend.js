@@ -147,6 +147,10 @@ function formatMethod(method) {
             return 'Payeer';
         case 'stripe':
             return 'Stripe';
+        case 'cryptomus':
+            return 'Cryptomus';
+        case 'heleket':
+            return 'Heleket';
         case 'refund':
             return 'Refund';
         case 'crypto':
@@ -190,13 +194,15 @@ function formatDate(dateString) {
     }
 
     const pad = (value) => String(value).padStart(2, '0');
-    const day = pad(date.getDate());
-    const month = pad(date.getMonth() + 1);
     const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
     const hours = pad(date.getHours());
     const minutes = pad(date.getMinutes());
+    const seconds = pad(date.getSeconds());
 
-    return `${day}.${month}.${year} ${hours}.${minutes}`;
+    // Desired format: YYYY-MM-DD HH:MM:SS
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 function capitalizeFirst(str = '') {

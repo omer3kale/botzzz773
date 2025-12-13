@@ -1,3 +1,27 @@
+// Admin-only: delete a payment by id
+async function handleAdminDeletePayment(user, body, headers) {
+  if (!user || user.role !== 'admin') {
+    return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Admin access required' }) };
+  }
+  try {
+    const { paymentId } = body || {};
+    if (!paymentId) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'paymentId required' }) };
+    }
+    const { data, error } = await supabase
+      .from('payments')
+      .delete()
+      .eq('id', paymentId)
+      .select();
+    if (error) {
+      return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message }) };
+    }
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true, deleted: (data || []).length }) };
+  } catch (e) {
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: e.message }) };
+  }
+}
+
 // Payments API - Process Payments, Add Balance
 const { supabase, supabaseAdmin } = require('./utils/supabase');
 const { withRateLimit } = require('./utils/rate-limit');
@@ -108,6 +132,15 @@ const baseHandler = async (event) => {
         return await handleWebhook(event, headers);
       case 'history':
         return await handleGetHistory(user, headers);
+      case 'refunds-history':
+        if (user.role !== 'admin') {
+          return {
+            statusCode: 403,
+            headers,
+            body: JSON.stringify({ error: 'Admin access required' })
+          };
+        }
+        return await handleGetRefundHistory(headers);
       case 'export':
         // Admin-only action
         if (user.role !== 'admin') {
@@ -452,6 +485,87 @@ async function handleGetHistory(user, headers) {
     };
   } catch (error) {
     console.error('Get payment history error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleGetRefundHistory(headers) {
+  try {
+    const { data: refunds, error } = await supabaseAdmin
+      .from('payments')
+      .select('*')
+      .eq('method', 'refund')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      console.error('Get refund history error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch refund history' })
+      };
+    }
+
+    const orderIds = Array.from(new Set((refunds || []).map(refund => refund.order_id).filter(Boolean)));
+    const orderMap = {};
+
+    if (orderIds.length > 0) {
+      const { data: orders, error: ordersError } = await supabaseAdmin
+        .from('orders')
+        .select('id, order_number, order_reference, customer_order_number, public_id, canceled_at, refund_applied_at')
+        .in('id', orderIds);
+
+      if (ordersError) {
+        console.warn('Refunds: failed to hydrate orders metadata:', ordersError);
+      } else {
+        (orders || []).forEach(order => {
+          orderMap[order.id] = order;
+        });
+      }
+    }
+
+    // Count how many refunds exist per order to surface in UI
+    const refundCountMap = {};
+    (refunds || []).forEach(refund => {
+      const key = refund.order_id || refund.order_number || refund.transaction_id || 'unknown';
+      refundCountMap[key] = (refundCountMap[key] || 0) + 1;
+    });
+
+    const enrichedRefunds = (refunds || []).map(refund => {
+      const orderInfo = orderMap[refund.order_id] || {};
+      const memoNumber = (refund.memo || '').match(/\b(\d{6,})\b/);
+      const orderNumber = orderInfo.order_number
+        || orderInfo.customer_order_number
+        || orderInfo.order_reference
+        || orderInfo.public_id
+        || refund.gateway_response?.order_number
+        || refund.gateway_response?.orderNumber
+        || refund.order_number
+        || (memoNumber ? memoNumber[1] : null)
+        || refund.order_id
+        || null;
+      const countKey = refund.order_id || orderNumber || refund.transaction_id || 'unknown';
+      return {
+        ...refund,
+        order_number: orderNumber,
+        canceled_at: orderInfo.canceled_at || null,
+        refund_applied_at: orderInfo.refund_applied_at || null,
+        refund_count_for_order: refundCountMap[countKey] || 1
+      };
+    });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ refunds: enrichedRefunds })
+    };
+  } catch (error) {
+    console.error('Get refund history error:', error);
     return {
       statusCode: 500,
       headers,

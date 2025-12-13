@@ -51,7 +51,7 @@
             </div>
 
             <nav class="sidebar-nav">
-                <a href="dashboard.html" class="sidebar-link active">
+                <a href="dashboard.html" class="sidebar-link active" id="dashboardLink">
                     <span class="sidebar-link-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <rect x="3" y="3" width="7" height="7"/>
@@ -218,31 +218,7 @@
             </nav>
 
             <div class="sidebar-footer">
-                <button class="btn-logout" id="logoutBtn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                        <polyline points="16 17 21 12 16 7"/>
-                        <line x1="21" y1="12" x2="9" y2="12"/>
-                    </svg>
-                    <span>Logout</span>
-                </button>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <section class="dashboard-main" role="region" aria-label="Customer dashboard workspace">
-            <!-- Top Bar -->
-            <div class="dashboard-topbar">
-                <div class="topbar-left">
-                    <button class="mobile-menu-toggle" id="mobileMenuToggle">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </button>
-                    <h1 class="dashboard-title">New Order</h1>
-                </div>
-                
-                <div class="topbar-right">
+                <div class="sidebar-footer-top">
                     <div class="balance-display">
                         <span class="balance-amount" id="balanceAmount">$0.00</span>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -262,6 +238,30 @@
                         </div>
                     </div>
                 </div>
+                <button class="btn-logout" id="logoutBtn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                        <polyline points="16 17 21 12 16 7"/>
+                        <line x1="21" y1="12" x2="9" y2="12"/>
+                    </svg>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <section class="dashboard-main" role="region" aria-label="Customer dashboard workspace">
+            <!-- Top Bar (Hidden) -->
+            <div class="dashboard-topbar" style="display: none;">
+                <div class="topbar-left">
+                    <button class="mobile-menu-toggle" id="mobileMenuToggle">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
+                </div>
+                
+                <div class="topbar-right"></div>
             </div>
 
             <!-- Dashboard Content -->
@@ -382,16 +382,6 @@
             <!-- Orders View (Hidden by default) -->
             <div class="orders-view hidden" id="ordersView">
                 <div class="orders-header">
-                    <div class="order-filters">
-                        <button class="filter-btn active" data-filter="all">All</button>
-                        <button class="filter-btn" data-filter="pending">Pending</button>
-                        <button class="filter-btn" data-filter="in-progress">In Progress</button>
-                        <button class="filter-btn" data-filter="completed">Completed</button>
-                        <button class="filter-btn" data-filter="partial">Partial</button>
-                        <button class="filter-btn" data-filter="processing">Processing</button>
-                        <button class="filter-btn" data-filter="canceled">Canceled</button>
-                    </div>
-                    
                     <div class="order-search">
                         <input 
                             type="text" 
@@ -427,6 +417,7 @@
                                 <th>Charge</th>
                                 <th>Start Count</th>
                                 <th>Quantity</th>
+                                <th>Service</th>
                                 <th>Status</th>
                                 <th>Remains</th>
                             </tr>
@@ -454,15 +445,7 @@
                         <h2>Payment History</h2>
                         <p>Track your deposits and payment transactions</p>
                     </div>
-                    <button class="btn-secondary" id="refreshPaymentsBtn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="23 4 23 10 17 10"/>
-                            <polyline points="1 20 1 14 7 14"/>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
-                            <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
-                        </svg>
-                        Refresh
-                    </button>
+                    <!-- Refresh button removed: auto-polling handles updates -->
                 </div>
 
                 <div class="payments-card">

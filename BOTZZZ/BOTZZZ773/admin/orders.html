@@ -97,10 +97,6 @@
                 <i class="fas fa-shopping-cart"></i>
                 <span>Orders</span>
             </a>
-            <a href="link-management.html" class="admin-nav-item">
-                <i class="fas fa-link"></i>
-                <span>Link Management</span>
-            </a>
             <a href="services.html" class="admin-nav-item">
                 <i class="fas fa-box"></i>
                 <span>Services</span>
@@ -108,6 +104,10 @@
             <a href="payments.html" class="admin-nav-item">
                 <i class="fas fa-credit-card"></i>
                 <span>Payments</span>
+            </a>
+            <a href="refunds.html" class="admin-nav-item">
+                <i class="fas fa-rotate-left"></i>
+                <span>Refunds</span>
             </a>
             <a href="tickets.html" class="admin-nav-item">
                 <i class="fas fa-ticket-alt"></i>
@@ -234,6 +234,9 @@
             <div class="sync-actions" id="ordersSelectedActions" style="display:none; gap: 8px;">
                 <button class="btn-secondary" onclick="bulkResendSelectedOrders()">
                     <i class="fas fa-redo"></i> Resend Selected
+                </button>
+                <button class="btn-secondary danger" onclick="bulkCancelSelectedOrders()">
+                    <i class="fas fa-ban"></i> Cancel & Refund Selected
                 </button>
                 <button class="btn-secondary danger" onclick="bulkDeleteSelectedOrders()">
                     <i class="fas fa-trash"></i> Delete Selected

@@ -34,6 +34,11 @@ function toRate(value) {
   return rounded;
 }
 
+function toPercent(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function toQuantity(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -210,7 +215,7 @@ async function syncProviderServices(provider, options = {}) {
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
-    .select('id, provider_service_id, status')
+    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name')
     .eq('provider_id', provider.id);
 
   if (existingError) {
@@ -288,8 +293,19 @@ async function syncProviderServices(provider, options = {}) {
       basePayload.provider_rate = providerCost;
     }
 
+    const existing = existingMap.get(serviceKey);
+    const serviceMarkupOverride = existing ? toPercent(existing.markup_percentage) : null;
+
     let pricingResult = null;
-    if (providerCost !== null && pricingEngine) {
+    let retailRate = null;
+
+    if (providerCost !== null && serviceMarkupOverride !== null) {
+      // Respect per-service markup override: Retail = Provider * (1 + markup/100)
+      retailRate = Number((providerCost * (1 + serviceMarkupOverride / 100)).toFixed(4));
+      basePayload.markup_percentage = serviceMarkupOverride;
+      basePayload.pricing_rule_id = null;
+      basePayload.pricing_last_applied_at = null;
+    } else if (providerCost !== null && pricingEngine) {
       try {
         pricingResult = pricingEngine.calculate({
           providerId: provider.id,
@@ -300,27 +316,46 @@ async function syncProviderServices(provider, options = {}) {
       } catch (pricingError) {
         console.error('[SERVICE SYNC] Pricing engine calculation failed:', pricingError);
       }
+
+      if (pricingResult) {
+        retailRate = pricingResult.retailRate;
+        basePayload.markup_percentage = pricingResult.markupPercentage;
+        basePayload.pricing_rule_id = pricingResult.ruleId;
+        basePayload.pricing_last_applied_at = new Date().toISOString();
+      }
     }
 
-    if (pricingResult) {
-      basePayload.rate = pricingResult.retailRate;
-      basePayload.retail_rate = pricingResult.retailRate;
-      basePayload.markup_percentage = pricingResult.markupPercentage;
-      basePayload.pricing_rule_id = pricingResult.ruleId;
-      basePayload.pricing_last_applied_at = new Date().toISOString();
-    } else if (providerCost !== null) {
-      basePayload.rate = providerCost;
-      basePayload.retail_rate = providerCost;
-      if (provider.markup !== undefined && provider.markup !== null) {
-        const numericMarkup = Number(provider.markup);
-        if (Number.isFinite(numericMarkup)) {
-          basePayload.markup_percentage = numericMarkup;
+    if (retailRate === null && providerCost !== null) {
+      retailRate = providerCost;
+      basePayload.pricing_rule_id = basePayload.pricing_rule_id || null;
+      basePayload.pricing_last_applied_at = basePayload.pricing_last_applied_at || null;
+      if (basePayload.markup_percentage === undefined || basePayload.markup_percentage === null) {
+        if (provider.markup !== undefined && provider.markup !== null) {
+          const numericMarkup = Number(provider.markup);
+          if (Number.isFinite(numericMarkup)) {
+            basePayload.markup_percentage = numericMarkup;
+          }
         }
       }
     }
 
-    const existing = existingMap.get(serviceKey);
+    if (retailRate !== null) {
+      basePayload.rate = retailRate;
+      basePayload.retail_rate = retailRate;
+    }
     if (existing) {
+      // Preserve admin-customized service name
+      const existingName = existing.name ? String(existing.name).trim() : '';
+      if (existingName) {
+        basePayload.name = existing.name;
+      }
+
+      // Detect price changes before updating
+      const prevProviderRate = toRate(existing.provider_rate);
+      const prevRetailRate = toRate(existing.rate);
+      const newProviderRate = toRate(basePayload.provider_rate);
+      const newRetailRate = toRate(basePayload.rate);
+
       const { error: updateError } = await supabaseAdmin
         .from('services')
         .update(basePayload)
@@ -340,37 +375,33 @@ async function syncProviderServices(provider, options = {}) {
         }
       } else {
         updated += 1;
+
+        // If price changed, log it
+        const providerChanged = prevProviderRate !== newProviderRate;
+        const retailChanged = prevRetailRate !== newRetailRate;
+        if ((providerChanged || retailChanged) && newProviderRate !== null && newRetailRate !== null) {
+          const { error: logError } = await supabaseAdmin
+            .from('price_change_logs')
+            .insert({
+              service_id: existing.id,
+              provider_id: provider.id,
+              provider_service_id: serviceKey,
+              old_provider_rate: prevProviderRate,
+              new_provider_rate: newProviderRate,
+              old_retail_rate: prevRetailRate,
+              new_retail_rate: newRetailRate,
+              markup_used: basePayload.markup_percentage,
+              detected_at: new Date().toISOString()
+            });
+
+          if (logError) {
+            console.error('[SERVICE SYNC] Failed to log price change for service', existing.id, logError);
+          }
+        }
       }
     } else {
-      const insertPayload = {
-        ...basePayload,
-        provider_id: provider.id,
-        provider_service_id: truncateString(serviceKey, 50),
-        min_quantity: basePayload.min_quantity ?? 10,
-        max_quantity: basePayload.max_quantity,
-        rate: basePayload.rate ?? 1,
-        status: basePayload.status || 'active'
-      };
-
-      const { error: insertError } = await supabaseAdmin
-        .from('services')
-        .insert(insertPayload);
-
-      if (insertError) {
-        console.error('[SERVICE SYNC] Failed to insert service', serviceKey, insertError);
-        if (insertError && insertError.code === 'PGRST102' && loggedFailedPayloads < MAX_LOG_FAILED) {
-          try {
-            console.error('[SERVICE SYNC] Failed insert payload (sanitized):', JSON.stringify(insertPayload.provider_metadata));
-          } catch (e) {
-            console.error('[SERVICE SYNC] Failed insert payload (sanitized) cannot be stringified');
-          }
-          // persist the failing sanitized payload for offline inspection
-          try { appendFailedPayload(provider.id, serviceKey, insertPayload.provider_metadata, 'insert'); } catch (_) {}
-          loggedFailedPayloads += 1;
-        }
-      } else {
-        added += 1;
-      }
+      // Do NOT auto-insert missing services; we only update existing mapped services
+      continue;
     }
   }
 

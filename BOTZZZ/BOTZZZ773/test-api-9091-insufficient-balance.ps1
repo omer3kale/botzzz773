@@ -1,14 +1,14 @@
-# Test Scenario: Service 9091 (royalsmmworld.com) with provider_service_id=1073
+# Test Scenario: Service 9161 (royalsmmworld.com) with provider_service_id=1073
 # Provider insufficient balance test
 # -----------------------------------------------
 
 $API_BASE_URL = "http://localhost:8888/.netlify/functions/v2"
 $API_KEY = "sk_be2b83b5836ab8c56e413093f7e8b20c975fffa88478ea1ec6876d1b215751ae"
 
-Write-Host "`n=== Service 9091 Test (royalsmmworld.com) ===" -ForegroundColor Cyan
+Write-Host "`n=== Service 9161 Test (royalsmmworld.com) ===" -ForegroundColor Cyan
 Write-Host "Provider Service ID: 1073" -ForegroundColor Yellow
 
-$testServiceId = "9091"
+$testServiceId = "9161"
 $testQuantity = 50
 
 Write-Host "Service ID: $testServiceId" -ForegroundColor Yellow
@@ -30,10 +30,10 @@ try {
     exit 1
 }
 
-Write-Host "`n=== Siparis Olustur (Service 9091) ===" -ForegroundColor Cyan
+Write-Host "`n=== Siparis Olustur (Service 9161) ===" -ForegroundColor Cyan
 Write-Host "Provider: royalsmmworld.com (provider_service_id=1073)" -ForegroundColor Yellow
 
-$testLink = "https://instagram.com/test_$(Get-Random -Minimum 1000 -Maximum 9999)"
+$testLink = "https://t.me/doskazpozorayakutii/1205"
 
 $orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
 

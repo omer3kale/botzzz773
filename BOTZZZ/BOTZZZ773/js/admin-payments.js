@@ -206,32 +206,38 @@ function updateSelectedPaymentsSummary() {
     const countEl = document.getElementById('selectedPaymentsCount');
     const detailEl = document.getElementById('selectedPaymentsDetail');
     const cardEl = document.getElementById('selectedPaymentsCard');
-
-    if (!countEl || !detailEl || !cardEl) {
-        return;
-    }
+    const deleteBtn = document.getElementById('deleteSelectedPaymentsBtn');
 
     const count = selectedPaymentIds.size;
-    countEl.textContent = `${count} selected`;
 
-    if (count === 0) {
-        detailEl.textContent = 'Choose payouts to review memos or flag risk before posting.';
-    } else {
-        const labels = [];
-        selectedPaymentIds.forEach(id => {
-            const payment = getPaymentById(id);
-            const label = getPaymentDisplayLabel(payment);
-            if (label) {
-                labels.push(label);
-            }
-        });
-        const preview = labels.slice(0, 2).join(', ');
-        const overflow = labels.length > 2 ? ` +${labels.length - 2}` : '';
-        detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+    if (countEl) {
+        countEl.textContent = `${count} selected`;
+    }
+    if (detailEl) {
+        if (count === 0) {
+            detailEl.textContent = 'Choose payouts to review memos or flag risk before posting.';
+        } else {
+            const labels = [];
+            selectedPaymentIds.forEach(id => {
+                const payment = getPaymentById(id);
+                const label = getPaymentDisplayLabel(payment);
+                if (label) {
+                    labels.push(label);
+                }
+            });
+            const preview = labels.slice(0, 2).join(', ');
+            const overflow = labels.length > 2 ? ` +${labels.length - 2}` : '';
+            detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
+        }
     }
 
-    cardEl.classList.toggle('is-active', count > 0);
-    cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
+    if (cardEl) {
+        cardEl.classList.toggle('is-active', count > 0);
+        cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
+    }
+    if (deleteBtn) {
+        deleteBtn.style.display = count > 0 ? 'inline-flex' : 'none';
+    }
     syncPaymentsMasterToggleState();
 }
 
@@ -677,28 +683,30 @@ async function loadPayments() {
                 const statusKey = (payment.status || '').toLowerCase();
                 const statusClass = statusKey === 'completed' ? 'completed' : statusKey === 'pending' ? 'pending' : statusKey === 'failed' ? 'failed' : 'refunded';
                 const statusLabel = payment.status ? payment.status.charAt(0).toUpperCase() + payment.status.slice(1) : 'Unknown';
-                const memo = payment.memo ? escapeHtml(payment.memo) : '-';
                 const ariaLabel = `Select payment ${paymentIdRaw || 'without id'} for ${userLabel}`;
                 const modeLabel = payment.gateway_response?.manual ? 'Manual' : 'Live';
-                const methodOptions = ['adjustment', 'payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
-                    .map(method => `<option value="${method}"${payment.method === method ? ' selected' : ''}>${method.charAt(0).toUpperCase() + method.slice(1)}</option>`)
-                    .join('');
+                const validMethods = ['adjustment', 'payeer', 'cryptomus', 'heleket'];
+                const methodValue = typeof payment.method === 'string' && validMethods.includes(payment.method.toLowerCase())
+                    ? payment.method.toLowerCase()
+                    : 'other';
+                const methodLabelMap = {
+                    adjustment: 'Adjustment',
+                    payeer: 'Payeer',
+                    cryptomus: 'Cryptomus',
+                    heleket: 'Heleket',
+                    other: 'Other'
+                };
+                const methodLabel = methodLabelMap[methodValue] || 'Other';
 
                 const row = `
                     <tr data-payment-id="${paymentIdAttr}">
                         <td><input type="checkbox" class="payment-checkbox" data-payment-id="${paymentIdAttr}" aria-label="${escapeHtml(ariaLabel)}"></td>
-                        <td>${escapeHtml(paymentIdRaw)}</td>
                         <td>${escapeHtml(userLabel)}</td>
                         <td>${balanceDisplay}</td>
                         <td>${amountDisplay}</td>
-                        <td>
-                            <select class="inline-select" data-payment-id="${paymentIdAttr}" onchange="updatePaymentMethod(this.dataset.paymentId, this.value)">
-                                ${methodOptions}
-                            </select>
-                        </td>
+                        <td><span class="method-badge" title="Kullanılan ödeme yöntemi">${escapeHtml(methodLabel)}</span></td>
                         <td><span class="status-badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
-                        <td><span class="risk-badge low">Low</span></td>
-                        <td>${memo}</td>
+                         <td><span class="risk-badge low">Low</span></td>
                         <td>${escapeHtml(createdDate)}</td>
                         <td>${escapeHtml(updatedDate)}</td>
                         <td>${escapeHtml(modeLabel)}</td>
@@ -739,6 +747,42 @@ async function loadPayments() {
         }
     }
 }
+
+// Bulk delete selected payments (admin-only)
+async function deleteSelectedPayments() {
+    if (selectedPaymentIds.size === 0) {
+        showNotification('Select payments to delete first', 'error');
+        return;
+    }
+    const confirmDelete = confirm(`Delete ${selectedPaymentIds.size} selected payment(s)? This cannot be undone.`);
+    if (!confirmDelete) return;
+    const token = localStorage.getItem('token');
+    const ids = Array.from(selectedPaymentIds);
+    let successCount = 0;
+    for (const id of ids) {
+        try {
+            const response = await fetch('/.netlify/functions/payments', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ action: 'admin-delete-payment', paymentId: id })
+            });
+            const data = await response.json();
+            if (data.success) {
+                successCount++;
+            }
+        } catch (e) {}
+    }
+    const msg = `${successCount} payment(s) deleted`;
+    showNotification(msg, successCount > 0 ? 'success' : 'error');
+    // Refresh table
+    selectedPaymentIds.clear();
+    await loadPayments();
+}
+
+// bottom-right toast removed per preference; using top-right notification only
 
 // Toggle payment actions dropdown menu
 function togglePaymentActionsMenu(button) {

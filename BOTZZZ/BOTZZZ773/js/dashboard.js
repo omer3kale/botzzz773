@@ -179,6 +179,13 @@
         return div.innerHTML;
     }
 
+    // Numeric helper used by orders rendering
+    function toNumeric(value) {
+        if (value === undefined || value === null) return null;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    }
+
     function resolveOrderDisplayLabel(order = {}) {
         if (order.order_number !== undefined && order.order_number !== null && String(order.order_number).trim().length > 0) {
             return `#${String(order.order_number).trim()}`;
@@ -678,6 +685,9 @@
                 });
                 
                 console.log('[DASHBOARD] Filtered customer services:', customerServices.length);
+                
+                // Store all services in global cache for order display
+                window.servicesCache = services;
 
                 if (customerServices.length > 0) {
                     // Categorize services
@@ -1074,7 +1084,7 @@
     // ORDERS VIEW
     // ==========================================
     const ordersLink = document.getElementById('ordersLink');
-    const dashboardLink = document.querySelector('.sidebar-link[href="dashboard.html"]');
+    const dashboardLink = document.getElementById('dashboardLink');
     const dashboardContent = document.getElementById('dashboardContent');
     const ordersView = document.getElementById('ordersView');
     const liveOrderStatus = document.getElementById('liveOrderStatus');
@@ -1479,6 +1489,13 @@
             loadOrders({ reason: 'orders-sidebar' });
         });
     }
+    
+    if (dashboardLink) {
+        dashboardLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showDashboardView();
+        });
+    }
 
     if (refreshOrdersBtn) {
         refreshOrdersBtn.addEventListener('click', () => {
@@ -1694,7 +1711,19 @@
                     <span class="order-id-primary">${escapeHtml(orderLabel)}</span>
                 </div>
             `;
-            const createdAt = order.created_at ? new Date(order.created_at).toLocaleDateString() : '—';
+            const createdAt = (function () {
+                if (!order.created_at) return '—';
+                const d = new Date(order.created_at);
+                if (Number.isNaN(d.getTime())) return '—';
+                const pad = v => String(v).padStart(2, '0');
+                const y = d.getFullYear();
+                const m = pad(d.getMonth() + 1);
+                const day = pad(d.getDate());
+                const hh = pad(d.getHours());
+                const mm = pad(d.getMinutes());
+                const ss = pad(d.getSeconds());
+                return `${y}-${m}-${day} ${hh}:${mm}:${ss}`;
+            })();
             const orderLink = typeof order.link === 'string' && order.link.trim().length > 0
                 ? order.link.trim()
                 : null;
@@ -1714,6 +1743,22 @@
             const quantity = Number.isFinite(Number(order.quantity))
                 ? Number(order.quantity)
                 : 0;
+            
+            // Find service public_id from services cache if available
+            let servicePublicId = null;
+            const serviceName = order.service?.name || order.service_name || 'Service';
+            
+            if (order.service?.id && window.servicesCache) {
+                const cachedService = window.servicesCache.find(s => s.id === order.service.id);
+                if (cachedService && cachedService.public_id) {
+                    servicePublicId = cachedService.public_id;
+                }
+            }
+            
+            const serviceBadge = servicePublicId
+                ? `#${servicePublicId} · ${escapeHtml(serviceName)}`
+                : `${escapeHtml(serviceName)}`;
+            
             const customerStatus = buildCustomerFacingStatus(order);
             const statusKey = customerStatus.key;
             const statusLabel = customerStatus.label;
@@ -1730,6 +1775,7 @@
                     <td>${chargeDisplay}</td>
                     <td>${escapeHtml(order.start_count || 0)}</td>
                     <td>${escapeHtml(quantity)}</td>
+                    <td>${serviceBadge}</td>
                     <td>
                         <div class="status-cell">
                             <span class="status-badge status-${statusKey}">${escapeHtml(statusLabel)}</span>
@@ -1834,14 +1880,17 @@
 
         paymentsTableBody.innerHTML = payments.map(payment => {
             const timestamp = payment.created_at ? new Date(payment.created_at) : null;
-            const date = timestamp && !Number.isNaN(timestamp.getTime())
-                ? timestamp.toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                })
+            const date = (timestamp && !Number.isNaN(timestamp.getTime()))
+                ? (function () {
+                    const pad = (v) => String(v).padStart(2, '0');
+                    const y = timestamp.getFullYear();
+                    const m = pad(timestamp.getMonth() + 1);
+                    const d = pad(timestamp.getDate());
+                    const hh = pad(timestamp.getHours());
+                    const mm = pad(timestamp.getMinutes());
+                    const ss = pad(timestamp.getSeconds());
+                    return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+                })()
                 : '—';
 
             const amountValue = Number(payment.amount || 0);
@@ -1889,6 +1938,10 @@
                 return 'Payeer';
             case 'stripe':
                 return 'Stripe';
+            case 'cryptomus':
+                return 'Cryptomus';
+            case 'heleket':
+                return 'Heleket';
             case 'refund':
                 return 'Refund';
             case 'manual':
@@ -1930,12 +1983,7 @@
         });
     }
 
-    // Refresh payments button
-    if (refreshPaymentsBtn) {
-        refreshPaymentsBtn.addEventListener('click', () => {
-            loadPayments();
-        });
-    }
+    // Refresh button removed; payments auto-refresh via events
 
     // Initialize
     updateUserDisplay();

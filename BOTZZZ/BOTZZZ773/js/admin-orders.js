@@ -276,7 +276,16 @@ function extractOrderData(order) {
     }
 
     // Extract service - check multiple possible property names
-    const orderService = order.service || order.services || null;
+    let orderService = order.service || order.services || null;
+    
+    // If service doesn't have public_id, try to get it from servicesCache
+    if (orderService && !orderService.public_id && (orderService.id || orderService.service_id)) {
+        const serviceId = orderService.id || orderService.service_id;
+        const cachedService = servicesCache.find(s => s.id === serviceId);
+        if (cachedService && cachedService.public_id) {
+            orderService = { ...orderService, public_id: cachedService.public_id };
+        }
+    }
     
     // Extract user - check multiple possible property names
     const orderUser = order.user || order.users || null;
@@ -2502,6 +2511,9 @@ async function loadOrders({ skipSync = false } = {}) {
     tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</td></tr>';
 
     try {
+        // Load services cache first so public_ids are available
+        await getServicesOptions();
+        
         if (!skipSync) {
             console.log('[ORDERS] Syncing order statuses first...');
             await syncOrderStatuses({ silent: true });
@@ -2693,7 +2705,7 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>${linkMarkup}</td>
                         <td>${escapeHtml(String(startCount))}</td>
                         <td>${escapeHtml(String(quantity))}</td>
-                        <td>${escapeHtml(orderService?.name || 'Unknown Service')}</td>
+                        <td><span class="service-label">#${escapeHtml(orderService?.public_id || '?')} · ${escapeHtml(orderService?.name || 'Unknown Service')}</span></td>
                         <td>
                             <div class="cell-stack">
                                 <span class="status-badge ${orderStatusKey}">${escapeHtml(orderStatusLabel)}</span>
@@ -3177,6 +3189,50 @@ async function bulkResendSelectedOrders() {
     }
 }
 
+async function bulkCancelSelectedOrders() {
+    const resolvedOrders = getSelectedOrders();
+    if (resolvedOrders.length === 0) {
+        showNotification('İptal edilecek sipariş bulunamadı. Lütfen tekrar seçin.', 'error');
+        return;
+    }
+
+    const confirmationLines = [
+        `${resolvedOrders.length} siparişi iptal edip iade etmek istediğinize emin misiniz?`,
+        'Her sipariş için bakiye iade edilecektir.',
+        'Bu işlem geri alınamaz.'
+    ];
+
+    if (!confirm(confirmationLines.join('\n\n'))) {
+        return;
+    }
+
+    const results = { success: [], failed: [] };
+    syncBulkActionControls({ loading: true, forceMessage: `Cancelling ${resolvedOrders.length} orders...` });
+
+    try {
+        for (const order of resolvedOrders) {
+            try {
+                await submitOrderCancel(order.id || order.order_id || order.orderId);
+                results.success.push(order);
+            } catch (error) {
+                results.failed.push({ order, message: error.message || 'Unknown error' });
+            }
+        }
+
+        if (results.success.length > 0 && results.failed.length === 0) {
+            showNotification(`${results.success.length} sipariş iptal edildi ve iade yapıldı.`, 'success');
+        } else if (results.success.length > 0) {
+            showNotification(`${results.success.length} iptal edildi, ${results.failed.length} başarısız.`, 'warning');
+        } else {
+            showNotification('Seçili siparişler iptal edilemedi.', 'error');
+        }
+
+        refreshOrdersAfterAdminChange();
+    } finally {
+        syncBulkActionControls();
+    }
+}
+
 async function bulkDeleteSelectedOrders() {
     const resolvedOrders = getSelectedOrders();
     if (resolvedOrders.length === 0) {
@@ -3334,11 +3390,15 @@ async function submitOrderDelete(orderId) {
         if (error.name === 'AbortError') {
             throw new Error('İstek timeout. Lütfen tekrar deneyin.');
         }
-        console.error('[DELETE ORDER] Error:', error);
         throw error;
     } finally {
         clearTimeout(timeoutId);
     }
+}
+
+// Alias for cancel (DELETE = cancel + refund)
+async function submitOrderCancel(orderId) {
+    return submitOrderDelete(orderId);
 }
 
 // Resend failed order to provider

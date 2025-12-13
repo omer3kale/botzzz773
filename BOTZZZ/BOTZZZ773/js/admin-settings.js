@@ -1631,7 +1631,7 @@ function displayProviders(providers) {
             </div>
             <div class="provider-footer">
                 <button class="btn-secondary btn-sm" onclick="syncProvider('${provider.id}')">
-                    <i class="fas fa-sync"></i> Sync Services
+                    <i class="fas fa-sync"></i> Sync Provider
                 </button>
                 <button class="btn-secondary btn-sm" onclick="testProvider('${provider.id}')">
                     <i class="fas fa-check-circle"></i> Test Connection

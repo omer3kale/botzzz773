@@ -56,7 +56,9 @@ function canonicalizeAction(rawAction, params) {
     test: 'test',
     testprovider: 'test',
     testconnection: 'test',
-    validate: 'test'
+    validate: 'test',
+    'fetch-service-details': 'fetch-service-details',
+    fetchservicedetails: 'fetch-service-details'
   };
 
   let normalized = '';
@@ -255,6 +257,8 @@ async function handleAction(data, headers) {
     case 'create':
     case 'add':
       return await createProvider(params, headers);
+    case 'fetch-service-details':
+      return await fetchServiceDetails(params, headers);
     default:
       console.error('[ERROR] Invalid action received:', action, 'Normalized:', normalizedAction, 'Full data:', JSON.stringify(data));
       return {
@@ -263,7 +267,7 @@ async function handleAction(data, headers) {
         body: JSON.stringify({ 
           error: 'Invalid action',
           received: action,
-          expected: 'test, sync, or create'
+          expected: 'test, sync, create, or fetch-service-details'
         })
       };
   }
@@ -442,6 +446,103 @@ async function syncProvider(data, headers) {
       headers,
       body: JSON.stringify({
         error: error.message || 'Failed to sync provider'
+      })
+    };
+  }
+}
+
+async function fetchServiceDetails(data, headers) {
+  try {
+    const { provider_id, service_id } = data;
+
+    if (!provider_id || !service_id) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Provider ID and Service ID are required' })
+      };
+    }
+
+    // Fetch provider from database
+    const { data: provider, error: providerError } = await supabaseAdmin
+      .from('providers')
+      .select('*')
+      .eq('id', provider_id)
+      .single();
+
+    if (providerError || !provider) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Provider not found' })
+      };
+    }
+
+    const { api_url, api_key } = provider;
+
+    if (!api_url || !api_key) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Provider API configuration is incomplete' })
+      };
+    }
+
+    // Fetch services from provider API (Perfect Panel format)
+    const params = new URLSearchParams();
+    params.append('key', api_key);
+    params.append('action', 'services');
+
+    const response = await axios.post(api_url, params, {
+      timeout: 15000,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    });
+
+    if (!Array.isArray(response.data)) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Invalid response format from provider API' })
+      };
+    }
+
+    // Find matching service
+    const service = response.data.find(s => String(s.service) === String(service_id));
+
+    if (!service) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Service not found in provider catalog' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        service: {
+          id: service.service,
+          name: service.name,
+          rate: parseFloat(service.rate) || 0,
+          min: parseInt(service.min) || 0,
+          max: parseInt(service.max) || 0,
+          refill: service.refill,
+          cancel: service.cancel
+        }
+      })
+    };
+  } catch (error) {
+    console.error('Fetch service details error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Failed to fetch service details',
+        message: error.message
       })
     };
   }
