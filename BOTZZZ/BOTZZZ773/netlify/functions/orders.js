@@ -120,6 +120,22 @@ function calculateProviderCharge(ratePerThousand, quantity) {
   return Number(charge.toFixed(4));
 }
 
+// Calculate customer-side partial charge based on delivered quantity (quantity - remains)
+function calculatePartialCustomerCharge(order) {
+  const qty = toNumberOrNull(order?.quantity);
+  const fullCharge = toNumberOrNull(order?.charge);
+  const remains = toNumberOrNull(order?.remains);
+
+  if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(fullCharge) || !Number.isFinite(remains)) {
+    return fullCharge;
+  }
+
+  const delivered = Math.max(0, qty - remains);
+  const ratePerUnit = fullCharge / qty;
+  const partialCharge = ratePerUnit * delivered;
+  return Number(partialCharge.toFixed(4));
+}
+
 function normalizeOrderDisplayValue(value) {
   if (value === undefined || value === null) {
     return null;
@@ -754,7 +770,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       .select(`
         *,
         user:users(id, email, username),
-  service:services(id, name, category, rate, provider_service_id, provider_id, provider:providers(id, name))
+  service:services(id, name, category, rate, provider_service_id, provider_id, refill_button_enabled, provider:providers(id, name))
       `)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -895,6 +911,26 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         }
       }
     }
+
+    // Perfect Panel compatibility mapping
+    normalizedOrders = normalizedOrders.map(order => {
+      // Canceled: charge -> 0, no refund field
+      if (order.status === 'canceled' || order.status === 'cancelled') {
+        const newOrder = { ...order };
+        newOrder.charge = 0;
+        if ('refund' in newOrder) delete newOrder.refund;
+        return newOrder;
+      }
+
+      // Partial: charge reflects delivered portion (customer price), remains stays
+      if (order.status === 'partial') {
+        const newOrder = { ...order };
+        newOrder.charge = calculatePartialCustomerCharge(order);
+        return newOrder;
+      }
+
+      return order;
+    });
 
     return {
       statusCode: 200,
@@ -1141,15 +1177,35 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // ============= STEP 4: CREATE ORDER IN DATABASE =============
-    // Generate sequential order number leveraging database sequence, fallback to legacy format on failure
+    // Generate order number with random increment (1-30) from last order number
     let orderNumber = null;
-    const { data: generatedOrderNumber, error: generateOrderNumberError } = await supabaseAdmin.rpc('generate_order_number');
+    
+    try {
+      // Fetch last order number from database
+      const { data: lastOrder, error: lastOrderError } = await supabaseAdmin
+        .from('orders')
+        .select('order_number')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-    if (generateOrderNumberError) {
-      logOrderError('Failed to generate sequential order number', generateOrderNumberError);
+      let baseNumber = 37000000; // Default starting point
+      
+      if (!lastOrderError && lastOrder && lastOrder.order_number) {
+        const lastNum = parseInt(String(lastOrder.order_number), 10);
+        if (!isNaN(lastNum) && lastNum >= baseNumber) {
+          baseNumber = lastNum;
+        }
+      }
+
+      // Random increment between 1 and 30
+      const randomIncrement = Math.floor(Math.random() * 30) + 1;
+      orderNumber = String(baseNumber + randomIncrement);
+      
+      logger.info('Generated order number with random increment', { orderNumber, baseNumber, randomIncrement, userId: user.userId });
+    } catch (error) {
+      logOrderError('Failed to generate order number', error);
       orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
-    } else {
-      orderNumber = String(generatedOrderNumber);
     }
 
     logger.info('Creating order record', { orderNumber, userId: user.userId, serviceId });
@@ -1502,27 +1558,39 @@ async function handleCreateOrder(user, data, headers) {
     // ============= SUCCESS =============
     console.log(`[ORDER] Order completed successfully: ${order.id}`);
     
+    // Build response order object
+    const responseOrder = {
+      id: order.id,
+      order_number: orderDisplayNumber || order.order_number,
+      order_reference: order.order_reference ?? orderDisplayNumber ?? order.order_number,
+      service_name: order.service_name,
+      quantity: order.quantity,
+      charge: order.charge,
+      status: order.status,
+      provider_order_id: order.provider_order_id,
+      provider_cost: order.provider_cost,
+      provider_status: order.provider_status,
+      last_status_sync: order.last_status_sync,
+      link: order.link,
+      created_at: order.created_at,
+      user_balance: newBalance // Include new balance for frontend sync
+    };
+
+    // Perfect Panel compatibility for single order response
+    if (order.status === 'canceled' || order.status === 'cancelled') {
+      responseOrder.charge = 0;
+      if ('refund' in responseOrder) delete responseOrder.refund;
+    }
+    if (order.status === 'partial') {
+      responseOrder.charge = calculatePartialCustomerCharge(order);
+    }
+
     return {
       statusCode: 201,
       headers,
       body: JSON.stringify({
         success: true,
-        order: {
-          id: order.id,
-          order_number: orderDisplayNumber || order.order_number,
-          order_reference: order.order_reference ?? orderDisplayNumber ?? order.order_number,
-          service_name: order.service_name,
-          quantity: order.quantity,
-          charge: order.charge,
-          status: order.status,
-          provider_order_id: order.provider_order_id,
-          provider_cost: order.provider_cost,
-          provider_status: order.provider_status,
-          last_status_sync: order.last_status_sync,
-          link: order.link,
-          created_at: order.created_at,
-          user_balance: newBalance // Include new balance for frontend sync
-        },
+        order: responseOrder,
         newBalance, // Top-level for easy access
         message: 'Order created and submitted successfully'
       })
@@ -1788,9 +1856,19 @@ async function handleUpdateOrder(user, data, headers) {
       }
 
       // Build response with refund info if applicable
+      const responseOrder = { ...updatedOrder };
+      
+      // Perfect Panel compatibility: canceled -> charge 0, partial -> delivered charge
+      if (updatedOrder.status === 'canceled' || updatedOrder.status === 'cancelled') {
+        responseOrder.charge = 0;
+        if ('refund' in responseOrder) delete responseOrder.refund;
+      } else if (updatedOrder.status === 'partial') {
+        responseOrder.charge = calculatePartialCustomerCharge(updatedOrder);
+      }
+      
       const response = { 
         success: true, 
-        order: updatedOrder 
+        order: responseOrder 
       };
       
       // Include refund info so frontend can update balance displays
@@ -1809,41 +1887,179 @@ async function handleUpdateOrder(user, data, headers) {
     }
 
     if (action === 'refill') {
-      // Submit refill request to provider
+      // Handle refill request
       try {
-        const provider = order.service.provider;
-        const refillResponse = await axios.post(provider.api_url, {
-          key: provider.api_key,
-          action: 'refill',
-          order: order.provider_order_id
-        });
+        const { order: providerOrderId } = data;
 
-        if (refillResponse.data.refill) {
-          await supabaseAdmin
-            .from('orders')
-            .update({ 
-              status: 'refilling',
-              refill_id: refillResponse.data.refill,
-              refill_status: 'pending',
-              refill_requested_at: new Date().toISOString()
-            })
-            .eq('id', orderId);
-
+        if (!providerOrderId) {
           return {
-            statusCode: 200,
+            statusCode: 400,
             headers,
-            body: JSON.stringify({
-              success: true,
-              message: 'Refill request submitted'
+            body: JSON.stringify({ error: 'Order parameter is required for refill' })
+          };
+        }
+
+        // Find order by order_number (reseller sends order_number, not provider_order_id)
+        const { data: foundOrder, error: orderError } = await supabaseAdmin
+          .from('orders')
+          .select('*, service:services(*, provider:providers(*))')
+          .eq('order_number', String(providerOrderId))
+          .single();
+
+        if (orderError || !foundOrder) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({ error: 'Order not found' })
+          };
+        }
+
+        // Verify order status is completed
+        if (foundOrder.status !== 'completed') {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ 
+              error: 'Refill only available for completed orders',
+              currentStatus: foundOrder.status
             })
           };
         }
+
+        // Check if 24 hours have passed since completion
+        if (!foundOrder.completed_at) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Order completion time not recorded' })
+          };
+        }
+
+        const completedTime = new Date(foundOrder.completed_at);
+        const now = new Date();
+        const hoursPassed = (now - completedTime) / (1000 * 60 * 60);
+        const REFILL_TIMEOUT_HOURS = 24;
+
+        if (hoursPassed < REFILL_TIMEOUT_HOURS) {
+          const hoursRemaining = REFILL_TIMEOUT_HOURS - hoursPassed;
+          const minutesRemaining = Math.ceil((hoursRemaining % 1) * 60);
+          const finalHours = Math.floor(hoursRemaining);
+
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ 
+              error: 'Refill not yet available',
+              message: `Refill will be available in ${finalHours} hours ${minutesRemaining} minutes`,
+              hoursRemaining,
+              completedAt: foundOrder.completed_at
+            })
+          };
+        }
+
+        // Verify provider and credentials
+        if (!foundOrder.service || !foundOrder.service.provider) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Service provider information missing' })
+          };
+        }
+
+        const provider = foundOrder.service.provider;
+        if (!provider.api_url || !provider.api_key) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Provider credentials missing' })
+          };
+        }
+
+        // Submit refill request to provider using URLSearchParams
+        const params = new URLSearchParams();
+        params.append('key', provider.api_key);
+        params.append('action', 'refill');
+        params.append('order', foundOrder.provider_order_id);
+
+        console.log(`[REFILL] Submitting refill for order ${foundOrder.id} (provider: ${provider.name}, provider_order_id: ${foundOrder.provider_order_id})`);
+
+        const refillResponse = await axios.post(provider.api_url, params, {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          timeout: 30000,
+          validateStatus: (status) => status < 500
+        });
+
+        console.log(`[REFILL] Provider response:`, refillResponse.data);
+
+        // Check for error in response
+        if (refillResponse.data.error) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ 
+              error: 'Provider rejected refill request',
+              details: refillResponse.data.error
+            })
+          };
+        }
+
+        // Extract refill ID from response
+        const refillId = refillResponse.data.refill;
+        if (!refillId) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ 
+              error: 'Provider did not return refill ID',
+              providerResponse: refillResponse.data
+            })
+          };
+        }
+
+        // Update order with refill information
+        const { error: updateError } = await supabaseAdmin
+          .from('orders')
+          .update({
+            refill_id: String(refillId),
+            refill_status: 'pending',
+            refill_requested_at: new Date().toISOString(),
+            status: 'refilling'
+          })
+          .eq('id', foundOrder.id);
+
+        if (updateError) {
+          console.error('[REFILL] Failed to update order:', updateError);
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to save refill request' })
+          };
+        }
+
+        console.log(`[REFILL] Refill submitted successfully. Refill ID: ${refillId}`);
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            message: 'Refill request submitted successfully',
+            refill_id: refillId,
+            refill_status: 'pending'
+          })
+        };
+
       } catch (error) {
-        console.error('Refill error:', error);
+        console.error('[REFILL] Unexpected error:', error);
         return {
           statusCode: 500,
           headers,
-          body: JSON.stringify({ error: 'Failed to submit refill request' })
+          body: JSON.stringify({ 
+            error: 'Internal server error',
+            message: error.message
+          })
         };
       }
     }
@@ -1853,6 +2069,7 @@ async function handleUpdateOrder(user, data, headers) {
       headers,
       body: JSON.stringify({ error: 'Invalid action' })
     };
+
   } catch (error) {
     console.error('Update order error:', error);
     return {

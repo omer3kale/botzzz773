@@ -1763,6 +1763,30 @@
             const statusKey = customerStatus.key;
             const statusLabel = customerStatus.label;
             const refunded = isOrderRefunded(order);
+            
+            // Check if refill button should be shown
+            const refillButtonEnabled = order.service?.refill_button_enabled === true || order.service?.refill_button_enabled === 1;
+            let refillButtonCell = '';
+            
+            if (refillButtonEnabled && order.status === 'completed' && order.completed_at) {
+                // Calculate hours remaining for refill
+                const completedTime = new Date(order.completed_at);
+                const now = new Date();
+                const hoursPassed = (now - completedTime) / (1000 * 60 * 60);
+                const REFILL_TIMEOUT_HOURS = 24;
+                
+                if (hoursPassed < REFILL_TIMEOUT_HOURS) {
+                    // Refill not yet available
+                    const hoursRemaining = Math.floor(REFILL_TIMEOUT_HOURS - hoursPassed);
+                    const minutesRemaining = Math.ceil(((REFILL_TIMEOUT_HOURS - hoursPassed) % 1) * 60);
+                    const tooltipText = `Refill available in ${hoursRemaining}h ${minutesRemaining}m`;
+                    
+                    refillButtonCell = `<button class="btn-refill btn-disabled" disabled title="${tooltipText}" style="opacity: 0.5; cursor: not-allowed;">↻ Refill</button>`;
+                } else {
+                    // Refill is available
+                    refillButtonCell = `<button class="btn-refill" onclick="initiateRefill(${order.id}, ${order.service?.id})" title="Request refill for this order">↻ Refill</button>`;
+                }
+            }
 
             return `
                 <tr>
@@ -1783,6 +1807,7 @@
                         </div>
                     </td>
                     <td>${escapeHtml(order.remains || 0)}</td>
+                    <td style="text-align: center;">${refillButtonCell}</td>
                 </tr>
             `;
         }).join('');
@@ -2096,5 +2121,111 @@
         const search = window.location.search || '';
         return search ? `${path}${search}` : path;
     }
+
+    // ==========================================
+    // REFILL REQUEST HANDLER
+    // ==========================================
+    window.initiateRefill = async function(orderId, serviceId) {
+        try {
+            console.log('[REFILL] Initiating refill for order:', orderId);
+
+            // Find the order in current snapshot
+            const order = lastOrdersSnapshot?.find(o => o.id === orderId);
+            if (!order) {
+                showToast('Order not found', 'error');
+                return;
+            }
+
+            // Check if order is completed
+            if (order.status !== 'completed') {
+                showToast('Refill only available for completed orders', 'error');
+                return;
+            }
+
+            // Check 24-hour timeout
+            if (!order.completed_at) {
+                showToast('Order completion time not recorded', 'error');
+                return;
+            }
+
+            const completedTime = new Date(order.completed_at);
+            const now = new Date();
+            const hoursPassed = (now - completedTime) / (1000 * 60 * 60);
+            const REFILL_TIMEOUT_HOURS = 24;
+
+            if (hoursPassed < REFILL_TIMEOUT_HOURS) {
+                const hoursRemaining = Math.floor(REFILL_TIMEOUT_HOURS - hoursPassed);
+                const minutesRemaining = Math.ceil(((REFILL_TIMEOUT_HOURS - hoursPassed) % 1) * 60);
+                
+                showToast(
+                    `Refill available in ${hoursRemaining}h ${minutesRemaining}m`,
+                    'warning'
+                );
+                return;
+            }
+
+            // Show confirmation modal
+            const confirmed = window.confirm(
+                `Are you sure you want to request a refill for this order?\n\n` +
+                `Service: ${order.service?.name || 'Unknown'}\n` +
+                `Quantity: ${order.quantity}\n\n` +
+                `This will resubmit your order to the provider.`
+            );
+
+            if (!confirmed) {
+                return;
+            }
+
+            // Show loading toast
+            const loadingToastId = Math.random().toString(36);
+            showToast('Submitting refill request...', 'info');
+
+            // Send refill request to backend
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            const token = localStorage.getItem('auth_token');
+
+            const response = await fetch('/.netlify/functions/orders', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    action: 'refill',
+                    order: order.order_number  // Send order_number, backend finds it
+
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                showToast(
+                    `Refill request submitted successfully! Refill ID: ${result.refill_id}`,
+                    'success'
+                );
+
+                // Update order status in snapshot
+                if (order) {
+                    order.refill_id = result.refill_id;
+                    order.refill_status = result.refill_status;
+                    order.refill_requested_at = new Date().toISOString();
+                    order.status = 'refilling';
+                }
+
+                // Refresh orders view
+                setTimeout(() => {
+                    loadOrders({ silent: true, reason: 'refill-submitted' });
+                }, 1500);
+            } else {
+                const errorMsg = result.message || result.error || 'Failed to submit refill request';
+                showToast(errorMsg, 'error');
+                console.error('[REFILL] Error response:', result);
+            }
+        } catch (error) {
+            console.error('[REFILL] Error:', error);
+            showToast('Failed to submit refill request', 'error');
+        }
+    };
 
 })();

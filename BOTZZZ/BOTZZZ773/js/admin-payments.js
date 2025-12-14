@@ -1,6 +1,38 @@
 // Admin Payments Management with Real Modals
 window.initializeAdminPopupSurface?.('Admin payments window');
 
+// Modal Helper Functions
+function createModal(title, content, actions = '') {
+    const modalHTML = `
+        <div class="modal-overlay" id="activeModal" onclick="if(event.target === this) closeModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <h3>${title}</h3>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    ${content}
+                </div>
+                ${actions ? `<div class="modal-footer">${actions}</div>` : ''}
+            </div>
+        </div>
+    `;
+    
+    const existing = document.querySelector('#activeModal');
+    if (existing) existing.remove();
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    setTimeout(() => document.querySelector('#activeModal')?.classList.add('show'), 10);
+}
+
+function closeModal() {
+    const modal = document.querySelector('#activeModal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => modal.remove(), 300);
+    }
+}
+
 let paymentsCache = [];
 let paymentsUserLookup = {};
 const selectedPaymentIds = new Set();
@@ -324,7 +356,7 @@ async function addPayment() {
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label>Amount * <span class="form-hint">(use negative to reduce balance)</span></label>
+                    <label>Amount *</label>
                     <input type="number" name="amount" placeholder="100.00 or -50.00" step="0.01" required>
                 </div>
                 <div class="form-group">
@@ -332,11 +364,8 @@ async function addPayment() {
                     <select name="method" required>
                         <option value="adjustment">Balance Adjustment</option>
                         <option value="payeer">Payeer</option>
-                        <option value="stripe">Stripe</option>
-                        <option value="paypal">PayPal</option>
-                        <option value="bank">Bank Transfer</option>
-                        <option value="cash">Cash</option>
-                        <option value="other">Other</option>
+                        <option value="cryptomus">Cryptomus</option>
+                        <option value="heleket">Heleket</option>
                     </select>
                 </div>
             </div>
@@ -822,10 +851,18 @@ async function editPayment(paymentId) {
     const currentAmount = payment.amount || 0;
     const currentMemo = payment.memo || '';
     const currentStatus = payment.status || 'pending';
-    const currentMethod = payment.method || 'other';
+    const currentMethod = payment.method || 'adjustment';
     
-    const methodOptions = ['adjustment', 'payeer', 'stripe', 'paypal', 'bank', 'cash', 'other']
-        .map(method => `<option value="${method}"${currentMethod === method ? ' selected' : ''}>${method.charAt(0).toUpperCase() + method.slice(1)}</option>`)
+    const methodOptions = ['adjustment', 'payeer', 'cryptomus', 'heleket']
+        .map(method => {
+            const methodLabels = {
+                adjustment: 'Balance Adjustment',
+                payeer: 'Payeer',
+                cryptomus: 'Cryptomus',
+                heleket: 'Heleket'
+            };
+            return `<option value="${method}"${currentMethod === method ? ' selected' : ''}>${methodLabels[method]}</option>`;
+        })
         .join('');
     
     const statusOptions = ['completed', 'pending', 'failed', 'refunded']
@@ -841,7 +878,7 @@ async function editPayment(paymentId) {
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label>Amount * <span class="form-hint">(use negative to reduce balance)</span></label>
+                    <label>Amount *</label>
                     <input type="number" name="amount" value="${currentAmount}" step="0.01" required>
                 </div>
                 <div class="form-group">

@@ -2512,24 +2512,59 @@ body.sidebar-collapsed .admin-main {
 
 /* Modal Styles */
 .modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.75);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2000;
+    position: fixed !important;
+    inset: 0 !important;
+    background: transparent;
+    z-index: 99999 !important;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.25s ease-out;
+    display: block !important;
 }
 
 .modal-overlay.show {
     opacity: 1;
 }
 
+.modal-content {
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) scale(0.95);
+    width: calc(100% - 40px) !important;
+    max-width: 500px !important;
+    max-height: 85vh !important;
+    overflow-y: auto !important;
+    background: var(--admin-dark-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 12px;
+    box-shadow: none;
+    transition: transform 0.25s ease-out !important;
+    z-index: 99999 !important;
+}
+
+.modal-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.modal-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-content::-webkit-scrollbar-thumb {
+    background: var(--admin-border);
+    border-radius: 4px;
+    transition: background 0.2s ease;
+}
+
+.modal-content::-webkit-scrollbar-thumb:hover {
+    background: var(--admin-light-text);
+}
+
+.modal-overlay.show .modal-content {
+    transform: translate(-50%, -50%) scale(1) !important;
+}
+
+/* Keep old .modal-container for backwards compatibility */
 .modal-container {
     background: var(--admin-dark-bg);
     border: 1px solid var(--admin-border);
@@ -2596,11 +2631,43 @@ body.sidebar-collapsed .admin-main {
     font-size: 12px !important; /* Reduced from 13px */
 }
 
+.modal-body .form-group {
+    margin-bottom: 16px;
+}
+
+.modal-body .form-row .form-group {
+    margin-bottom: 0;
+}
+
 .modal-body .form-group input,
 .modal-body .form-group select,
 .modal-body .form-group textarea {
     font-size: 13px !important; /* Already 13px, keeping consistent */
     padding: 8px 12px !important; /* Reduced from 10px 14px */
+}
+
+.modal-body .form-group select {
+    appearance: none;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-color: var(--admin-darker-bg);
+}
+
+.modal-body .form-group select:hover {
+    background-color: var(--admin-darker-bg) !important;
+    border-color: var(--admin-light-text) !important;
+}
+
+.modal-body .form-group input[type="number"]::-webkit-outer-spin-button,
+.modal-body .form-group input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.modal-body .form-group input[type="number"] {
+    -moz-appearance: textfield;
 }
 
 .modal-body .form-group small {
@@ -2610,6 +2677,15 @@ body.sidebar-collapsed .admin-main {
 .modal-footer button {
     font-size: 13px !important; /* Reduced from default */
     padding: 8px 16px !important; /* More compact */
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 12px;
+    padding-top: 16px;
+    border-top: 1px solid var(--admin-border);
 }
 
 /* Add Service modal layout */
@@ -2657,12 +2733,26 @@ body.sidebar-collapsed .admin-main {
     flex-direction: column;
     gap: 6px;
     position: relative;
+    margin-bottom: 16px;
+}
+
+.form-row .form-group {
+    margin-bottom: 0;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 28px 32px;
+    align-items: flex-end;
+    margin-bottom: 8px;
 }
 
 .form-group label {
     font-size: 13px;
     font-weight: 500;
     color: var(--admin-light-text);
+    min-height: 18px;
 }
 
 .form-group input,
@@ -2675,6 +2765,7 @@ body.sidebar-collapsed .admin-main {
     color: var(--admin-light-text);
     font-size: 13px;
     transition: all 0.2s ease;
+    height: 40px;
 }
 
 .form-group input:focus,
@@ -2688,6 +2779,7 @@ body.sidebar-collapsed .admin-main {
 .form-group textarea {
     min-height: 80px;
     resize: vertical;
+    height: auto !important;
 }
 
 .form-group small {

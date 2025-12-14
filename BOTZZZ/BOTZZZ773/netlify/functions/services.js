@@ -499,6 +499,7 @@ async function handleGetServices(event, user, headers) {
           max_quantity,
           description,
           refill_supported,
+          refill_button_enabled,
           cancel_supported,
           dripfeed_supported,
           customer_portal_slot,
@@ -592,6 +593,7 @@ async function handleGetServices(event, user, headers) {
             max_quantity: service.max_quantity,
             description: service.description,
             refill_supported: service.refill_supported,
+            refill_button_enabled: service.refill_button_enabled,
             cancel_supported: service.cancel_supported,
             dripfeed_supported: service.dripfeed_supported,
             customer_portal_slot: service.customer_portal_slot,
@@ -838,7 +840,8 @@ async function handleCreateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes
+      customerPortalNotes,
+      refill_button_enabled
     } = data;
 
     if (!name || !category) {
@@ -915,7 +918,8 @@ async function handleCreateService(user, data, headers) {
         admin_visibility_notes: adminVisibilityNotesValue,
         customer_portal_enabled: customerPortalEnabledFlag,
         customer_portal_slot: customerPortalSlotValue,
-        customer_portal_notes: customerPortalNotesValue
+        customer_portal_notes: customerPortalNotesValue,
+        refill_button_enabled: toBooleanFlag(refill_button_enabled)
       })
       .select()
       .single();
@@ -1004,7 +1008,8 @@ async function handleUpdateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes
+      customerPortalNotes,
+      refill_button_enabled
     } = data;
 
     if (!serviceId) {
@@ -1074,7 +1079,7 @@ async function handleUpdateService(user, data, headers) {
       updates.admin_approved = approvedFlag;
       if (approvedFlag) {
         updates.admin_approved_at = new Date().toISOString();
-        updates.admin_approved_by = user.userId || null;
+        updates.admin_approved_by = user.id || null;
       } else {
         updates.admin_approved_at = null;
         updates.admin_approved_by = null;
@@ -1099,6 +1104,10 @@ async function handleUpdateService(user, data, headers) {
     if (hasCustomerPortalNotesField) {
       const portalNoteValue = customer_portal_notes ?? customerPortalNotes;
       updates.customer_portal_notes = portalNoteValue === undefined ? null : portalNoteValue;
+    }
+
+    if (refill_button_enabled !== undefined) {
+      updates.refill_button_enabled = toBooleanFlag(refill_button_enabled);
     }
 
     const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||
@@ -1179,7 +1188,7 @@ async function handleUpdateService(user, data, headers) {
       .single();
 
     if (error) {
-      logServiceError('Update service validation error', error, { serviceId: body.id });
+      logServiceError('Update service validation error', error, { serviceId, updates });
       const payload = { error: 'Failed to update service' };
       try {
         if (error && typeof error === 'object') {

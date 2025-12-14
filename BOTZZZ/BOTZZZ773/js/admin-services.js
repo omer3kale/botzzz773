@@ -1004,9 +1004,6 @@ async function addService() {
                                 <button type="button" onclick="autoFetchServiceDetails()" class="btn-secondary" style="white-space: nowrap; padding: 8px 12px;" title="Fetch details from provider">
                                     🔄
                                 </button>
-                                <button type="button" onclick="showSyncedServices()" class="btn-secondary" style="white-space: nowrap;">
-                                    📋 Select from Synced
-                                </button>
                             </div>
                             <small style="color: #94a3b8;">Enter service ID and click 🔄 to auto-fill details from provider.</small>
                         </div>
@@ -1085,6 +1082,17 @@ async function addService() {
                             <textarea name="description" rows="4" placeholder="Service description..."></textarea>
                         </div>
                     </div>
+
+                    <div class="add-service-card">
+                        <h4>Refill Options</h4>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="refill_button_enabled" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Enable Refill Button</span>
+                            </label>
+                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Allow users to refill this service directly from their order history</small>
+                        </div>
+                    </div>
                 </div>
             </div>
         </form>
@@ -1156,6 +1164,7 @@ async function submitAddService(event) {
     const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
     const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
     const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
+    const refillButtonEnabledFlag = toBooleanInput(serviceData.refill_button_enabled);
 
     const submitBtn = document.querySelector('button[form="addServiceForm"]');
     if (submitBtn) {
@@ -1180,6 +1189,7 @@ async function submitAddService(event) {
             description: serviceData.description || '',
             status: (serviceData.status || 'active').toLowerCase(),
             providerId: serviceData.provider || null,
+            refill_button_enabled: refillButtonEnabledFlag,
             providerServiceId: serviceData.providerServiceId || null,
             adminApproved: customerPortalEnabledFlag,
             customerPortalEnabled: customerPortalEnabledFlag,
@@ -1406,6 +1416,17 @@ async function editService(serviceId) {
                         <h4>Description</h4>
                         <div class="form-group">
                             <textarea name="description" rows="4" placeholder="Optional">${escapeHtml(service.description || '')}</textarea>
+                        </div>
+                    </div>
+
+                    <div class="add-service-card">
+                        <h4>Refill Options</h4>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="refill_button_enabled" ${service.refill_button_enabled ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Enable Refill Button</span>
+                            </label>
+                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Allow users to refill this service directly from their order history</small>
                         </div>
                     </div>
                 </div>
@@ -2094,6 +2115,9 @@ async function submitEditService(event, serviceId) {
     event.preventDefault();
     const formData = new FormData(event.target);
     const serviceData = Object.fromEntries(formData);
+    
+    console.debug('[DEBUG] editServiceForm serviceData:', serviceData);
+    console.debug('[DEBUG] refill_button_enabled from form:', serviceData.refill_button_enabled);
 
     const retailRateValue = parseNumberInput(serviceData.rate);
     const providerRateValue = parseNumberInput(serviceData.providerRate);
@@ -2105,6 +2129,7 @@ async function submitEditService(event, serviceId) {
     const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
     const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
     const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
+    const refillButtonEnabledFlag = toBooleanInput(serviceData.refill_button_enabled);
     const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
     const payload = {
         serviceId: numericServiceId,
@@ -2119,7 +2144,8 @@ async function submitEditService(event, serviceId) {
         adminApproved: customerPortalEnabledFlag,
         customerPortalEnabled: customerPortalEnabledFlag,
         customerPortalSlot: customerPortalSlotValue,
-        customerPortalNotes: customerPortalNotesValue || null
+        customerPortalNotes: customerPortalNotesValue || null,
+        refill_button_enabled: refillButtonEnabledFlag
     };
 
     if (retailRateValue !== null) {
