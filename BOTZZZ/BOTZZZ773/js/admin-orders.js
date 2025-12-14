@@ -3359,7 +3359,10 @@ async function submitOrderDelete(orderId) {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ orderId: String(orderId).trim() }),
+            body: JSON.stringify({ 
+                orderId: String(orderId).trim(),
+                action: 'delete' // Permanent deletion
+            }),
             signal: controller.signal
         });
 

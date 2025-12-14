@@ -15,8 +15,7 @@ const SMTP_PORT = process.env.SMTP_PORT || 587;
 const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const OTP_EXPIRY_MINUTES = 10;
-const DEV_OTP_BYPASS = (process.env.DEV_OTP_BYPASS || 'true').toLowerCase() === 'true';
-
+const DEV_OTP_BYPASS = process.env.DEV_OTP_BYPASS !== 'false'; // true unless explicitly set to 'false'
 // Configure email transporter
 const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
@@ -218,18 +217,23 @@ exports.handler = async (event) => {
 
             // Send OTP email (or bypass in local dev)
             if (canBypass) {
-                console.log('DEV: Bypassing OTP email send in local mode.');
+                console.log('DEV: Bypassing OTP email - using code 000000 in local mode.');
             } else {
                 try {
                     await sendOTPEmail(ADMIN_OTP_EMAIL || email, otp);
                     console.log(`OTP sent to ${email}`);
                 } catch (emailError) {
                     console.error('Failed to send OTP email:', emailError);
-                    return {
-                        statusCode: 500,
-                        headers,
-                        body: JSON.stringify({ error: 'Failed to send verification email' })
-                    };
+                    // In bypass mode, continue anyway
+                    if (canBypass) {
+                        console.log('DEV: Email failed but continuing with bypass mode.');
+                    } else {
+                        return {
+                            statusCode: 500,
+                            headers,
+                            body: JSON.stringify({ error: 'Failed to send verification email' })
+                        };
+                    }
                 }
             }
 

@@ -693,6 +693,10 @@ const baseHandler = async (event) => {
       case 'PUT':
         return await handleUpdateOrder(user, body, headers);
       case 'DELETE':
+        // Check if this is a hard delete (permanent removal) or cancel (refund)
+        if (body && body.action === 'delete') {
+          return await handleDeleteOrder(user, body, headers);
+        }
         return await handleCancelOrder(user, body, headers);
       default:
         return {
@@ -1198,7 +1202,7 @@ async function handleCreateOrder(user, data, headers) {
         }
       }
 
-      // Random increment between 1 and 30
+      // Random increment between 1 and 30 (with wider range on retry)
       const randomIncrement = Math.floor(Math.random() * 30) + 1;
       orderNumber = String(baseNumber + randomIncrement);
       
@@ -1236,11 +1240,55 @@ async function handleCreateOrder(user, data, headers) {
       orderInsertBase.link_id = linkId;
     }
 
-    let { data: order, error: orderError } = await supabaseAdmin
-      .from('orders')
-      .insert({ ...orderInsertBase, order_number: orderNumber })
-      .select()
-      .single();
+    let order = null;
+    let orderError = null;
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    // Retry loop for handling duplicate order_number (race condition)
+    while (retryCount < maxRetries) {
+      const insertResult = await supabaseAdmin
+        .from('orders')
+        .insert({ ...orderInsertBase, order_number: orderNumber })
+        .select()
+        .single();
+
+      order = insertResult.data;
+      orderError = insertResult.error;
+
+      // Check if error is duplicate order_number (unique constraint violation)
+      const isDuplicateOrderNumber = orderError && (
+        orderError.code === '23505' || // Postgres unique violation
+        /unique.*order_number/i.test(orderError.message || '') ||
+        /duplicate.*order_number/i.test(orderError.message || '')
+      );
+
+      if (isDuplicateOrderNumber && retryCount < maxRetries - 1) {
+        // Regenerate order_number with wider random range
+        retryCount++;
+        const randomIncrement = Math.floor(Math.random() * 50) + 1; // Wider range on retry
+        const { data: lastOrder } = await supabaseAdmin
+          .from('orders')
+          .select('order_number')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        let baseNumber = 37000000;
+        if (lastOrder && lastOrder.order_number) {
+          const lastNum = parseInt(String(lastOrder.order_number), 10);
+          if (!isNaN(lastNum) && lastNum >= baseNumber) {
+            baseNumber = lastNum;
+          }
+        }
+        orderNumber = String(baseNumber + randomIncrement);
+        logger.warn('Duplicate order_number detected, retrying', { attempt: retryCount, newOrderNumber: orderNumber });
+        continue;
+      }
+
+      // Either success or non-duplicate error, exit loop
+      break;
+    }
 
     if (orderError) {
       const missingOrderNumberColumn = orderError.code === '42703'
@@ -2199,6 +2247,94 @@ async function handleCancelOrder(user, data, headers) {
     };
   } catch (error) {
     console.error('Cancel order error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// ============= DELETE ORDER (PERMANENT REMOVAL) =============
+async function handleDeleteOrder(user, data, headers) {
+  try {
+    const { orderId } = data;
+
+    if (!orderId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Order ID is required' })
+      };
+    }
+
+    // ADMIN-ONLY: Only admins can permanently delete orders
+    if (user.role !== 'admin') {
+      logger.warn('Unauthorized delete attempt', { userId: user.userId, orderId });
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Admin access required',
+          message: 'Only administrators can permanently delete orders.'
+        })
+      };
+    }
+
+    // Get order to verify it exists
+    const { data: order, error } = await supabaseAdmin
+      .from('orders')
+      .select('id, order_number, user_id, status, charge')
+      .eq('id', orderId)
+      .single();
+
+    if (error || !order) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Order not found' })
+      };
+    }
+
+    logger.info('Admin deleting order', { 
+      adminUserId: user.userId, 
+      orderId, 
+      orderNumber: order.order_number,
+      orderStatus: order.status
+    });
+
+    // Permanently delete the order from database
+    const { error: deleteError } = await supabaseAdmin
+      .from('orders')
+      .delete()
+      .eq('id', orderId);
+
+    if (deleteError) {
+      logger.error('Failed to delete order', { orderId, error: deleteError });
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to delete order',
+          details: deleteError.message 
+        })
+      };
+    }
+
+    logger.info('Order deleted successfully', { orderId, orderNumber: order.order_number });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        message: 'Order permanently deleted',
+        orderId: orderId,
+        orderNumber: order.order_number
+      })
+    };
+  } catch (error) {
+    logger.error('Delete order error', { error: error.message, stack: error.stack });
     return {
       statusCode: 500,
       headers,

@@ -4,9 +4,9 @@
 $API_BASE_URL = "http://localhost:8888/.netlify/functions/v2"
 $API_KEY = "sk_be2b83b5836ab8c56e413093f7e8b20c975fffa88478ea1ec6876d1b215751ae"
 
-Write-Host "`n=== 1. Test Service: 9161 ===" -ForegroundColor Cyan
+Write-Host "`n=== 1. Test Service: 9074 ===" -ForegroundColor Cyan
 
-$testServiceId = "9161"
+$testServiceId = "9074"
 $testQuantity = 50
 
 Write-Host "Service ID: $testServiceId" -ForegroundColor Yellow
@@ -32,7 +32,8 @@ try {
 Write-Host "`n=== 2. Test Siparisi Olustur ===" -ForegroundColor Cyan
 Write-Host "Bu test provider'da bakiye yetersizligi simule eder" -ForegroundColor Yellow
 
-$testLink = "https://t.me/doskazpozorayakutii/1205"
+$randomId = Get-Random -Minimum 1000 -Maximum 9999
+$testLink = "https://instagram.com/testuser_random_$randomId"
 
 $orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
 

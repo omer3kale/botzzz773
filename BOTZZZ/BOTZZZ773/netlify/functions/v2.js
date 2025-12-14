@@ -244,11 +244,66 @@ exports.handler = async (event) => {
         // Deduct Balance
         await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) - charge }).eq('id', user.id);
         
-        // Create Order (DB Trigger will generate public_order_id and order_number)
-        const { data: newOrder, error: oErr } = await supabaseAdmin.from('orders').insert({
-          user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge,
-            status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
-        }).select('id, order_number').single();
+        // Generate order number with random increment (1-30) from last order number
+        let orderNumber = null;
+        let newOrder = null;
+        let oErr = null;
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        // Retry loop for handling duplicate order_number (race condition)
+        while (retryCount < maxRetries) {
+          try {
+            const { data: lastOrder } = await supabaseAdmin
+              .from('orders')
+              .select('order_number')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            let baseNumber = 37000000;
+            if (lastOrder && lastOrder.order_number) {
+              const lastNum = parseInt(String(lastOrder.order_number), 10);
+              if (!isNaN(lastNum) && lastNum >= baseNumber) {
+                baseNumber = lastNum;
+              }
+            }
+
+            // Wider range on retry to reduce collision probability
+            const randomIncrement = retryCount === 0 
+              ? Math.floor(Math.random() * 30) + 1
+              : Math.floor(Math.random() * 50) + 1;
+            orderNumber = String(baseNumber + randomIncrement);
+          } catch (error) {
+            console.error('[V2] Failed to generate order number:', error);
+            orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
+          }
+          
+          // Try to create order with generated order_number
+          const insertResult = await supabaseAdmin.from('orders').insert({
+            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge,
+              order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
+          }).select('id, order_number').single();
+
+          newOrder = insertResult.data;
+          oErr = insertResult.error;
+
+          // Check if error is duplicate order_number (unique constraint violation)
+          const isDuplicateOrderNumber = oErr && (
+            oErr.code === '23505' || // Postgres unique violation
+            /unique.*order_number/i.test(oErr.message || '') ||
+            /duplicate.*order_number/i.test(oErr.message || '')
+          );
+
+          if (isDuplicateOrderNumber && retryCount < maxRetries - 1) {
+            retryCount++;
+            console.log(`[V2] Duplicate order_number detected, retrying (attempt ${retryCount})`);
+            continue;
+          }
+
+          // Either success or non-duplicate error, exit loop
+          break;
+        }
 
         if (oErr) return errorResponse('Order failed');
 
