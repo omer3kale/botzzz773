@@ -158,8 +158,34 @@ async function handleGet(user, headers) {
         };
       }
 
-      // Remove password hashes
-      users.forEach(u => delete u.password_hash);
+      // Fetch all orders to calculate spending and profit per user
+      const { data: orders, error: ordersErr } = await supabaseAdmin
+        .from('orders')
+        .select('user_id, charge, provider_cost');
+
+      const spendMap = new Map();
+      if (!ordersErr && Array.isArray(orders)) {
+        orders.forEach(order => {
+          const charge = parseFloat(order.charge || 0);
+          const providerCost = parseFloat(order.provider_cost || 0);
+          
+          if (!spendMap.has(order.user_id)) {
+            spendMap.set(order.user_id, { spent: 0, profit: 0 });
+          }
+          
+          const agg = spendMap.get(order.user_id);
+          agg.spent += charge;
+          agg.profit += (charge - providerCost);
+        });
+      }
+
+      // Remove password hashes and attach spend/profit
+      users.forEach(u => {
+        delete u.password_hash;
+        const agg = spendMap.get(u.id);
+        u.spent = agg ? agg.spent : 0;
+        u.profit = agg ? agg.profit : 0;
+      });
 
       return {
         statusCode: 200,

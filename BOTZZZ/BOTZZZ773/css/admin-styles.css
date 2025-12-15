@@ -1392,82 +1392,205 @@ body.sidebar-collapsed .admin-main {
 }
 
 /* Column width optimization for better horizontal layout */
-.admin-table th:nth-child(1),
-.admin-table td:nth-child(1) {
+/* Users Table (11 columns) */
+.users-table-panel .admin-table th:nth-child(1),
+.users-table-panel .admin-table td:nth-child(1) {
     width: 40px; /* Checkbox column */
     min-width: 40px;
 }
 
-.admin-table th:nth-child(2),
-.admin-table td:nth-child(2) {
+.users-table-panel .admin-table th:nth-child(2),
+.users-table-panel .admin-table td:nth-child(2) {
+    width: 140px; /* Username column */
+    min-width: 140px;
+}
+
+.users-table-panel .admin-table th:nth-child(3),
+.users-table-panel .admin-table td:nth-child(3) {
+    width: 200px; /* Email column */
+    min-width: 200px;
+}
+
+.users-table-panel .admin-table th:nth-child(4),
+.users-table-panel .admin-table td:nth-child(4) {
+    width: 100px; /* Balance column */
+    min-width: 100px;
+}
+
+.users-table-panel .admin-table th:nth-child(5),
+.users-table-panel .admin-table td:nth-child(5) {
+    width: 100px; /* Spent column */
+    min-width: 100px;
+}
+
+.users-table-panel .admin-table th:nth-child(6),
+.users-table-panel .admin-table td:nth-child(6) {
+    width: 100px; /* Profit column */
+    min-width: 100px;
+}
+
+.users-table-panel .admin-table th:nth-child(7),
+.users-table-panel .admin-table td:nth-child(7) {
+    width: 100px; /* Status */
+    min-width: 100px;
+}
+
+.users-table-panel .admin-table th:nth-child(8),
+.users-table-panel .admin-table td:nth-child(8) {
+    width: 160px; /* Created */
+    min-width: 160px;
+}
+
+.users-table-panel .admin-table th:nth-child(9),
+.users-table-panel .admin-table td:nth-child(9) {
+    width: 160px; /* Last Auth */
+    min-width: 160px;
+}
+
+.users-table-panel .admin-table th:nth-child(10),
+.users-table-panel .admin-table td:nth-child(10) {
+    width: 80px; /* Discount */
+    min-width: 80px;
+}
+
+.users-table-panel .admin-table th:nth-child(11),
+.users-table-panel .admin-table td:nth-child(11) {
+    width: 100px; /* Actions */
+    min-width: 100px;
+}
+
+/* Orders Table (13 columns) - Original layout */
+.orders-table-panel .admin-table th:nth-child(1),
+.orders-table-panel .admin-table td:nth-child(1) {
+    width: 40px; /* Checkbox column */
+    min-width: 40px;
+}
+
+.orders-table-panel .admin-table th:nth-child(2),
+.orders-table-panel .admin-table td:nth-child(2) {
     width: 220px; /* Order IDs column - ensure enough space */
     min-width: 220px;
 }
 
-.admin-table th:nth-child(3),
-.admin-table td:nth-child(3) {
+.orders-table-panel .admin-table th:nth-child(3),
+.orders-table-panel .admin-table td:nth-child(3) {
     width: 140px; /* User column */
     min-width: 140px;
 }
 
-.admin-table th:nth-child(4),
-.admin-table td:nth-child(4) {
+.orders-table-panel .admin-table th:nth-child(4),
+.orders-table-panel .admin-table td:nth-child(4) {
     width: 160px; /* Amount column */
     min-width: 160px;
 }
 
-.admin-table th:nth-child(5),
-.admin-table td:nth-child(5) {
-    width: 180px; /* Link column */
-    min-width: 180px;
+.orders-table-panel .admin-table th:nth-child(5),
+.orders-table-panel .admin-table td:nth-child(5) {
+    width: 200px; /* Link column */
+    min-width: 200px;
+    max-width: 250px;
+    word-break: break-all !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
 }
 
-.admin-table th:nth-child(6),
-.admin-table td:nth-child(6) {
-    width: 100px; /* Start count */
-    min-width: 100px;
+/* Link column içindeki a etiketleri için */
+.orders-table-panel .admin-table td:nth-child(5) a {
+    word-break: break-all !important;
+    white-space: normal !important;
+    overflow-wrap: break-word !important;
+    display: inline !important;
 }
 
-.admin-table th:nth-child(7),
-.admin-table td:nth-child(7) {
+.orders-table-panel .admin-table th:nth-child(6),
+.orders-table-panel .admin-table td:nth-child(6) {
+    width: 110px; /* Start count */
+    min-width: 110px;
+}
+
+.orders-table-panel .admin-table th:nth-child(7),
+.orders-table-panel .admin-table td:nth-child(7) {
     width: 100px; /* Quantity */
     min-width: 100px;
 }
 
-.admin-table th:nth-child(8),
-.admin-table td:nth-child(8) {
+.orders-table-panel .admin-table th:nth-child(8),
+.orders-table-panel .admin-table td:nth-child(8) {
     width: 180px; /* Service */
     min-width: 180px;
 }
 
-.admin-table th:nth-child(9),
-.admin-table td:nth-child(9) {
-    width: 200px; /* Status */
-    min-width: 200px;
+.orders-table-panel .admin-table th:nth-child(9),
+.orders-table-panel .admin-table td:nth-child(9) {
+    width: 240px; /* Status */
+    min-width: 240px;
 }
 
-.admin-table th:nth-child(10),
-.admin-table td:nth-child(10) {
+.orders-table-panel .admin-table th:nth-child(10),
+.orders-table-panel .admin-table td:nth-child(10) {
     width: 100px; /* Remains */
     min-width: 100px;
 }
 
-.admin-table th:nth-child(11),
-.admin-table td:nth-child(11) {
+.orders-table-panel .admin-table th:nth-child(11),
+.orders-table-panel .admin-table td:nth-child(11) {
     width: 120px; /* Created */
     min-width: 120px;
 }
 
-.admin-table th:nth-child(12),
-.admin-table td:nth-child(12) {
+.orders-table-panel .admin-table th:nth-child(12),
+.orders-table-panel .admin-table td:nth-child(12) {
     width: 80px; /* Mode */
     min-width: 80px;
 }
 
-.admin-table th:nth-child(13),
-.admin-table td:nth-child(13) {
+.orders-table-panel .admin-table th:nth-child(13),
+.orders-table-panel .admin-table td:nth-child(13) {
     width: 80px; /* Actions */
     min-width: 80px;
+}
+
+/* Tickets Table (7 columns after removing ID & Assignee) */
+.tickets-table-panel .admin-table th:nth-child(1),
+.tickets-table-panel .admin-table td:nth-child(1) {
+    width: 56px; /* Checkbox */
+    min-width: 56px;
+}
+.tickets-table-panel .admin-table th:nth-child(2),
+.tickets-table-panel .admin-table td:nth-child(2) {
+    width: 180px; /* User */
+    min-width: 160px;
+}
+.tickets-table-panel .admin-table th:nth-child(3),
+.tickets-table-panel .admin-table td:nth-child(3) {
+    width: 340px; /* Subject */
+    min-width: 280px;
+}
+.tickets-table-panel .admin-table th:nth-child(4),
+.tickets-table-panel .admin-table td:nth-child(4) {
+    width: 160px; /* Status */
+    min-width: 140px;
+}
+.tickets-table-panel .admin-table th:nth-child(5),
+.tickets-table-panel .admin-table td:nth-child(5) {
+    width: 140px; /* Created */
+    min-width: 120px;
+}
+.tickets-table-panel .admin-table th:nth-child(6),
+.tickets-table-panel .admin-table td:nth-child(6) {
+    width: 140px; /* Last Update */
+    min-width: 120px;
+}
+.tickets-table-panel .admin-table th:nth-child(7),
+.tickets-table-panel .admin-table td:nth-child(7) {
+    width: 84px; /* Actions */
+    min-width: 80px;
+}
+.tickets-table-panel .admin-table td:nth-child(2),
+.tickets-table-panel .admin-table td:nth-child(3) {
+    white-space: normal;
+    word-break: break-word;
+    overflow-wrap: break-word;
 }
 
 .admin-table thead {

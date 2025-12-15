@@ -578,14 +578,22 @@ function handleSearch(inputId, tableId) {
     if (!input) return;
     
     input.addEventListener('keyup', function() {
-        const filter = this.value.toLowerCase();
+        const filter = this.value.toLowerCase().trim();
         const table = document.getElementById(tableId);
         const rows = table.getElementsByTagName('tr');
+        
+        // Check if input contains comma-separated values
+        const searchTerms = filter.includes(',') 
+            ? filter.split(',').map(term => term.trim()).filter(term => term.length > 0)
+            : [filter];
         
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             const text = row.textContent.toLowerCase();
-            row.style.display = text.includes(filter) ? '' : 'none';
+            
+            // If multiple search terms (comma-separated), check if ANY term matches
+            const matches = searchTerms.some(term => text.includes(term));
+            row.style.display = matches ? '' : 'none';
         }
     });
 }

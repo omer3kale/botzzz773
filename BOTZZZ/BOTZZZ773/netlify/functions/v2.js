@@ -83,12 +83,13 @@ async function getServices() {
       let exposedId = s.public_id ? s.public_id : s.id;
       let serviceId = parseInt(String(exposedId).replace(/\D/g, ''), 10) || 0;
       
+      const rateNumber = Math.round(parseFloat(s.rate || 0) * 100) / 100;
       return {
         service: serviceId, 
         name: s.name, 
-        type: s.type || 'Default', 
+        type: 'Default', 
         category: s.category || 'General',
-        rate: parseFloat(s.rate).toFixed(2), 
+        rate: rateNumber,
         min: parseInt(s.min_quantity || 1), 
         max: parseInt(s.max_quantity || 1000),
         refill: s.refill_supported === true, 
@@ -484,12 +485,28 @@ exports.handler = async (event) => {
              
              // Query using order_number (string in DB)
              const { data: mOrders } = await supabaseAdmin.from('orders')
-                .select('order_number, customer_status, charge, start_count, remains')
+               .select('order_number, customer_status, charge, quantity, start_count, remains')
                 .in('order_number', ids)
                 .eq('user_id', user.id);
 
              let res = {};
-             if(mOrders) mOrders.forEach(o => res[o.order_number] = { status: o.customer_status || 'pending', charge: o.charge, start_count: o.start_count, remains: o.remains, currency: 'USD' });
+             if(mOrders) mOrders.forEach(o => {
+               const status = o.customer_status || 'pending';
+               let chargeOut = o.charge;
+               if (status === 'canceled' || status === 'cancelled') {
+                 chargeOut = 0;
+               } else if (status === 'partial') {
+                 const qty = parseFloat(o.quantity || 0);
+                 const remains = parseFloat(o.remains || 0);
+                 const full = parseFloat(o.charge || 0);
+                 if (qty > 0) {
+                   const delivered = Math.max(0, qty - remains);
+                   const ratePerUnit = full / qty;
+                   chargeOut = Math.round((ratePerUnit * delivered) * 100) / 100;
+                 }
+               }
+               res[o.order_number] = { status, charge: chargeOut, start_count: o.start_count, remains: o.remains, currency: 'USD' };
+             });
              return { statusCode: 200, headers, body: JSON.stringify(res) };
          }
          
@@ -497,13 +514,29 @@ exports.handler = async (event) => {
          if (!params.order) return errorResponse('Missing order ID');
          
          const { data: oData } = await supabaseAdmin.from('orders')
-            .select('customer_status, charge, start_count, remains')
+            .select('customer_status, charge, quantity, start_count, remains')
             .eq('order_number', params.order)
             .eq('user_id', user.id)
             .single();
 
          if (!oData) return errorResponse('Order not found');
-         return { statusCode: 200, headers, body: JSON.stringify({ status: oData.customer_status || 'pending', charge: oData.charge, start_count: oData.start_count || 0, remains: oData.remains || 0, currency: 'USD' }) };
+         {
+           const status = oData.customer_status || 'pending';
+           let chargeOut = oData.charge;
+           if (status === 'canceled' || status === 'cancelled') {
+             chargeOut = 0;
+           } else if (status === 'partial') {
+             const qty = parseFloat(oData.quantity || 0);
+             const remains = parseFloat(oData.remains || 0);
+             const full = parseFloat(oData.charge || 0);
+             if (qty > 0) {
+               const delivered = Math.max(0, qty - remains);
+               const ratePerUnit = full / qty;
+               chargeOut = Math.round((ratePerUnit * delivered) * 100) / 100;
+             }
+           }
+           return { statusCode: 200, headers, body: JSON.stringify({ status, charge: chargeOut, start_count: oData.start_count || 0, remains: oData.remains || 0, currency: 'USD' }) };
+         }
 
       case 'refill':
          if (!params.order) return errorResponse('Missing order ID');
@@ -532,16 +565,61 @@ exports.handler = async (event) => {
 
       case 'cancel':
          const { data: cOrder } = await supabaseAdmin.from('orders')
-             .select('id, status, charge')
+             .select('id, status, charge, original_charge, user_id, order_number')
              .eq('order_number', params.order)
              .eq('user_id', user.id)
              .single();
 
          if (!cOrder || cOrder.status !== 'pending') return errorResponse('Cancel failed');
          
-         // Refund & Cancel
-         await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) + parseFloat(cOrder.charge) }).eq('id', user.id);
-         await supabaseAdmin.from('orders').update({ status: 'canceled' }).eq('id', cOrder.id);
+         // Mark canceled (reseller expects success even if refund processing is async)
+         await supabaseAdmin.from('orders').update({ status: 'canceled', customer_status: 'canceled' }).eq('id', cOrder.id);
+
+         // Process refund immediately (cron skips canceled orders). Idempotent by checking existing payment.
+         try {
+           const { data: existingRefund } = await supabaseAdmin
+             .from('payments')
+             .select('id')
+             .eq('order_id', cOrder.id)
+             .eq('user_id', user.id)
+             .eq('method', 'refund')
+             .limit(1)
+             .maybeSingle();
+
+           if (!existingRefund) {
+             const refundAmount = Number(((cOrder.original_charge ?? cOrder.charge) || 0));
+             if (refundAmount > 0) {
+               // Get fresh user balance
+               const { data: uData } = await supabaseAdmin
+                 .from('users')
+                 .select('id, balance')
+                 .eq('id', user.id)
+                 .single();
+               const newBalance = Number((Number(uData?.balance || 0) + refundAmount).toFixed(2));
+               const { error: balErr } = await supabaseAdmin
+                 .from('users')
+                 .update({ balance: newBalance })
+                 .eq('id', user.id);
+               if (!balErr) {
+                 const txid = `refund_${String(cOrder.id).replace(/[^a-z0-9]/gi, '').slice(0,12)}_${Date.now().toString(36)}`;
+                 await supabaseAdmin.from('payments').insert({
+                   user_id: user.id,
+                   order_id: cOrder.id,
+                   amount: -Math.abs(Number(refundAmount.toFixed(2))),
+                   method: 'refund',
+                   status: 'refunded',
+                   currency: 'USD',
+                   provider: 'internal',
+                   txid,
+                   memo: `Refund for order ${cOrder.order_number || cOrder.id} (CANCELED via v2)`
+                 });
+                 await supabaseAdmin.from('orders').update({ refund_applied_at: new Date().toISOString() }).eq('id', cOrder.id);
+               }
+             }
+           }
+         } catch (e) {
+           console.warn('[V2 CANCEL] Refund processing warning:', e?.message);
+         }
          
          const cancelId = parseInt(params.order) || params.order;
          return { statusCode: 200, headers, body: JSON.stringify({ order: cancelId, canceled: true }) };

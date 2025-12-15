@@ -294,18 +294,31 @@ async function syncProviderServices(provider, options = {}) {
     }
 
     const existing = existingMap.get(serviceKey);
-    const serviceMarkupOverride = existing ? toPercent(existing.markup_percentage) : null;
+    
+    // Get existing markup - if set, always use it for calculating retail rate
+    const existingMarkup = existing ? toPercent(existing.markup_percentage) : null;
 
     let pricingResult = null;
     let retailRate = null;
 
-    if (providerCost !== null && serviceMarkupOverride !== null) {
-      // Respect per-service markup override: Retail = Provider * (1 + markup/100)
-      retailRate = Number((providerCost * (1 + serviceMarkupOverride / 100)).toFixed(4));
-      basePayload.markup_percentage = serviceMarkupOverride;
+    // Priority 1: Use existing markup if set (sabit markup strategy)
+    if (existingMarkup !== null && providerCost !== null) {
+      // Sabit Markup: Retail = Provider × (1 + Markup%)
+      retailRate = Number((providerCost * (1 + existingMarkup / 100)).toFixed(4));
+      basePayload.markup_percentage = existingMarkup;
       basePayload.pricing_rule_id = null;
       basePayload.pricing_last_applied_at = null;
-    } else if (providerCost !== null && pricingEngine) {
+      console.log(`[SERVICE SYNC] Service ${serviceKey}: Using existing markup ${existingMarkup}% → retail ${retailRate}`);
+    } 
+    // Priority 2: Service has per-service markup override
+    else if (providerCost !== null && existingMarkup !== null) {
+      retailRate = Number((providerCost * (1 + existingMarkup / 100)).toFixed(4));
+      basePayload.markup_percentage = existingMarkup;
+      basePayload.pricing_rule_id = null;
+      basePayload.pricing_last_applied_at = null;
+    } 
+    // Priority 3: Use pricing engine if no existing markup
+    else if (providerCost !== null && pricingEngine) {
       try {
         pricingResult = pricingEngine.calculate({
           providerId: provider.id,
@@ -343,6 +356,7 @@ async function syncProviderServices(provider, options = {}) {
       basePayload.rate = retailRate;
       basePayload.retail_rate = retailRate;
     }
+
     if (existing) {
       // Preserve admin-customized service name
       const existingName = existing.name ? String(existing.name).trim() : '';

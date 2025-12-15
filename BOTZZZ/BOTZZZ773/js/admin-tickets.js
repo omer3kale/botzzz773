@@ -176,7 +176,7 @@ function openSelectedTicketsModal() {
         const subject = ticket.subject ? ticket.subject : 'Support ticket';
         const statusLabel = ticket.status ? ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1) : 'Unknown';
         const categoryLabel = ticket.category || 'General';
-        const userLabel = ticket.users?.username || ticket.user_email || ticket.username || 'Unknown user';
+        const userLabel = ticket.user?.username || ticket.user?.email || ticket.user_email || ticket.username || ticket.user || 'Unknown user';
         const updated = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : (ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'Unknown');
     const ticketIdLabel = ticket.id != null ? `#${ticket.id}` : `Ticket ${String(ticketId)}`;
 
@@ -519,15 +519,23 @@ function submitAddTicket(event) {
 async function viewTicket(ticketId) {
     try {
         const token = localStorage.getItem('token');
-        const response = await fetch(`/.netlify/functions/tickets?id=${ticketId}`, {
+        const response = await fetch(`/.netlify/functions/tickets?ticketId=${ticketId}`, {
             headers: {
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
             }
         });
         
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('View ticket error:', response.status, errText);
+            showNotification('Ticket detayları yüklenemedi. Lütfen oturumunuzu doğrulayın.', 'error');
+            return;
+        }
+
         const data = await response.json();
-        if (!data.success || !data.ticket) {
-            alert('Failed to load ticket details');
+        if (!data || !data.ticket) {
+            showNotification('Ticket bulunamadı.', 'error');
             return;
         }
         
@@ -552,7 +560,7 @@ async function viewTicket(ticketId) {
                         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 13px;">
                             <div>
                                 <div style="color: #888;">User</div>
-                                <div>${escapeHtml(ticket.user_email || ticket.username || 'Unknown')}</div>
+                                <div>${escapeHtml((ticket.user && (ticket.user.username || ticket.user.email)) || ticket.user_email || ticket.username || 'Unknown')}</div>
                             </div>
                             <div>
                                 <div style="color: #888;">Category</div>
@@ -962,7 +970,7 @@ async function loadTickets() {
     }
 
     setTicketsRefreshStatus('Refreshing...');
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading tickets...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading tickets...</td></tr>';
 
     try {
         const token = localStorage.getItem('token');
@@ -975,6 +983,16 @@ async function loadTickets() {
         });
 
         if (!response.ok) {
+            // Graceful handling for auth issues
+            if (response.status === 401 || response.status === 403) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">Authorization required. Please sign in again.</td></tr>';
+                showNotification('Oturum gerekli: Lütfen yeniden giriş yapın.', 'error');
+                const filtersBar = document.querySelector('.filter-bar');
+                if (filtersBar) filtersBar.style.display = 'none';
+                // Optionally, redirect to signin after short delay
+                setTimeout(() => { window.location.href = '/signin.html'; }, 1500);
+                return;
+            }
             throw new Error(`Failed to load tickets: ${response.status}`);
         }
 
@@ -983,7 +1001,7 @@ async function loadTickets() {
         pruneSelectedTicketIds();
 
         if (ticketsCache.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #888;">No tickets found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #888;">No tickets found</td></tr>';
             updateSelectedTicketsSummary();
             updateUnreadQuickCardState();
             reapplyTicketSearchFilter();
@@ -999,8 +1017,8 @@ async function loadTickets() {
 
         ticketsCache.forEach(ticket => {
             const selectionKey = getTicketSelectionKey(ticket);
-            const displayId = ticket.id != null ? String(ticket.id) : selectionKey;
-            const checkboxLabel = ticket.id != null ? `Select ticket #${ticket.id}` : 'Select ticket';
+            const displayId = (ticket.short_id ? String(ticket.short_id) : (ticket.id != null ? String(ticket.id) : selectionKey));
+            const checkboxLabel = ticket.short_id ? `Select ticket #${ticket.short_id}` : (ticket.id != null ? `Select ticket #${ticket.id}` : 'Select ticket');
             const status = (ticket.status || '').toLowerCase();
             const isUnread = status === 'open' || status === 'pending';
             const createdDate = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'Unknown';
@@ -1022,13 +1040,7 @@ async function loadTickets() {
                 `<option value="${option}" ${status === option ? 'selected' : ''}>${option}</option>`
             ).join('');
 
-            const assignee = ticket.assigned_to || '';
-            const assigneeOptions = [
-                { value: '', label: 'Unassigned' },
-                { value: 'admin', label: 'Admin' },
-                { value: 'support1', label: 'Support 1' },
-                { value: 'support2', label: 'Support 2' }
-            ].map(option => `<option value="${option.value}" ${assignee === option.value ? 'selected' : ''}>${option.label}</option>`).join('');
+            // Assignee column removed
 
             const ticketIdValue = ticket.id != null ? String(ticket.id) : '';
             const row = `
@@ -1036,8 +1048,7 @@ async function loadTickets() {
                     <td>
                         <input type="checkbox" class="ticket-checkbox" data-ticket-id="${escapeHtml(selectionKey)}" aria-label="${escapeHtml(checkboxLabel)}" ${isSelected ? 'checked' : ''}>
                     </td>
-                    <td>${escapeHtml(displayId)}</td>
-                    <td>${escapeHtml(ticket.users?.username || ticket.user_email || ticket.username || 'Unknown')}</td>
+                    <td>${escapeHtml(ticket.user?.username || ticket.user?.email || ticket.user_email || ticket.username || ticket.user || 'Unknown')}</td>
                     <td>
                         <div class="ticket-subject">
                             <span class="category-badge ${categoryClass}">${escapeHtml(categoryLabel)}</span>
@@ -1047,11 +1058,6 @@ async function loadTickets() {
                     <td>
                         <select class="inline-select status-select" ${ticketIdValue ? `onchange="updateTicketStatus('${ticketIdValue}', this.value)"` : 'disabled'}>
                             ${statusOptions}
-                        </select>
-                    </td>
-                    <td>
-                        <select class="inline-select assignee-select" ${ticketIdValue ? `onchange="assignTicket('${ticketIdValue}', this.value)"` : 'disabled'}>
-                            ${assigneeOptions}
                         </select>
                     </td>
                     <td>${escapeHtml(createdDate)}</td>
@@ -1093,7 +1099,7 @@ async function loadTickets() {
         setTicketsRefreshStatus(`Updated ${timeText}`);
     } catch (error) {
         console.error('Load tickets error:', error);
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load tickets. Please refresh the page.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load tickets. Please refresh the page.</td></tr>';
         setTicketsRefreshStatus('Refresh failed');
     } finally {
         ticketsLoading = false;

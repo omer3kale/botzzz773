@@ -149,8 +149,22 @@ async function updateOrderLogic(localOrder, remoteOrder) {
     
     // Scenario 1: Canceled (Full Refund)
     if (newStatus === 'canceled' && oldStatus !== 'canceled') {
-        await processRefund(localOrder.user_id, localOrder.charge, localOrder.id, 'CANCELED');
-        updateData.charge = 0; // Set cost to 0 as it was refunded
+        // Skip if a refund payment already exists (avoid double refunds)
+        try {
+            const { data: existingRefund } = await supabase
+                .from('payments')
+                .select('id')
+                .eq('order_id', localOrder.id)
+                .eq('method', 'refund')
+                .maybeSingle();
+            if (!existingRefund) {
+                await processRefund(localOrder.user_id, localOrder.charge, localOrder.id, 'CANCELED');
+            }
+        } catch (_) {
+            // On any error, proceed defensively without double-refund
+        }
+        // Keep original charge in DB; API responses will map charge=0 for compatibility
+        // (orders.js handles Perfect Panel compatibility in response mapping)
     } 
     // Scenario 2: Partial (Partial Refund)
     else if (newStatus === 'partial' && oldStatus !== 'partial') {
@@ -163,8 +177,7 @@ async function updateOrderLogic(localOrder, remoteOrder) {
             
             if (refundAmount > 0) {
                 await processRefund(localOrder.user_id, refundAmount, localOrder.id, 'PARTIAL');
-                // Decrease the order charge by the refunded amount
-                updateData.charge = totalCharge - refundAmount;
+                // Keep DB charge as original for accurate history; API layer maps partial charge for reseller
             }
         }
     }
@@ -181,6 +194,17 @@ async function updateOrderLogic(localOrder, remoteOrder) {
 // --- REFUND TRANSACTION ---
 async function processRefund(userId, amount, orderId, type) {
     try {
+        // Idempotency: Skip if a refund record already exists for this order
+        const { data: existingRefund } = await supabase
+            .from('payments')
+            .select('id')
+            .eq('order_id', orderId)
+            .eq('method', 'refund')
+            .limit(1);
+        if (Array.isArray(existingRefund) && existingRefund.length > 0) {
+            return;
+        }
+
         // 1. Get current user balance
         const { data: user, error: uErr } = await supabase
             .from('users')
@@ -203,7 +227,26 @@ async function processRefund(userId, amount, orderId, type) {
 
         log(`REFUND SUCCESS [${type}]: User ${userId} received +$${refundValue.toFixed(2)}. Order: ${orderId}`, 'success');
 
-        // Optional: Add to transaction/audit logs here if you have a table for it
+        // 3. Record refund payment (negative amount)
+        const txId = `refund_${String(orderId).replace(/[^a-z0-9]/gi, '').slice(0,12)}_${Date.now().toString(36)}`;
+        await supabase
+            .from('payments')
+            .insert({
+                transaction_id: txId,
+                order_id: orderId,
+                user_id: userId,
+                amount: -Math.abs(Number(refundValue.toFixed(2))),
+                method: 'refund',
+                status: 'refunded',
+                memo: `Refund for order ${orderId} (${type})`,
+                gateway_response: { source: 'cron', reason: type, order_id: orderId }
+            });
+
+        // 4. Mark order with refund_applied_at
+        await supabase
+            .from('orders')
+            .update({ refund_applied_at: new Date().toISOString() })
+            .eq('id', orderId);
 
     } catch (err) {
         log(`REFUND FAILED [${type}] Order ${orderId}: ${err.message}`, 'error');

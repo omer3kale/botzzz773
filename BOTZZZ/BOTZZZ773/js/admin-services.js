@@ -2855,15 +2855,27 @@ function onProviderChange(providerId) {
 
 // Auto-fetch service details from provider API when service ID is entered
 async function autoFetchServiceDetails() {
-    const serviceIdInput = document.querySelector('#providerServiceIdInput');
-    const providerSelect = document.querySelector('#addServiceProviderSelect');
+    // Support both add and edit modals
+    const serviceIdInput = document.querySelector('#providerServiceIdInput') || document.querySelector('#editProviderServiceIdInput');
+    const providerSelect = document.querySelector('#addServiceProviderSelect') || document.querySelector('select[name="provider"]');
     
-    if (!serviceIdInput || !providerSelect) return;
+    if (!serviceIdInput || !providerSelect) {
+        showNotification('Provider or Service ID field not found', 'error');
+        return;
+    }
     
     const serviceId = serviceIdInput.value.trim();
     const providerId = providerSelect.value;
     
-    if (!serviceId || !providerId) return;
+    if (!serviceId) {
+        showNotification('Please enter a Provider Service ID first', 'error');
+        return;
+    }
+    
+    if (!providerId) {
+        showNotification('Please select a Provider first', 'error');
+        return;
+    }
     
     try {
         // Show loading indicator
@@ -2914,7 +2926,7 @@ async function autoFetchServiceDetails() {
         }
         
         // Trigger pricing calculation if available
-        const form = document.querySelector('#addServiceForm');
+        const form = document.querySelector('#addServiceForm') || document.querySelector('#editServiceForm');
         if (form && typeof updateMarkupForForm === 'function') {
             updateMarkupForForm(form, { force: true });
         }

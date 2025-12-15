@@ -35,7 +35,7 @@ async function populateUsersTable() {
     
     try {
         // Show loading state
-        tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 2rem;">Loading users...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem;">Loading users...</td></tr>';
         
         // Get auth token
         const token = localStorage.getItem('token');
@@ -61,7 +61,7 @@ async function populateUsersTable() {
         pruneSelectedUserIds();
         
         if (usersData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #888;">No users found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #888;">No users found</td></tr>';
             updateSelectedUsersSummary();
             return;
         }
@@ -72,19 +72,18 @@ async function populateUsersTable() {
             const lastAuth = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
             const balance = parseFloat(user.balance || 0);
             const spent = parseFloat(user.spent || 0);
+            const profit = parseFloat(user.profit || 0);
             const discount = parseFloat(user.discount_rate || 0);
-            const userRate = parseFloat(user.user_rate || 0);
-            const rateLabel = userRate > 0 ? `Custom ${userRate}%` : 'Default';
             const status = (user.status || 'active').charAt(0).toUpperCase() + (user.status || 'active').slice(1);
             
             return `
                 <tr data-user-id="${user.id}">
                     <td><input type="checkbox" class="user-checkbox" data-user-id="${user.id}" aria-label="Select user ${user.id}"></td>
-                    <td>${user.id.substring(0, 8)}...</td>
                     <td>${user.username}</td>
                     <td>${user.email}</td>
                     <td>$${balance.toFixed(2)}</td>
                     <td>$${spent.toFixed(2)}</td>
+                    <td>$${profit.toFixed(2)}</td>
                     <td>
                         <span class="status-badge ${status.toLowerCase() === 'active' ? 'completed' : 'fail'}">
                             ${status}
@@ -93,7 +92,6 @@ async function populateUsersTable() {
                     <td>${created}</td>
                     <td>${lastAuth}</td>
                     <td>${discount}%</td>
-                    <td>${rateLabel}</td>
                     <td>
                         <div class="actions-dropdown">
                             <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
@@ -117,7 +115,7 @@ async function populateUsersTable() {
         
     } catch (error) {
         console.error('Error fetching users:', error);
-        tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 2rem; color: #ff4444;">Error loading users: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #ff4444;">Error loading users: ${error.message}</td></tr>`;
     }
 }
 

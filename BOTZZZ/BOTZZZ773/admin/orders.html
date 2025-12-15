@@ -144,11 +144,11 @@
             <button class="filter-tab active" data-status="all" onclick="filterOrders('all')">
                 All
             </button>
-            <button class="filter-tab" data-status="awaiting" onclick="filterOrders('awaiting')">
-                Awaiting
-            </button>
             <button class="filter-tab" data-status="pending" onclick="filterOrders('pending')">
                 Pending
+            </button>
+            <button class="filter-tab" data-status="processing" onclick="filterOrders('processing')">
+                Processing
             </button>
             <button class="filter-tab" data-status="in-progress" onclick="filterOrders('in-progress')">
                 In progress
@@ -161,9 +161,6 @@
             </button>
             <button class="filter-tab" data-status="canceled" onclick="filterOrders('canceled')">
                 Canceled
-            </button>
-            <button class="filter-tab" data-status="processing" onclick="filterOrders('processing')">
-                Processing
             </button>
             <button class="filter-tab" data-status="failed" onclick="filterOrders('failed')">
                 Failed <span class="tab-badge" id="failedOrderCount">0</span>

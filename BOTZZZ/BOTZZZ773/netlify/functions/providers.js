@@ -119,6 +119,80 @@ function normalizeCurrency(value, fallback = 'USD') {
   return str.toUpperCase().slice(0, 10);
 }
 
+// Real-time exchange rates cache
+let exchangeRatesCache = null;
+let exchangeRatesCacheTime = null;
+const EXCHANGE_RATES_CACHE_TTL = 3600000; // 1 hour
+
+// Fetch real-time exchange rates from API
+async function fetchExchangeRates() {
+  const now = Date.now();
+  
+  // Return cached rates if still valid
+  if (exchangeRatesCache && exchangeRatesCacheTime && (now - exchangeRatesCacheTime < EXCHANGE_RATES_CACHE_TTL)) {
+    return exchangeRatesCache;
+  }
+  
+  try {
+    // Free API, no key required (1500 req/day limit)
+    const response = await axios.get('https://open.er-api.com/v6/latest/USD', {
+      timeout: 5000
+    });
+    
+    if (response.data && response.data.rates) {
+      exchangeRatesCache = response.data.rates;
+      exchangeRatesCacheTime = now;
+      console.log('[CURRENCY] Exchange rates updated successfully');
+      return exchangeRatesCache;
+    }
+  } catch (error) {
+    console.error('[CURRENCY] Failed to fetch exchange rates:', error.message);
+  }
+  
+  // Fallback to static rates if API fails
+  return {
+    USD: 1,
+    EUR: 1.09,
+    GBP: 1.27,
+    INR: 0.012,
+    TRY: 0.029,
+    BRL: 0.20,
+    NGN: 0.0007,
+    CAD: 0.71,
+    AUD: 0.65,
+    SGD: 0.74,
+    AED: 0.27,
+    SAR: 0.27,
+    PHP: 0.018,
+    RUB: 0.011,
+    MXN: 0.050,
+    ZAR: 0.055,
+    JPY: 0.0068,
+    CNY: 0.14
+  };
+}
+
+// Convert amount from any currency to USD
+async function convertToUSD(amount, fromCurrency) {
+  const currency = String(fromCurrency || 'USD').toUpperCase().trim();
+  
+  if (currency === 'USD') {
+    return parseFloat(amount) || 0;
+  }
+  
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency];
+  
+  if (!rate) {
+    console.warn(`[CURRENCY] Unknown currency ${currency}, treating as USD`);
+    return parseFloat(amount) || 0;
+  }
+  
+  // rates are USD-based, so we need to divide by the rate to convert TO USD
+  // Example: 100 INR with rate 83.5 (1 USD = 83.5 INR) -> 100/83.5 = 1.20 USD
+  return (parseFloat(amount) || 0) / rate;
+}
+
 function normalizeProviderPayload(raw = {}) {
   const name = sanitizeString(firstDefined(raw.name, raw.providerName, raw.provider_name, raw.provider));
   const apiUrl = sanitizeString(firstDefined(raw.apiUrl, raw.api_url, raw.url, raw.endpoint));
@@ -478,7 +552,7 @@ async function fetchServiceDetails(data, headers) {
       };
     }
 
-    const { api_url, api_key } = provider;
+    const { api_url, api_key, currency: providerCurrency } = provider;
 
     if (!api_url || !api_key) {
       return {
@@ -519,6 +593,14 @@ async function fetchServiceDetails(data, headers) {
       };
     }
 
+    // Convert rate to USD if provider uses different currency
+    const rawRate = parseFloat(service.rate) || 0;
+    const rateInUSD = providerCurrency && providerCurrency !== 'USD' 
+      ? await convertToUSD(rawRate, providerCurrency)
+      : rawRate;
+
+    console.log(`[FETCH] Service ${service_id} rate conversion: ${rawRate} ${providerCurrency || 'USD'} → ${rateInUSD.toFixed(4)} USD`);
+
     return {
       statusCode: 200,
       headers,
@@ -527,12 +609,18 @@ async function fetchServiceDetails(data, headers) {
         service: {
           id: service.service,
           name: service.name,
-          rate: parseFloat(service.rate) || 0,
+          rate: parseFloat(rateInUSD.toFixed(4)),
           min: parseInt(service.min) || 0,
           max: parseInt(service.max) || 0,
           refill: service.refill,
           cancel: service.cancel
-        }
+        },
+        conversion: providerCurrency && providerCurrency !== 'USD' ? {
+          original_rate: rawRate,
+          original_currency: providerCurrency,
+          converted_rate: parseFloat(rateInUSD.toFixed(4)),
+          converted_currency: 'USD'
+        } : null
       })
     };
   } catch (error) {

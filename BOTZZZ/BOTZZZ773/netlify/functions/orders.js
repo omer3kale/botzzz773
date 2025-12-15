@@ -487,7 +487,12 @@ async function processOrderRefund(order, options = {}) {
 
   const orderId = order?.id;
   const userId = order?.user_id;
-  const chargeAmount = Number(order?.charge ?? 0);
+  // Use original charge snapshot if available; fallback to current charge
+  const chargeAmount = Number(
+    order?.original_charge !== undefined && order?.original_charge !== null
+      ? order.original_charge
+      : (order?.charge ?? 0)
+  );
 
   console.log(`[REFUND] Processing refund for order ${orderId}`, { userId, chargeAmount, source, reason });
 
@@ -759,7 +764,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     }));
     
     // Validate status filter if provided
-    const validStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+    const validStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error'];
     if (statusFilter && !validStatuses.includes(statusFilter)) {
       console.warn('[GET ORDERS] Invalid status filter:', statusFilter);
       return {
@@ -1228,6 +1233,7 @@ async function handleCreateOrder(user, data, headers) {
       link: linkStr,
       quantity: qty,
       charge: totalCost,
+      original_charge: totalCost,
       provider_cost: providerCharge,
       start_count: 0,
       remains: qty,
@@ -1833,7 +1839,7 @@ async function handleUpdateOrder(user, data, headers) {
 
       if (typeof status === 'string') {
         const normalizedStatus = status.toLowerCase();
-        const allowedStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting', 'cancelled'];
+        const allowedStatuses = ['pending', 'processing', 'in progress', 'completed', 'partial', 'canceled', 'failed', 'error', 'cancelled'];
         if (!allowedStatuses.includes(normalizedStatus)) {
           return {
             statusCode: 400,
@@ -2665,7 +2671,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         // Need to get full order data with charge for refund
         const { data: fullOrder } = await supabaseAdmin
           .from('orders')
-          .select('id, user_id, charge, order_number, order_reference, public_id')
+          .select('id, user_id, charge, original_charge, order_number, order_reference, public_id')
           .eq('id', order.id)
           .single();
         

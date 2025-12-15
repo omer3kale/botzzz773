@@ -48,7 +48,7 @@ const servicesOptionsState = {
     error: null
 };
 const failedOrdersRegistry = new Map();
-const ORDER_STATUS_OPTIONS = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error', 'awaiting'];
+const ORDER_STATUS_OPTIONS = ['pending', 'processing', 'in progress', 'completed', 'partial', 'canceled', 'failed', 'error'];
 let orderIdSelectionShortcutAttached = false;
 
 // Track current view state explicitly
@@ -598,7 +598,6 @@ function getStatusColor(statusKey) {
         case 'completed':
             return '#22c55e';
         case 'pending':
-        case 'awaiting':
             return '#eab308';
         case 'processing':
         case 'in-progress':
@@ -621,7 +620,6 @@ function getOrderStatusChipClass(statusKey) {
         case 'completed':
             return 'order-status-chip--completed';
         case 'pending':
-        case 'awaiting':
             return 'order-status-chip--pending';
         case 'processing':
         case 'in-progress':
