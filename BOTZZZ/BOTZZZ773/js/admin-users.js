@@ -81,9 +81,9 @@ async function populateUsersTable() {
                     <td><input type="checkbox" class="user-checkbox" data-user-id="${user.id}" aria-label="Select user ${user.id}"></td>
                     <td>${user.username}</td>
                     <td>${user.email}</td>
-                    <td>$${balance.toFixed(2)}</td>
-                    <td>$${spent.toFixed(2)}</td>
-                    <td>$${profit.toFixed(2)}</td>
+                    <td>$${(balance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
+                    <td>$${(spent.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
+                    <td>$${(profit.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
                     <td>
                         <span class="status-badge ${status.toLowerCase() === 'active' ? 'completed' : 'fail'}">
                             ${status}
@@ -330,7 +330,7 @@ function addUser() {
             <div class="form-row">
                 <div class="form-group">
                     <label>Initial Balance</label>
-                    <input type="number" name="balance" value="0.00" min="0" step="0.01" placeholder="0.00">
+                    <input type="number" name="balance" value="0.00" min="0" step="0.00001" placeholder="0.00000">
                 </div>
                 <div class="form-group">
                     <label>Discount Rate %</label>
@@ -442,11 +442,11 @@ function viewUser(userId) {
                 <h4><i class="fas fa-wallet"></i> Financial Summary</h4>
                 <div class="detail-row">
                     <span class="detail-label">Current Balance:</span>
-                    <span class="detail-value">$${balance.toFixed(2)}</span>
+                    <span class="detail-value">$${(balance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Total Spent:</span>
-                    <span class="detail-value">$${spent.toFixed(2)}</span>
+                    <span class="detail-value">$${(spent.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Discount Rate:</span>
@@ -520,7 +520,7 @@ function editUser(userId) {
             <div class="form-row">
                 <div class="form-group">
                     <label>Balance</label>
-                    <input type="number" name="balance" value="${balance.toFixed(2)}" step="0.01">
+                    <input type="number" name="balance" value="${balance.toFixed(5)}" step="0.00001">
                 </div>
                 <div class="form-group">
                     <label>Discount Rate %</label>
@@ -529,8 +529,11 @@ function editUser(userId) {
             </div>
             <div class="form-row">
                 <div class="form-group">
-                    <label>User Rate %</label>
-                    <input type="number" name="user_rate" value="${userRate}" min="0" max="100" step="0.01" placeholder="0 = Default">
+                    <label>Per-Service Discounts</label>
+                    <button type="button" class="btn btn-secondary" onclick="openCustomRateModal('${userId}')" style="width: 100%; margin-top: 8px;">
+                        <i class="fas fa-tags"></i> Set Custom Rates
+                    </button>
+                    <small style="color: #64748B; display: block; margin-top: 4px;">Define custom discount rates for specific services</small>
                 </div>
                 <div class="form-group">
                     <label>Status</label>
@@ -694,6 +697,385 @@ async function confirmDeleteUser(userId) {
             deleteBtn.disabled = false;
             deleteBtn.innerHTML = '<i class="fas fa-trash"></i> Delete User';
         }
+    }
+}
+
+// Custom Service Rates Modal
+async function openCustomRateModal(userId) {
+    const user = usersData.find(u => u.id === userId);
+    if (!user) {
+        showNotification('User not found', 'error');
+        return;
+    }
+
+    // Fetch all services
+    let services = [];
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/services?audience=admin', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        services = Array.isArray(data) ? data : (data.services || []);
+    } catch (error) {
+        console.error('Failed to load services:', error);
+        showNotification('Failed to load services', 'error');
+        return;
+    }
+
+    if (services.length === 0) {
+        showNotification('No services available', 'warning');
+        return;
+    }
+
+    // Store services globally for search
+    window.customRateServices = services;
+    window.customRateUserId = userId;
+
+    // Fetch user's custom rates
+    let customRates = {};
+    try {
+        const serviceDiscounts = user.service_discounts || {};
+        customRates = typeof serviceDiscounts === 'string' ? JSON.parse(serviceDiscounts) : serviceDiscounts;
+    } catch (e) {
+        customRates = {};
+    }
+    window.customRatesData = customRates;
+
+    // Build current custom rates list
+    const content = `
+        <div style="max-height: 600px; overflow-y: auto;">
+            <p style="color: #64748B; margin-bottom: 20px;">
+                Search and select services to set custom discount rates for <strong>${user.username}</strong>.
+            </p>
+            <div id="currentRatesWrapper" style="margin-bottom: 24px; padding: 16px; background: #F8FAFC; border-radius: 8px; border: 1px solid #E2E8F0;">
+                <h4 style="margin: 0 0 12px 0; font-size: 14px; font-weight: 600; color: #334155;">Current Custom Rates:</h4>
+                <div id="noCustomRates" style="color: #64748B; font-size: 13px;">No custom rates set yet.</div>
+                <div id="currentCustomRates"></div>
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; font-weight: 600; color: #334155; margin-bottom: 8px;">
+                    Search Service (by ID or name):
+                </label>
+                <input 
+                    type="text" 
+                    id="serviceSearchInput"
+                    placeholder="Type service ID (e.g., 9071) or service name..."
+                    style="width: 100%; padding: 12px; border: 2px solid #CBD5E1; border-radius: 8px; font-size: 14px;"
+                    oninput="searchCustomRateServices(this.value)"
+                >
+                <div 
+                    id="serviceSearchResults" 
+                    style="margin-top: 8px; max-height: 300px; overflow-y: auto; border: 1px solid #E2E8F0; border-radius: 8px; display: none; background: white;"
+                ></div>
+            </div>
+            
+            <div id="selectedServiceSection" style="display: none; padding: 16px; background: #F0F9FF; border: 2px solid #0EA5E9; border-radius: 8px;">
+                <h4 style="margin: 0 0 12px 0; color: #0C4A6E; font-size: 14px; font-weight: 600;">Selected Service:</h4>
+                <div id="selectedServiceInfo" style="margin-bottom: 16px;"></div>
+                <div style="display: flex; gap: 12px; align-items: end;">
+                    <div style="flex: 1;">
+                        <label style="display: block; font-weight: 600; color: #334155; margin-bottom: 6px;">
+                            Discount Rate (%):
+                        </label>
+                        <input 
+                            type="number" 
+                            id="customDiscountInput"
+                            min="0" 
+                            max="100" 
+                            step="0.01"
+                            placeholder="Enter discount (0-100)"
+                            style="width: 100%; padding: 10px; border: 2px solid #0EA5E9; border-radius: 6px; font-size: 14px;"
+                        >
+                    </div>
+                    <button 
+                        type="button" 
+                        onclick="addCustomRateToList()"
+                        style="padding: 10px 20px; background: #0EA5E9; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap;"
+                    >
+                        Add Discount
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn-primary" onclick="saveAllCustomRates()">
+            <i class="fas fa-save"></i> Save Changes
+        </button>
+    `;
+
+    createModal(`Custom Service Rates: ${user.username}`, content, actions);
+    updateCustomRatesList();
+}
+
+// Search services for custom rate modal
+function searchCustomRateServices(query) {
+    const resultsDiv = document.getElementById('serviceSearchResults');
+    if (!query || query.trim().length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    const services = window.customRateServices || [];
+    const searchTerm = query.toLowerCase().trim();
+    
+    // Search by ID or name
+    const matches = services.filter(service => {
+        const serviceId = String(service.public_id || service.id || '');
+        const serviceName = String(service.name || '').toLowerCase();
+        return serviceId.includes(searchTerm) || serviceName.includes(searchTerm);
+    }).slice(0, 20); // Limit to 20 results
+
+    if (matches.length === 0) {
+        resultsDiv.innerHTML = `
+            <div style="padding: 16px; text-align: center; color: #64748B;">
+                No services found matching "${query}"
+            </div>
+        `;
+        resultsDiv.style.display = 'block';
+        return;
+    }
+
+    resultsDiv.innerHTML = matches.map(service => {
+        const serviceId = service.public_id || service.id;
+        const serviceName = service.name || 'Unknown Service';
+        const rate = Number(service.rate || service.retail_rate || 0).toFixed(4);
+        
+        return `
+            <div 
+                onclick="selectServiceForCustomRate(${serviceId}, '${serviceName.replace(/'/g, "\\'")}', ${rate})"
+                style="padding: 12px 16px; border-bottom: 1px solid #E2E8F0; cursor: pointer; transition: background 0.2s;"
+                onmouseover="this.style.background='#F8FAFC'"
+                onmouseout="this.style.background='white'"
+            >
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong style="color: #0F172A;">#${serviceId}</strong>
+                        <span style="color: #64748B; margin-left: 8px;">${serviceName}</span>
+                    </div>
+                    <span style="color: #64748B; font-size: 13px;">$${rate}/1K</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    resultsDiv.style.display = 'block';
+}
+
+// Select service for custom rate
+function selectServiceForCustomRate(serviceId, serviceName, rate) {
+    const selectedSection = document.getElementById('selectedServiceSection');
+    const selectedInfo = document.getElementById('selectedServiceInfo');
+    const searchResults = document.getElementById('serviceSearchResults');
+    const discountInput = document.getElementById('customDiscountInput');
+    
+    // Hide search results
+    searchResults.style.display = 'none';
+    
+    // Store selected service
+    window.selectedCustomRateService = { serviceId, serviceName, rate };
+    
+    // Show selected service info
+    selectedInfo.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: white; border-radius: 6px; border: 1px solid #0EA5E9;">
+            <div>
+                <strong style="color: #0F172A; font-size: 16px;">#${serviceId}</strong>
+                <span style="color: #64748B; margin-left: 8px;">${serviceName}</span>
+            </div>
+            <span style="color: #64748B;">Base: $${rate}/1K</span>
+        </div>
+    `;
+    
+    // Check if already has custom rate
+    const customRates = window.customRatesData || {};
+    if (customRates[serviceId]) {
+        discountInput.value = customRates[serviceId];
+    } else {
+        discountInput.value = '';
+    }
+    
+    selectedSection.style.display = 'block';
+    discountInput.focus();
+}
+
+// Add custom rate to list
+function addCustomRateToList() {
+    const selectedService = window.selectedCustomRateService;
+    if (!selectedService) {
+        showNotification('Please select a service first', 'warning');
+        return;
+    }
+
+    const discountInput = document.getElementById('customDiscountInput');
+    const discount = parseFloat(discountInput.value || 0);
+    if (discount <= 0 || discount > 100 || Number.isNaN(discount)) {
+        showNotification('Please enter a valid discount between 0.01 and 100', 'warning');
+        return;
+    }
+
+    if (!window.customRatesData) {
+        window.customRatesData = {};
+    }
+    window.customRatesData[selectedService.serviceId] = discount;
+
+    updateCustomRatesList();
+
+    document.getElementById('selectedServiceSection').style.display = 'none';
+    document.getElementById('serviceSearchInput').value = '';
+    window.selectedCustomRateService = null;
+
+    showNotification(`Custom rate added for ${selectedService.serviceName}`, 'success');
+}
+
+// Remove custom rate
+function removeCustomRate(serviceId) {
+    if (!window.customRatesData) return;
+    const key = String(serviceId);
+    delete window.customRatesData[key];
+    updateCustomRatesList();
+    showNotification('Custom rate removed', 'success');
+}
+
+// Update custom rates list display
+function updateCustomRatesList() {
+    const wrapper = document.getElementById('currentRatesWrapper');
+    const currentRatesDiv = document.getElementById('currentCustomRates');
+    const noRatesDiv = document.getElementById('noCustomRates');
+    if (!currentRatesDiv || !wrapper || !noRatesDiv) return;
+
+    const customRates = window.customRatesData || {};
+    const services = window.customRateServices || [];
+    const customRatesArray = Object.entries(customRates).filter(([_, discount]) => Number(discount) > 0);
+    
+    if (customRatesArray.length === 0) {
+        noRatesDiv.style.display = 'block';
+        currentRatesDiv.innerHTML = '';
+        return;
+    }
+
+    noRatesDiv.style.display = 'none';
+    currentRatesDiv.innerHTML = customRatesArray.map(([serviceId, discount]) => {
+        const service = services.find(s => String(s.public_id || s.id) === String(serviceId));
+        const serviceName = service ? service.name : `Service #${serviceId}`;
+        const cleanId = String(serviceId);
+        const cleanDiscount = (window.formatTrimZeros ? window.formatTrimZeros(Number(discount), 5) : Number(discount).toFixed(2).replace(/\.00$/, ''));
+        return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border-radius: 6px; margin-bottom: 8px; border: 1px solid #E2E8F0;">
+                <div>
+                    <strong style="color: #0F172A;">#${cleanId}</strong> 
+                    <span style="color: #64748B; margin-left: 8px;">${serviceName}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="color: #059669; font-weight: 600;">${cleanDiscount}% discount</span>
+                    <button 
+                        type="button" 
+                        onclick="removeCustomRate('${cleanId}')"
+                        style="padding: 4px 8px; background: #FEE2E2; color: #DC2626; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;"
+                    >
+                        Remove
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+}
+
+// Save all custom rates
+async function saveAllCustomRates() {
+    const userId = window.customRateUserId;
+    if (!userId) {
+        showNotification('User ID not found', 'error');
+        return;
+    }
+
+    const customRates = window.customRatesData || {};
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        // Save to backend
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                userId: userId,
+                service_discounts: customRates
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to save custom rates');
+        }
+
+        showNotification('Custom rates saved successfully', 'success');
+        closeModal();
+        
+        // Reload users to reflect changes
+        if (typeof loadUsers === 'function') {
+            await loadUsers();
+        } else if (typeof populateUsersTable === 'function') {
+            await populateUsersTable();
+        }
+    } catch (error) {
+        console.error('Save custom rates error:', error);
+        showNotification('Failed to save custom rates: ' + error.message, 'error');
+    }
+}
+
+async function saveCustomRates(userId) {
+    const inputs = document.querySelectorAll('.custom-rate-input');
+    const customRates = {};
+    
+    inputs.forEach(input => {
+        const serviceId = input.dataset.serviceId;
+        const discount = parseFloat(input.value || 0);
+        if (discount > 0 && discount <= 100) {
+            customRates[serviceId] = discount;
+        }
+    });
+
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        // Save to backend
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                userId: userId,
+                service_discounts: customRates
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to save custom rates');
+        }
+
+        showNotification('Custom rates saved successfully!', 'success');
+        closeModal();
+        await populateUsersTable();
+
+    } catch (error) {
+        console.error('Error saving custom rates:', error);
+        showNotification(error.message, 'error');
     }
 }
 

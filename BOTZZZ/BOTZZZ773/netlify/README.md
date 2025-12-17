@@ -30,6 +30,7 @@ Alternatively, run `netlify env:import netlify/env/production.env` inside the li
 | `FRONTEND_URL` | Used for redirects/CORS |
 | `ADMIN_EMAIL` | Admin contact email |
 | `APP_NAME` | Display name used inside the UI |
+| `OPEN_EXCHANGE_RATES_KEY` | API key for currency conversion (optional, uses fallback rates if not set) |
 
 ## Reserved Variables
 

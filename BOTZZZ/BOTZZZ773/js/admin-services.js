@@ -504,7 +504,8 @@ function formatRatePerThousand(value, currency = 'USD') {
     const normalizedCurrency = currency ? String(currency).toUpperCase().slice(0, 10) : 'USD';
     const symbol = currencySymbols[normalizedCurrency] || `${normalizedCurrency} `;
     const ambiguousSymbols = new Set(['C$', 'A$', 'S$']);
-    const formatted = `${symbol}${numeric.toFixed(4)}`;
+    const trimmed = formatTrimZeros(numeric, 4);
+    const formatted = `${symbol}${trimmed}`;
     return (!currencySymbols[normalizedCurrency] || ambiguousSymbols.has(symbol))
         ? `${formatted} ${normalizedCurrency}`
         : formatted;
@@ -654,12 +655,19 @@ function getNextCategoryPortalSlot(categoryValue, excludeServiceId = null) {
     return maxSlot + 1;
 }
 
+function formatTrimZeros(value, maxDecimals = 5) {
+    if (!Number.isFinite(value)) return '';
+    const fixed = Number(value).toFixed(maxDecimals);
+    // Remove trailing zeros and optional trailing decimal point
+    return fixed.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+}
+
 function calculateMarkupPercent(providerRate, retailRate) {
     if (!Number.isFinite(providerRate) || !Number.isFinite(retailRate) || providerRate <= 0) {
         return null;
     }
     const markup = ((retailRate - providerRate) / providerRate) * 100;
-    return Number.isFinite(markup) ? Number(markup.toFixed(2)) : null;
+    return Number.isFinite(markup) ? Number(markup.toFixed(5)) : null;
 }
 
 const serviceCapabilityFields = [
@@ -692,7 +700,7 @@ function formatNumberForInput(value, decimals = 4) {
     if (!Number.isFinite(value)) {
         return '';
     }
-    return Number(value).toFixed(decimals);
+    return formatTrimZeros(Number(value), decimals);
 }
 
 function updateMarkupForForm(form, options = {}) {
@@ -714,7 +722,7 @@ function updateMarkupForForm(form, options = {}) {
     const markup = calculateMarkupPercent(providerValue, retailValue);
 
     if (markup !== null) {
-        markupInput.value = markup.toFixed(2);
+        markupInput.value = formatTrimZeros(markup, 5);
     } else if (options.force) {
         markupInput.value = '';
     }
@@ -734,7 +742,7 @@ function calculateRetailRateFromMarkup(form) {
     if (providerCost !== null && providerCost > 0 && markupPercent !== null && markupPercent >= 0) {
         // Formula: Retail Rate = Provider Cost * (1 + Markup / 100)
         const retailRate = providerCost * (1 + markupPercent / 100);
-        retailInput.value = retailRate.toFixed(4);
+        retailInput.value = formatTrimZeros(retailRate, 4);
     }
 }
 
@@ -1024,7 +1032,7 @@ async function addService() {
                             </div>
                             <div class="form-group">
                                 <label>Markup %</label>
-                                <input type="number" name="markup" placeholder="40" step="0.01" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
+                                <input type="number" name="markup" placeholder="40" step="0.00001" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
                             </div>
                         </div>
                         <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
@@ -1360,7 +1368,7 @@ async function editService(serviceId) {
                             </div>
                             <div class="form-group">
                                 <label>Markup %</label>
-                                <input type="number" name="markup" step="0.01" value="${markupValue !== null ? markupValue : ''}" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
+                                <input type="number" name="markup" step="0.00001" value="${markupValue !== null ? markupValue : ''}" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
                             </div>
                         </div>
                         <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
@@ -2797,7 +2805,7 @@ async function showSyncedServices() {
         services.forEach(service => {
             const serviceId = service.service || service.id || 'N/A';
             const serviceName = escapeHtml(service.name || 'Unnamed Service');
-            const rate = parseFloat(service.rate || 0).toFixed(2);
+            const rate = formatTrimZeros(parseFloat(service.rate || 0), 2);
             
             tableHTML += `
                 <tr style="border-bottom: 1px solid #334155;">

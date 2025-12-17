@@ -201,9 +201,9 @@
                 <div class="chart-header">
                     <h3 class="chart-title">Revenue Overview</h3>
                     <div class="chart-tabs">
-                        <button class="chart-tab active">Payments</button>
-                        <button class="chart-tab">Orders</button>
-                        <button class="chart-tab">Profits</button>
+                        <button class="chart-tab active" onclick="switchChartTab('payments')">Payments</button>
+                        <button class="chart-tab" onclick="switchChartTab('orders')">Orders</button>
+                        <button class="chart-tab" onclick="switchChartTab('profits')">Profits</button>
                     </div>
                 </div>
                 <div class="chart-container">
@@ -218,7 +218,7 @@
             <table class="admin-table">
                 <thead>
                     <tr>
-                        <th>ID</th>
+                        <th>Order ID</th>
                         <th>User</th>
                         <th>Service</th>
                         <th>Amount</th>

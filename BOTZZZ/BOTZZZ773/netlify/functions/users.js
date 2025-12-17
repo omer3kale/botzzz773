@@ -248,6 +248,22 @@ async function handleUpdate(user, data, headers) {
     delete data.password_hash;
     delete data.userId;
 
+    // Handle service_discounts JSONB field
+    if (data.service_discounts !== undefined) {
+      // Ensure it's valid JSON object
+      if (typeof data.service_discounts === 'string') {
+        try {
+          data.service_discounts = JSON.parse(data.service_discounts);
+        } catch (e) {
+          console.error('Invalid service_discounts JSON:', e);
+          data.service_discounts = {};
+        }
+      }
+      if (!data.service_discounts || typeof data.service_discounts !== 'object') {
+        data.service_discounts = {};
+      }
+    }
+
     const { data: updatedUser, error } = await supabaseAdmin
       .from('users')
       .update(data)

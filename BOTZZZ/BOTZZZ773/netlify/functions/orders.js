@@ -78,7 +78,20 @@ function toNumberOrNull(value) {
     return null;
   }
 
-  const num = Number(value);
+  // Accept both dot and comma decimal separators (e.g., "1.32" or "1,32")
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  let num = Number(raw);
+  if (!Number.isFinite(num)) {
+    // Try replacing comma with dot for locales returning "0,01"
+    const normalized = raw.replace(',', '.');
+    num = Number(normalized);
+  }
   return Number.isFinite(num) ? num : null;
 }
 
@@ -106,7 +119,7 @@ function calculateProviderRate(service) {
 
   if (retailRate !== null && markup !== null && markup > -100) {
     const base = retailRate / (1 + markup / 100);
-    return Number(base.toFixed(4));
+    return Number(base.toFixed(5));
   }
 
   return null;
@@ -117,7 +130,7 @@ function calculateProviderCharge(ratePerThousand, quantity) {
     return null;
   }
   const charge = (ratePerThousand * quantity) / 1000;
-  return Number(charge.toFixed(4));
+  return Number(charge.toFixed(5));
 }
 
 // Calculate customer-side partial charge based on delivered quantity (quantity - remains)
@@ -570,7 +583,7 @@ async function processOrderRefund(order, options = {}) {
 
   const previousBalance = Number(userData.balance ?? 0);
   const refundAmount = Math.abs(chargeAmount);
-  const newBalance = Number((previousBalance + refundAmount).toFixed(2));
+  const newBalance = Number((previousBalance + refundAmount).toFixed(5));
 
   console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount} = $${newBalance}`);
 
@@ -747,10 +760,22 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     }
 
     // Get pagination params with validation
-    const limit = Math.min(Math.max(parseInt(queryParams?.limit) || 100, 1), 500); // Max 500
+    const limit = Math.min(Math.max(parseInt(queryParams?.limit) || 50, 1), 500); // Default 50 per page
     const offset = Math.max(parseInt(queryParams?.offset) || 0, 0);
     const statusFilter = queryParams?.status ? String(queryParams.status).toLowerCase().trim() : null;
     const orderIdFilter = queryParams?.orderId ? String(queryParams.orderId).trim() : null;
+    // New: support multi-ID search and order_number search
+    const idsFilterRaw = queryParams?.ids ? String(queryParams.ids).trim() : null; // comma-separated order ids
+    const numbersFilterRaw = queryParams?.numbers ? String(queryParams.numbers).trim() : null; // comma-separated order_number strings
+    const searchQuery = queryParams?.search ? String(queryParams.search).toLowerCase().trim() : null; // Text search
+    const idsFilter = idsFilterRaw ? idsFilterRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : null;
+    const numbersFilter = numbersFilterRaw ? numbersFilterRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : null;
+    const numbersFilterNormalized = numbersFilter
+      ? Array.from(new Set(numbersFilter.flatMap(v => {
+          const n = Number(v);
+          return Number.isFinite(n) ? [v, String(n), n] : [v];
+        })))
+      : null;
     
     // DEBUG: Log what we're actually querying
     console.log('[GET ORDERS] Query params received:', JSON.stringify({
@@ -758,9 +783,12 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       userId: user.userId,
       statusFilter,
       orderIdFilter,
+      searchQuery,
       limit,
       offset,
-      rawQueryParams: queryParams
+      rawQueryParams: queryParams,
+      idsFilterCount: Array.isArray(idsFilter) ? idsFilter.length : 0,
+      numbersFilterCount: Array.isArray(numbersFilterNormalized) ? numbersFilterNormalized.length : 0
     }));
     
     // Validate status filter if provided
@@ -781,16 +809,41 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         user:users(id, email, username),
   service:services(id, name, category, rate, provider_service_id, provider_id, refill_button_enabled, provider:providers(id, name))
       `)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order('created_at', { ascending: false });
+    
+    // Build count query to get total number of matching orders
+    let countQuery = supabaseAdmin
+      .from('orders')
+      .select('id', { count: 'exact', head: false })
+      .order('created_at', { ascending: false });
+    
+    // NOTE: When search is active, fetch all orders first (no range), then filter and paginate on backend
+    if (!searchQuery) {
+      query = query.range(offset, offset + limit - 1);
+    }
 
     if (orderIdFilter) {
       query = query.eq('id', orderIdFilter);
+      countQuery = countQuery.eq('id', orderIdFilter);
+    }
+    if (idsFilter && idsFilter.length > 0) {
+      // Cast numeric strings to numbers where possible, keep strings otherwise
+      const idVals = idsFilter.map(v => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : v;
+      });
+      query = query.in('id', idVals);
+      countQuery = countQuery.in('id', idVals);
+    }
+    if (numbersFilterNormalized && numbersFilterNormalized.length > 0) {
+      query = query.in('order_number', numbersFilterNormalized);
+      countQuery = countQuery.in('order_number', numbersFilterNormalized);
     }
 
     // Non-admins can only see their own orders
     if (user.role !== 'admin') {
       query = query.eq('user_id', user.userId);
+      countQuery = countQuery.eq('user_id', user.userId);
       
       // Non-admins cannot filter by 'failed' status (they shouldn't see failed orders)
       if (statusFilter === 'failed' || statusFilter === 'error') {
@@ -808,11 +861,25 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       console.log('[GET ORDERS] Admin filtering by status:', statusFilter);
       if (statusFilter === 'failed') {
         query = query.in('status', ['failed', 'error']);
+        countQuery = countQuery.in('status', ['failed', 'error']);
       } else {
         query = query.eq('status', statusFilter);
+        countQuery = countQuery.eq('status', statusFilter);
       }
     } else if (user.role === 'admin' && !statusFilter) {
       console.log('[GET ORDERS] Admin requesting ALL orders (no status filter)');
+    }
+
+    // Execute count query first (if no search)
+    let totalCountFromDB = 0;
+    if (!searchQuery) {
+      const { count, error: countError } = await countQuery;
+      if (countError) {
+        console.error('[GET ORDERS] Count query error:', countError);
+      } else {
+        totalCountFromDB = count || 0;
+        console.log('[GET ORDERS] Total count from DB:', totalCountFromDB);
+      }
     }
 
     const { data: orders, error } = await query;
@@ -941,10 +1008,79 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       return order;
     });
 
+    // Apply search filtering if search query provided
+    let searchedOrders = normalizedOrders;
+    if (searchQuery) {
+      searchedOrders = normalizedOrders.filter(order => {
+        const orderNumber = String(order.order_number || '').toLowerCase();
+        const orderReference = String(order.order_reference || '').toLowerCase();
+        const publicId = String(order.public_id || '').toLowerCase();
+        const userEmail = String(order.user?.email || '').toLowerCase();
+        const userName = String(order.user?.username || '').toLowerCase();
+        const serviceName = String(order.service?.name || '').toLowerCase();
+        const serviceCategory = String(order.service?.category || '').toLowerCase();
+        const providerName = String(order.service?.provider?.name || '').toLowerCase();
+        const providerOrderId = String(order.provider_order_id || '').toLowerCase();
+        const link = String(order.link || '').toLowerCase();
+        
+        // Search matches if query appears in any of these fields
+        return orderNumber.includes(searchQuery) ||
+               orderReference.includes(searchQuery) ||
+               publicId.includes(searchQuery) ||
+               userEmail.includes(searchQuery) ||
+               userName.includes(searchQuery) ||
+               serviceName.includes(searchQuery) ||
+               serviceCategory.includes(searchQuery) ||
+               providerName.includes(searchQuery) ||
+               providerOrderId.includes(searchQuery) ||
+               link.includes(searchQuery);
+      });
+      console.log('[GET ORDERS] Search results:', {
+        searchQuery,
+        totalBeforeSearch: normalizedOrders.length,
+        totalAfterSearch: searchedOrders.length
+      });
+    }
+
+    // Apply pagination to search results
+    let totalCount, paginatedOrders, totalPages, currentPage;
+    
+    if (searchQuery) {
+      // Search active: use filtered results count
+      totalCount = searchedOrders.length;
+      paginatedOrders = searchedOrders.slice(offset, offset + limit);
+    } else {
+      // No search: use DB count and already paginated orders
+      totalCount = totalCountFromDB;
+      paginatedOrders = searchedOrders; // Already paginated by .range()
+    }
+    
+    totalPages = Math.ceil(totalCount / limit);
+    currentPage = Math.floor(offset / limit) + 1;
+    
+    console.log('[GET ORDERS] Final pagination:', {
+      totalCount,
+      totalPages,
+      currentPage,
+      returnedOrders: paginatedOrders.length,
+      searchActive: !!searchQuery
+    });
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ orders: normalizedOrders })
+      body: JSON.stringify({ 
+        orders: paginatedOrders,
+        pagination: {
+          totalCount,
+          totalPages,
+          currentPage,
+          perPage: limit,
+          offset,
+          hasNextPage: currentPage < totalPages,
+          hasPrevPage: currentPage > 1
+        }
+      })
     };
   } catch (error) {
     logOrderError('Get orders error', error, { userId: user.userId });
@@ -1125,7 +1261,8 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // Calculate total cost (rate is per 1000 units)
-    const totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(2));
+    // Keep order charge precise to 5 decimals (balance deductions remain 2 decimals elsewhere)
+    const totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(5));
     logger.debug('Calculated retail cost', { totalCost, qty, retailRate: retailRatePerThousand });
 
     const providerRatePerThousand = calculateProviderRate(service);
@@ -1180,7 +1317,7 @@ async function handleCreateOrder(user, data, headers) {
           error: 'Insufficient balance',
           balance: originalBalance,
           required: totalCost,
-          shortfall: (totalCost - originalBalance).toFixed(2)
+          shortfall: String((totalCost - originalBalance).toFixed(5)).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')
         })
       };
     }
@@ -1400,7 +1537,8 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     // ============= STEP 5: DEDUCT BALANCE =============
-    const newBalance = parseFloat((originalBalance - totalCost).toFixed(2));
+    const balanceNum = originalBalance - totalCost;
+    const newBalance = Number(balanceNum.toFixed(5));
     console.log(`[ORDER] Deducting balance: ${originalBalance} -> ${newBalance}`);
 
     const { error: balanceError } = await supabaseAdmin
@@ -1827,7 +1965,8 @@ async function handleUpdateOrder(user, data, headers) {
             body: JSON.stringify({ error: 'Charge must be zero or greater' })
           };
         }
-        updates.charge = Number(parsedCharge.toFixed(2));
+        // When updating charge manually, preserve 5-decimal precision
+        updates.charge = Number(parsedCharge.toFixed(5));
       }
 
       if (typeof providerOrderId === 'string') {
@@ -2376,7 +2515,7 @@ async function recordRefundTransaction(order, amount, options = {}) {
       transaction_id: buildRefundTransactionId(order.id || order.order_number),
       order_id: order.id || order.order_id || null,
       user_id: order.user_id,
-      amount: -Math.abs(Number(numericAmount.toFixed(2))),
+      amount: -Math.abs(Number(numericAmount.toFixed(5))),
       method: 'refund',
       status: options.status || 'refunded',
       memo: options.memo || `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`,

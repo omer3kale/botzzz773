@@ -98,10 +98,12 @@ async function handleOrderSubmit(e) {
             const orderLabel = data.order.order_number || data.order.id;
             showMessage(`Order placed successfully! Order ID: ${orderLabel}`, 'success');
             
-            // Update user balance in localStorage
+            // Update user balance in localStorage with 5-decimal precision and trim trailing zeros
             const user = getCurrentUser();
             if (user) {
-                user.balance = (parseFloat(user.balance) - parseFloat(data.order.charge)).toFixed(2);
+                const newBalance = Number((parseFloat(user.balance) - parseFloat(data.order.charge)).toFixed(5));
+                const formattedBalance = String(newBalance.toFixed(5)).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+                user.balance = Number(formattedBalance);
                 localStorage.setItem('user', JSON.stringify(user));
                 updateNavigation(true, user);
             }

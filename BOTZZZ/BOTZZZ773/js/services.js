@@ -13,6 +13,29 @@ let fullServicesHTMLCache = '';
 let activeFilterContext = null;
 let isPopupMode = false;
 let authGuardTriggered = false;
+let userDiscountRate = 0; // User's discount percentage (0-100)
+let userServiceDiscounts = {}; // User-specific per-service discounts: { serviceId: discountRate }
+const PER_SERVICE_DISCOUNTS = { 9071: 10 }; // Global per-service discount overrides
+
+async function refreshUserProfile(token) {
+    if (!token) return null;
+    try {
+        const res = await fetch('/.netlify/functions/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'verify', token })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.user) {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            return data.user;
+        }
+    } catch (err) {
+        console.warn('[SERVICES] Failed to refresh user profile', err);
+    }
+    return null;
+}
 
 const AUTH_ALERT_MESSAGE = 'You must be signed in to view services. Please sign in or create an account.';
 
@@ -333,6 +356,10 @@ async function loadServicesFromAPI(options = {}) {
     const isRetry = Boolean(options.manualRetry);
     const token = resolveAuthToken('load-services');
     authToken = token;
+    // Refresh user profile to get latest service_discounts
+    if (token) {
+        await refreshUserProfile(token);
+    }
     
     try {
         // Show loading state
@@ -397,6 +424,23 @@ async function loadServicesFromAPI(options = {}) {
                 __clientKey: `service_${publicId}`
             };
         });
+        
+        // Load user's discount rate and service-specific discounts if authenticated
+        try {
+            const userData = JSON.parse(localStorage.getItem('user') || '{}');
+            const discount = Number(userData?.discount_rate ?? 0);
+            if (Number.isFinite(discount) && discount >= 0 && discount <= 100) {
+                userDiscountRate = discount;
+                console.log('[SERVICES] User discount rate:', userDiscountRate + '%');
+            }
+            // Load user-specific service discounts
+            if (userData.service_discounts && typeof userData.service_discounts === 'object') {
+                userServiceDiscounts = userData.service_discounts;
+                console.log('[SERVICES] User service-specific discounts:', userServiceDiscounts);
+            }
+        } catch (err) {
+            console.debug('[SERVICES] No user discount available');
+        }
         
         // Show all services - no authentication or approval filtering for public view
         approvedServicesCache = services;
@@ -626,17 +670,42 @@ function buildServiceRowMarkup(service) {
     const serviceKey = assignServiceKey(service);
     const rate = parseFloat(service.rate || 0);
     const currency = (service.currency || 'USD').toUpperCase();
-    const pricePerK = formatCurrencyValue(rate, currency);
+
+    // Determine effective discount: user-service specific → global-service → user-global
+    const rawPublicId = service.public_id ?? service.publicId;
+    const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '') ? null : Number(rawPublicId);
+    
+    let effectiveDiscount = 0;
+    if (publicIdValue && userServiceDiscounts[publicIdValue] !== undefined && userServiceDiscounts[publicIdValue] !== null) {
+        const val = Number(userServiceDiscounts[publicIdValue]);
+        if (Number.isFinite(val) && val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+        }
+    } else if (publicIdValue && Object.prototype.hasOwnProperty.call(PER_SERVICE_DISCOUNTS, publicIdValue)) {
+        const val = Number(PER_SERVICE_DISCOUNTS[publicIdValue]);
+        if (Number.isFinite(val) && val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+        }
+    } else if (userDiscountRate > 0 && userDiscountRate <= 100) {
+        effectiveDiscount = userDiscountRate;
+    }
+
+    // Apply discount if any
+    let finalRate = rate;
+    let discountMarkup = '';
+    if (effectiveDiscount > 0) {
+        const discountAmount = rate * (effectiveDiscount / 100);
+        finalRate = rate - discountAmount;
+        discountMarkup = `<span class="price-discount" style="text-decoration: line-through; opacity: 0.6; font-size: 0.85em; margin-right: 6px;">${formatCurrencyValue(rate, currency)}</span>`;
+    }
+
+    const pricePerK = formatCurrencyValue(finalRate, currency);
     const minRaw = service.min_quantity ?? service.min_order;
     const maxRaw = service.max_quantity ?? service.max_order;
     const min = Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10;
     const max = maxRaw === null || maxRaw === undefined
         ? Infinity
         : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
-    const rawPublicId = service.public_id ?? service.publicId;
-    const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
-        ? null
-        : Number(rawPublicId);
     const serviceHeading = Number.isFinite(publicIdValue)
         ? `#${publicIdValue} · ${escapeHtml(service.name)}`
         : escapeHtml(service.name);
@@ -663,7 +732,7 @@ function buildServiceRowMarkup(service) {
                 <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
                 ${serviceMetaMarkup}
             </div>
-            <div class="service-col price">${pricePerK}<span class="price-note">per 1K</span></div>
+            <div class="service-col price">${discountMarkup}${pricePerK}<span class="price-note">per 1K</span></div>
             <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
             <div class="service-col">
                 <button class="btn btn-primary btn-sm" data-service-key="${escapeHtml(service.__clientKey)}" onclick="showServiceDescription(this.dataset.serviceKey)">Details</button>
@@ -845,7 +914,33 @@ function showServiceDescription(serviceKey) {
     
     const description = escapeHtml(service.description || 'No description available');
     const currency = (service.currency || 'USD').toUpperCase();
-    const priceLabel = formatCurrencyValue(service.rate, currency);
+    
+    // Apply discount in modal: user-service specific → global-service → user-global
+    let finalRate = service.rate;
+    let priceDiscountMarkup = '';
+    
+    let effectiveDiscount = 0;
+    if (publicIdValue && userServiceDiscounts[publicIdValue] !== undefined && userServiceDiscounts[publicIdValue] !== null) {
+        const val = Number(userServiceDiscounts[publicIdValue]);
+        if (Number.isFinite(val) && val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+        }
+    } else if (publicIdValue && Object.prototype.hasOwnProperty.call(PER_SERVICE_DISCOUNTS, publicIdValue)) {
+        const val = Number(PER_SERVICE_DISCOUNTS[publicIdValue]);
+        if (Number.isFinite(val) && val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+        }
+    } else if (userDiscountRate > 0 && userDiscountRate <= 100) {
+        effectiveDiscount = userDiscountRate;
+    }
+    
+    if (effectiveDiscount > 0) {
+        const discountAmount = service.rate * (effectiveDiscount / 100);
+        finalRate = service.rate - discountAmount;
+        priceDiscountMarkup = `<div style=\"opacity: 0.7; font-size: 1.2rem; text-decoration: line-through; margin-bottom: 4px;\">${formatCurrencyValue(service.rate, currency)}</div>`;
+    }
+    
+    const priceLabel = formatCurrencyValue(finalRate, currency);
     const minRaw = service.min_quantity ?? service.min_order;
     const maxRaw = service.max_quantity ?? service.max_order;
     const min = formatNumber(Number.isFinite(Number(minRaw)) ? Number(minRaw) : 10);
@@ -871,6 +966,7 @@ function showServiceDescription(serviceKey) {
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; text-align: center;">
                         <div>
                             <div style="opacity: 0.8; font-size: 0.8rem;">Rate per 1000</div>
+                            ${priceDiscountMarkup}
                             <div style="font-size: 1.6rem; font-weight: 700;">${priceLabel}</div>
                         </div>
                         <div>

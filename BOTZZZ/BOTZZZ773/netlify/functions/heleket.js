@@ -9,7 +9,7 @@ const HELEKET_MERCHANT_ID = process.env.HELEKET_MERCHANT_ID;
 const HELEKET_API_KEY = process.env.HELEKET_API_KEY;
 const HELEKET_API_BASE = process.env.HELEKET_API_BASE || 'https://api.heleket.com';
 const SITE_URL = process.env.SITE_URL || 'https://www.botzzz773.pro';
-const MIN_AMOUNT = Number(process.env.MIN_DEPOSIT_AMOUNT || 1);
+const MIN_AMOUNT = 1;
 
 const HELEKET_SUCCESS_STATUSES = new Set(['paid', 'paid_over']);
 const HELEKET_FAILURE_STATUSES = new Set(['fail', 'wrong_amount', 'cancel', 'system_fail', 'refund_fail']);
@@ -36,15 +36,16 @@ function getUserFromToken(authHeader) {
 
 function serializePayload(payload = {}) {
   const jsonString = JSON.stringify(payload || {});
-  return jsonString.replace(/\//g, '\\/');
+  return jsonString;
 }
 
 function generateHeleketSignature(payload) {
   if (!HELEKET_API_KEY) {
     throw new Error('HELEKET_API_KEY is not configured');
   }
-  const base64Payload = Buffer.from(serializePayload(payload)).toString('base64');
-  return crypto.createHash('md5').update(base64Payload + HELEKET_API_KEY).digest('hex');
+  const jsonString = serializePayload(payload);
+  // Try without Base64 encoding: MD5(JSON + API_KEY)
+  return crypto.createHash('md5').update(jsonString + HELEKET_API_KEY).digest('hex');
 }
 
 function formatAmount(amount) {
@@ -69,7 +70,8 @@ async function creditUserBalance(payment, metadata = {}) {
   }
 
   const currentBalance = parseFloat(userData.balance) || 0;
-  const newBalance = (currentBalance + parseFloat(payment.amount)).toFixed(2);
+  const balanceNum = currentBalance + parseFloat(payment.amount);
+  const newBalance = Number(balanceNum.toFixed(5));
 
   const { error: updateError } = await supabaseAdmin
     .from('users')
@@ -197,11 +199,16 @@ async function handleCreatePayment(event, data, headers) {
 
   let heleketResponse;
   try {
+    const signature = generateHeleketSignature(invoicePayload);
+    console.log('[HELEKET] Payload:', JSON.stringify(invoicePayload));
+    console.log('[HELEKET] Generated signature:', signature);
+    console.log('[HELEKET] Merchant ID:', HELEKET_MERCHANT_ID);
+    
     heleketResponse = await fetch(`${HELEKET_API_BASE}/v1/payment`, {
       method: 'POST',
       headers: {
         'merchant': HELEKET_MERCHANT_ID,
-        'sign': generateHeleketSignature(invoicePayload),
+        'sign': signature,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(invoicePayload)

@@ -37,7 +37,16 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!Number.isFinite(numeric)) {
             return;
         }
-        balanceAmount.textContent = formatCurrencyValue(numeric);
+        // Use global formatter if available, otherwise inline implementation
+        if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+            balanceAmount.textContent = window.BOTZZZ_formatBalanceDisplay(numeric);
+        } else {
+            // Inline fallback: 5 decimals, trim trailing zeros
+            const formatted = numeric.toFixed(5)
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '');
+            balanceAmount.textContent = '$' + formatted;
+        }
     }
 
     initializeRefundSnapshotBridge();
@@ -509,17 +518,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function formatCurrencyValue(amount, currency = 'USD') {
         const numeric = Number(amount);
         if (Number.isFinite(numeric)) {
-            try {
-                return new Intl.NumberFormat('en-US', {
-                    style: 'currency',
-                    currency,
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                }).format(numeric);
-            } catch (error) {
-                // Fallback handled below
-            }
-            return `$${numeric.toFixed(2)}`;
+            // Show up to 5 decimals, trim trailing zeros
+            const formatted = numeric.toFixed(5)
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '');
+            return `$${formatted}`;
         }
         return '$0.00';
     }

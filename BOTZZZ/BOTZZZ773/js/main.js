@@ -572,7 +572,18 @@
     function updateAllBalanceDisplays(balance) {
         if (!Number.isFinite(balance)) return;
         
-        const formattedBalance = `$${balance.toFixed(2)}`;
+        // Use extended format (up to 5 decimals, trim trailing zeros) if available
+        const formatBalance = globalObject.BOTZZZ_formatBalanceDisplay || ((val) => {
+            const num = Number(val);
+            if (!Number.isFinite(num)) return '$0';
+            const fixed = num.toFixed(5);
+            const trimmed = fixed
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '');
+            return `$${trimmed}`;
+        });
+        
+        const formattedBalance = formatBalance(balance);
         
         // Update all common balance element selectors
         const balanceSelectors = [

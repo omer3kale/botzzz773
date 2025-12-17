@@ -84,11 +84,11 @@ async function handleCreatePayment(event, data, headers) {
 
     const { amount } = data;
 
-    if (!amount || amount < 5) {
+    if (!amount || amount < 1) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Minimum amount is $5' })
+        body: JSON.stringify({ error: 'Minimum amount is $1' })
       };
     }
 
@@ -229,10 +229,12 @@ async function handleWebhook(event, headers) {
           .single();
 
         if (userData) {
+          const balanceNum = parseFloat(userData.balance) + parseFloat(payment.amount);
+          const newBalance = Number(balanceNum.toFixed(5));
           await supabaseAdmin
             .from('users')
             .update({ 
-              balance: (parseFloat(userData.balance) + parseFloat(payment.amount)).toFixed(2)
+              balance: newBalance
             })
             .eq('id', payment.user_id);
 

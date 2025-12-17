@@ -14,6 +14,28 @@ let networkStatusController = null;
 let isPopupMode = false;
 let authGuardTriggered = false;
 let userDiscountRate = 0; // User's discount percentage (0-100)
+let userServiceDiscounts = {}; // User-specific per-service discounts: { serviceId: discountRate }
+const PER_SERVICE_DISCOUNTS = { 9071: 10 }; // Global per-service discount overrides
+
+async function refreshUserProfile(token) {
+    if (!token) return null;
+    try {
+        const res = await fetch('/.netlify/functions/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'verify', token })
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && data.user) {
+            localStorage.setItem('user', JSON.stringify(data.user));
+            return data.user;
+        }
+    } catch (err) {
+        console.warn('[ORDER] Failed to refresh user profile', err);
+    }
+    return null;
+}
 
 const AUTH_ALERT_MESSAGE = 'You must be signed in to place orders. Please sign in or create an account.';
 
@@ -240,14 +262,29 @@ async function initializeBalanceDisplay() {
         // Subscribe to balance changes
         window.BalanceSync.subscribe(({ balance }) => {
             if (Number.isFinite(balance)) {
-                balanceDisplay.textContent = `$${balance.toFixed(2)}`;
+                // Use global formatter if available, otherwise inline 5-decimal logic
+                if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+                    balanceDisplay.textContent = window.BOTZZZ_formatBalanceDisplay(balance);
+                } else {
+                    const formatted = balance.toFixed(5)
+                        .replace(/(\.\d*?[1-9])0+$/, '$1')
+                        .replace(/\.0+$/, '');
+                    balanceDisplay.textContent = '$' + formatted;
+                }
             }
         });
 
         // Try to get cached balance first
         const cached = window.BalanceSync.getBalance();
         if (Number.isFinite(cached)) {
-            balanceDisplay.textContent = `$${cached.toFixed(2)}`;
+            if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+                balanceDisplay.textContent = window.BOTZZZ_formatBalanceDisplay(cached);
+            } else {
+                const formatted = cached.toFixed(5)
+                    .replace(/(\.\d*?[1-9])0+$/, '$1')
+                    .replace(/\.0+$/, '');
+                balanceDisplay.textContent = '$' + formatted;
+            }
         }
     }
 
@@ -266,17 +303,28 @@ async function initializeBalanceDisplay() {
             const userData = data?.user || data;
             const balance = Number(userData?.balance);
             if (Number.isFinite(balance)) {
-                balanceDisplay.textContent = `$${balance.toFixed(2)}`;
+                // Use global formatter if available, otherwise inline
+                if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+                    balanceDisplay.textContent = window.BOTZZZ_formatBalanceDisplay(balance);
+                } else {
+                    const formatted = balance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+                    balanceDisplay.textContent = `$${formatted}`;
+                }
                 if (window.BalanceSync) {
                     window.BalanceSync.setBalance(balance, { reason: 'order-page-load' });
                 }
             }
             
-            // Store user's discount rate for price calculations
+            // Store user's discount rate and service-specific discounts for price calculations
             const discount = Number(userData?.discount_rate ?? 0);
             if (Number.isFinite(discount) && discount >= 0 && discount <= 100) {
                 userDiscountRate = discount;
                 console.log('[ORDER] User discount rate:', userDiscountRate + '%');
+            }
+            // Load user-specific service discounts
+            if (userData.service_discounts && typeof userData.service_discounts === 'object') {
+                userServiceDiscounts = userData.service_discounts;
+                console.log('[ORDER] User service-specific discounts:', userServiceDiscounts);
             }
         }
     } catch (err) {
@@ -402,15 +450,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 const rate = Number(service.rate || 0);
                 let price = (quantity / 1000) * rate;
                 
-                // Apply user's discount if they have one
-                if (userDiscountRate > 0 && userDiscountRate <= 100) {
-                    const discountAmount = price * (userDiscountRate / 100);
+                // Apply discount: user-service specific → global-service → user-global
+                const servicePublicId = Number(service?.public_id ?? service?.publicId ?? service?.id);
+                
+                let effectiveDiscount = 0;
+                if (servicePublicId && userServiceDiscounts[servicePublicId] !== undefined && userServiceDiscounts[servicePublicId] !== null) {
+                    const val = Number(userServiceDiscounts[servicePublicId]);
+                    if (Number.isFinite(val) && val >= 0 && val <= 100) {
+                        effectiveDiscount = val;
+                    }
+                } else if (servicePublicId && Object.prototype.hasOwnProperty.call(PER_SERVICE_DISCOUNTS, servicePublicId)) {
+                    const val = Number(PER_SERVICE_DISCOUNTS[servicePublicId]);
+                    if (Number.isFinite(val) && val >= 0 && val <= 100) {
+                        effectiveDiscount = val;
+                    }
+                } else if (userDiscountRate > 0 && userDiscountRate <= 100) {
+                    effectiveDiscount = userDiscountRate;
+                }
+                
+                if (effectiveDiscount > 0) {
+                    const discountAmount = price * (effectiveDiscount / 100);
                     price = price - discountAmount;
                     
                     // Show discount info
                     const discountBadge = document.getElementById('discountBadge');
                     if (discountBadge) {
-                        discountBadge.textContent = `-${userDiscountRate}% discount applied`;
+                        discountBadge.textContent = `-${effectiveDiscount}% discount applied`;
                         discountBadge.style.display = 'block';
                     }
                 }
@@ -672,6 +737,9 @@ async function loadServices(options = {}) {
         return;
     }
 
+    // Refresh user profile to ensure latest service_discounts are available
+    await refreshUserProfile(token);
+
     const fetchHeaders = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
@@ -821,8 +889,24 @@ function renderServiceOptions(serviceSelect) {
             const datasetMax = max === Infinity ? 'Infinity' : max;
             const hasPublicId = Number.isFinite(service.publicId);
             const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
-            html += `<option value="${escapeHtml(String(service.id))}" data-rate="${rate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
-                    ${labelId} · ${escapeHtml(service.name || 'Untitled Service')} - $${rate}/1k (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
+                const baseRateNum = Number(service.rate || 0);
+                const baseRate = baseRateNum.toFixed(2);
+                // Compute effective discount: user-service → global-service → user-global
+                let effectiveDiscount = 0;
+                const publicId = hasPublicId ? Number(service.publicId) : null;
+                if (publicId && userServiceDiscounts[publicId] !== undefined && userServiceDiscounts[publicId] !== null) {
+                    const val = Number(userServiceDiscounts[publicId]);
+                    if (Number.isFinite(val) && val >= 0 && val <= 100) effectiveDiscount = val;
+                } else if (publicId && Object.prototype.hasOwnProperty.call(PER_SERVICE_DISCOUNTS, publicId)) {
+                    const val = Number(PER_SERVICE_DISCOUNTS[publicId]);
+                    if (Number.isFinite(val) && val >= 0 && val <= 100) effectiveDiscount = val;
+                } else if (userDiscountRate > 0 && userDiscountRate <= 100) {
+                    effectiveDiscount = userDiscountRate;
+                }
+                const finalRateNum = effectiveDiscount > 0 ? (baseRateNum - (baseRateNum * (effectiveDiscount / 100))) : baseRateNum;
+                const finalRate = finalRateNum.toFixed(2);
+                html += `<option value="${escapeHtml(String(service.id))}" data-rate="${finalRate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
+                        ${labelId} · ${escapeHtml(service.name || 'Untitled Service')} - $${finalRate}/1k${effectiveDiscount > 0 ? ` (was $${baseRate})` : ''} (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
                 </option>`;
         });
         html += '</optgroup>';

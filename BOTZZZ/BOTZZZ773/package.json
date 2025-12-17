@@ -19,6 +19,7 @@
     "coverage": "node tests/coverage-report.js",
     "coverage:check": "npm run coverage && echo 'Coverage check complete'",
     "migrate:staging": "node scripts/run-sql-migration.js supabase/migrations/20251215_add_original_charge_to_orders.sql",
+    "migrate:precision": "node scripts/run-sql-migration.js supabase/migrations/20251215_adjust_order_charge_precision.sql",
     "test:refunds:mock": "node scripts/staging-smoke-tests.js"
   },
   "keywords": [],

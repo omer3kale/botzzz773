@@ -679,7 +679,8 @@ async function creditUserBalance(payment, activityDetails = {}) {
     return;
   }
 
-  const newBalance = (parseFloat(userData.balance || 0) + parseFloat(payment.amount)).toFixed(2);
+  const balanceNum = parseFloat(userData.balance || 0) + parseFloat(payment.amount);
+  const newBalance = Number(balanceNum.toFixed(5));
 
   await supabaseAdmin
     .from('users')
@@ -791,7 +792,7 @@ async function handleAdminAddPayment(user, data, headers) {
       const { error: updateError } = await supabaseAdmin
         .from('users')
         .update({ 
-          balance: newBalance.toFixed(2),
+          balance: Number(newBalance.toFixed(5)),
           updated_at: new Date().toISOString()
         })
         .eq('id', userId);
@@ -813,7 +814,7 @@ async function handleAdminAddPayment(user, data, headers) {
         body: JSON.stringify({
           success: true,
           payment,
-          message: `Payment added successfully. User ${targetUser.username} balance updated from $${currentBalance.toFixed(2)} to $${newBalance.toFixed(2)}`
+          message: `Payment added successfully. User ${targetUser.username} balance updated from $${currentBalance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')} to $${newBalance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')}`
         })
       };
     } else {
@@ -937,7 +938,7 @@ async function handleAdminEditPayment(user, data, headers) {
       const { error: balanceError } = await supabaseAdmin
         .from('users')
         .update({ 
-          balance: finalBalance.toFixed(2),
+          balance: Number((finalBalance).toFixed(5)),
           updated_at: new Date().toISOString()
         })
         .eq('id', targetUser.id);
@@ -959,7 +960,7 @@ async function handleAdminEditPayment(user, data, headers) {
         body: JSON.stringify({
           success: true,
           payment: updatedPayment,
-          message: `Payment updated. User ${targetUser.username} balance adjusted by $${balanceAdjustment.toFixed(2)} (now $${finalBalance.toFixed(2)})`
+          message: `Payment updated. User ${targetUser.username} balance adjusted by $${balanceAdjustment.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')} (now $${finalBalance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')})`
         })
       };
     }

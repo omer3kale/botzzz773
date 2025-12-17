@@ -50,7 +50,7 @@
         <div class="admin-header-right">
             <div class="admin-search">
                 <i class="fas fa-search"></i>
-                <input type="text" id="orderSearch" placeholder="Search orders or provider IDs...">
+                <input type="text" id="orderSearch" placeholder="Search: order, provider ID, user, service...">
             </div>
             <div class="admin-notifications">
                 <i class="fas fa-bell"></i>
@@ -205,39 +205,35 @@
             </div>
         </div>
 
-        <div class="bulk-action-bar" id="ordersBulkActionBar">
-            <div class="bulk-action-field">
-                <label for="ordersBulkActionSelect">Bulk action</label>
-                <div class="bulk-action-controls">
-                    <select class="filter-select" id="ordersBulkActionSelect">
-                        <option value="">Select an action</option>
-                        <option value="resend_failed">Resend selected to provider</option>
-                    </select>
-                    <button class="btn-secondary" id="ordersBulkActionApply" disabled>
-                        <i class="fas fa-paper-plane"></i> Run
-                    </button>
-                </div>
-            </div>
-            <div class="bulk-action-summary">
-                <span id="bulkActionSelectionHint">Select orders to enable bulk actions</span>
-            </div>
-        </div>
-
         <div class="sync-status-bar">
             <div class="sync-status-meta">
                 <span class="sync-status-dot" id="ordersSyncDot"></span>
                 <span id="ordersSyncStatus">Provider sync pending…</span>
             </div>
             <div class="sync-actions" id="ordersSelectedActions" style="display:none; gap: 8px;">
-                <button class="btn-secondary" onclick="bulkResendSelectedOrders()">
-                    <i class="fas fa-redo"></i> Resend Selected
-                </button>
-                <button class="btn-secondary danger" onclick="bulkCancelSelectedOrders()">
-                    <i class="fas fa-ban"></i> Cancel & Refund Selected
-                </button>
-                <button class="btn-secondary danger" onclick="bulkDeleteSelectedOrders()">
-                    <i class="fas fa-trash"></i> Delete Selected
-                </button>
+                <div class="dropdown-container" style="position: relative;">
+                    <button class="btn-secondary" id="ordersActionsButton" onclick="toggleOrdersActionsDropdown()">
+                        <i class="fas fa-cog"></i> Actions <i class="fas fa-chevron-down" style="font-size: 10px; margin-left: 4px;"></i>
+                    </button>
+                    <div class="dropdown-menu" id="ordersActionsDropdown" style="display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: var(--admin-dark-bg); border: 1px solid var(--admin-border); border-radius: 8px; min-width: 220px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
+                        <button class="dropdown-item" onclick="bulkResendSelectedOrders(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-redo"></i> Resend Selected
+                        </button>
+                        <button class="dropdown-item" onclick="bulkCancelSelectedOrders(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-ban"></i> Cancel & Refund Selected
+                        </button>
+                        <button class="dropdown-item" onclick="bulkDeleteSelectedOrders(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-trash"></i> Delete Selected
+                        </button>
+                        <div class="dropdown-divider" style="height: 1px; background: var(--admin-border); margin: 4px 0;"></div>
+                        <button class="dropdown-item" onclick="copyProviderOrderIds(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-copy"></i> Copy Provider Order IDs
+                        </button>
+                        <button class="dropdown-item" onclick="exportSelectedOrders(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-download"></i> Export Selected (CSV)
+                        </button>
+                    </div>
+                </div>
             </div>
             <button class="btn-secondary" id="ordersSyncButton" onclick="manualOrdersSync()">
                 <i class="fas fa-sync-alt"></i> Sync Now
@@ -271,14 +267,14 @@
                         </tbody>
                     </table>
                 </div>
+                
+                <!-- Pagination -->
+                <div class="pagination" style="margin-top: 16px;">
+                    <button class="btn-secondary" id="prevPage" onclick="handlePrevPage()">Previous</button>
+                    <span class="pagination-info" id="paginationInfo">Loading...</span>
+                    <button class="btn-secondary" id="nextPage" onclick="handleNextPage()">Next</button>
+                </div>
             </div>
-        </div>
-
-        <!-- Pagination -->
-        <div class="pagination">
-            <button class="btn-secondary" id="prevPage" disabled>Previous</button>
-            <span class="pagination-info" id="paginationInfo">Loading...</span>
-            <button class="btn-secondary" id="nextPage">Next</button>
         </div>
 
         <!-- Provider Errors View (hidden by default) -->

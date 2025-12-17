@@ -493,9 +493,10 @@ function finalizeLogin(data, rememberMe, context = {}) {
 
     setTimeout(() => {
         const isAdmin = data.user.role === 'admin';
-        console.log('[AUTH] Redirecting to:', isAdmin ? 'admin/index.html' : 'dashboard.html');
+        const destination = isAdmin ? 'admin/index.html' : '/';
+        console.log('[AUTH] Redirecting to:', destination);
         console.log('[AUTH] Final token check before redirect:', !!localStorage.getItem('token'));
-        window.location.href = isAdmin ? 'admin/index.html' : 'dashboard.html';
+        window.location.href = destination;
     }, 1000);
 }
 
@@ -590,7 +591,18 @@ function updateNavigation(isLoggedIn, user = null) {
                 const balanceEl = userMenu.querySelector('.balance');
                 
                 if (usernameEl) usernameEl.textContent = user.username || user.email;
-                if (balanceEl) balanceEl.textContent = `$${parseFloat(user.balance || 0).toFixed(2)}`;
+                if (balanceEl) {
+                    // Use global formatter if available, otherwise inline 5-decimal logic
+                    if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+                        balanceEl.textContent = window.BOTZZZ_formatBalanceDisplay(parseFloat(user.balance || 0));
+                    } else {
+                        const balance = parseFloat(user.balance || 0);
+                        const formatted = balance.toFixed(5)
+                            .replace(/(\.\d*?[1-9])0+$/, '$1')
+                            .replace(/\.0+$/, '');
+                        balanceEl.textContent = `$${formatted}`;
+                    }
+                }
             }
         } else {
             // Show auth buttons, hide user menu

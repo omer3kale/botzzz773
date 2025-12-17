@@ -71,6 +71,19 @@ async function handleAdminStats(headers) {
     
     const totalRevenue = revenueData?.reduce((sum, p) => sum + parseFloat(p.amount), 0) || 0;
 
+    // Get total provider costs (sum of all order charges - these are costs to us)
+    const { data: ordersData } = await supabaseAdmin
+      .from('orders')
+      .select('charge, original_charge, provider_cost')
+      .in('status', ['completed', 'partial']);
+
+    // Calculate profit per order: income (customer charge) - outcome (provider cost)
+    const totalProfits = ordersData?.reduce((sum, o) => {
+      const income = parseFloat(o.charge || o.original_charge || 0);
+      const outcome = parseFloat(o.provider_cost || o.charge || 0);
+      return sum + (income - outcome);
+    }, 0) || 0;
+
     // Get total orders
     const { count: totalOrders } = await supabaseAdmin
       .from('orders')
@@ -108,13 +121,34 @@ async function handleAdminStats(headers) {
       .eq('status', 'completed')
       .gte('created_at', sevenDaysAgo.toISOString());
 
+    const { data: recentOrdersByDate } = await supabaseAdmin
+      .from('orders')
+      .select('created_at')
+      .gte('created_at', sevenDaysAgo.toISOString());
+
+    const { data: recentUsersByDate } = await supabaseAdmin
+      .from('users')
+      .select('created_at')
+      .gte('created_at', sevenDaysAgo.toISOString());
+
+    const { data: recentTicketsByDate } = await supabaseAdmin
+      .from('tickets')
+      .select('created_at')
+      .gte('created_at', sevenDaysAgo.toISOString());
+
     // Group by day
     const revenueByDay = {};
+    const ordersByDay = {};
+    const usersByDay = {};
+    const ticketsByDay = {};
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       revenueByDay[dateStr] = 0;
+      ordersByDay[dateStr] = 0;
+      usersByDay[dateStr] = 0;
+      ticketsByDay[dateStr] = 0;
     }
 
     recentRevenue?.forEach(payment => {
@@ -124,18 +158,43 @@ async function handleAdminStats(headers) {
       }
     });
 
+    recentOrdersByDate?.forEach(order => {
+      const date = order.created_at.split('T')[0];
+      if (ordersByDay[date] !== undefined) {
+        ordersByDay[date] += 1;
+      }
+    });
+
+    recentUsersByDate?.forEach(user => {
+      const date = user.created_at.split('T')[0];
+      if (usersByDay[date] !== undefined) {
+        usersByDay[date] += 1;
+      }
+    });
+
+    recentTicketsByDate?.forEach(ticket => {
+      const date = ticket.created_at.split('T')[0];
+      if (ticketsByDay[date] !== undefined) {
+        ticketsByDay[date] += 1;
+      }
+    });
+
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
         stats: {
-          totalRevenue: totalRevenue.toFixed(2),
+          totalRevenue: totalRevenue.toFixed(5),
+          totalProfits: totalProfits.toFixed(5),
           totalOrders: totalOrders || 0,
           totalUsers: totalUsers || 0,
           openTickets: openTickets || 0
         },
         recentOrders: recentOrders || [],
-        revenueChart: revenueByDay
+        revenueChart: revenueByDay,
+        ordersChart: ordersByDay,
+        usersChart: usersByDay,
+        ticketsChart: ticketsByDay
       })
     };
   } catch (error) {
@@ -183,8 +242,8 @@ async function handleUserStats(user, headers) {
       headers,
       body: JSON.stringify({
         stats: {
-          balance: parseFloat(userData?.balance || 0).toFixed(2),
-          totalSpent: totalSpent.toFixed(2),
+          balance: String(parseFloat(userData?.balance || 0).toFixed(5)).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''),
+          totalSpent: String(totalSpent.toFixed(5)).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''),
           totalOrders: orderCount || 0,
           openTickets: openTickets || 0
         }

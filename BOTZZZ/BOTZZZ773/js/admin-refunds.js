@@ -23,6 +23,17 @@ function formatCurrency(value) {
     return `$${number.toFixed(2)}`;
 }
 
+function formatCurrencyDynamic(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '$0.00';
+    }
+    // Show up to 5 decimals, but remove trailing zeros (including decimal point if needed)
+    let formatted = Math.abs(number).toFixed(5).replace(/\.?0+$/, '');
+    const sign = number < 0 ? '-' : '';
+    return `$${sign}${formatted}`;
+}
+
 function getRefundById(refundId) {
     const idString = String(refundId);
     return refundsCache.find(refund => String(refund.id) === idString);
@@ -96,8 +107,8 @@ function renderRefundsTable(refunds) {
             || '-';
         const singleAmount = Math.abs(Number(refund.amount || 0));
         const totalAmount = singleAmount * (Number(refund.refund_count_for_order || 1));
-        const amountDisplay = formatCurrency(refund.amount);
-        const totalAmountDisplay = formatCurrency(totalAmount);
+        const amountDisplay = formatCurrencyDynamic(refund.amount);
+        const totalAmountDisplay = formatCurrencyDynamic(totalAmount);
         const createdDate = refund.created_at ? new Date(refund.created_at).toLocaleString() : '-';
         const refundApplied = refund.refund_count_for_order ? `x${refund.refund_count_for_order}` : 'x1';
         const rawReason = (refund.gateway_response?.reason || '').toLowerCase();

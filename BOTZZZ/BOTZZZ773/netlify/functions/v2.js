@@ -3,6 +3,14 @@ const querystring = require('querystring');
 const axios = require('axios');
 const crypto = require('crypto');
 
+// --- SERVICE-LEVEL DISCOUNTS (Global overrides) ---
+// Map of public service_id -> discount percentage to apply for ALL users/resellers.
+// Example: { 9071: 10 } means apply 10% discount for service 9071.
+// Note: This overrides per-user global discount_rate when present.
+const SERVICE_DISCOUNTS = {
+  9071: 10
+};
+
 // --- 0. SECURITY SETTINGS ---
 // Rate Limit: A user can make a max of 200 requests per minute.
 const rateLimitMap = new Map();
@@ -59,7 +67,7 @@ async function getUserFromApiKey(apiKeyRaw) {
     // Lookup user
     const { data: userData, error: uErr } = await supabaseAdmin
         .from('users')
-        .select('id, email, balance, status')
+        .select('id, email, balance, status, discount_rate, service_discounts')
         .eq('id', keyData.user_id)
         .eq('status', 'active')
         .single();
@@ -73,7 +81,7 @@ async function getUserFromApiKey(apiKeyRaw) {
 }
 
 // --- 3. FETCH SERVICES ---
-async function getServices() {
+async function getServices(user = null) {
   const { data: services, error } = await supabaseAdmin.from('services').select('*').eq('status', 'active').order('category', { ascending: true });
   if (error || !services) return [];
   
@@ -83,13 +91,47 @@ async function getServices() {
       let exposedId = s.public_id ? s.public_id : s.id;
       let serviceId = parseInt(String(exposedId).replace(/\D/g, ''), 10) || 0;
       
-      const rateNumber = Math.round(parseFloat(s.rate || 0) * 100) / 100;
+      // Prefer retail_rate; show with 4-decimal precision to avoid misleading rounding
+      let rateNumber = parseFloat(s.retail_rate ?? s.rate ?? 0);
+      
+      // Apply user-specific discounts if authenticated
+      if (user) {
+        const publicServiceId = Number(s.public_id || s.id || 0);
+        const userServiceDiscounts = (user.service_discounts && typeof user.service_discounts === 'object') 
+          ? user.service_discounts 
+          : {};
+        const userSpecificDiscount = userServiceDiscounts[publicServiceId];
+        const globalServiceDiscount = SERVICE_DISCOUNTS[publicServiceId];
+        const userGlobalDiscount = Number(user.discount_rate ?? 0);
+        
+        let effectiveDiscount = 0;
+        
+        if (userSpecificDiscount !== undefined && userSpecificDiscount !== null && Number.isFinite(Number(userSpecificDiscount))) {
+          const val = Number(userSpecificDiscount);
+          if (val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+          }
+        } else if (globalServiceDiscount !== undefined && globalServiceDiscount !== null && Number.isFinite(Number(globalServiceDiscount))) {
+          const val = Number(globalServiceDiscount);
+          if (val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+          }
+        } else if (userGlobalDiscount > 0 && userGlobalDiscount <= 100) {
+          effectiveDiscount = userGlobalDiscount;
+        }
+        
+        if (effectiveDiscount > 0) {
+          rateNumber = Number((rateNumber * (1 - effectiveDiscount / 100)).toFixed(4));
+        }
+      }
+      
+      const rateValue = Number(rateNumber.toFixed(4));
       return {
         service: serviceId, 
         name: s.name, 
         type: 'Default', 
         category: s.category || 'General',
-        rate: rateNumber,
+        rate: rateValue,
         min: parseInt(s.min_quantity || 1), 
         max: parseInt(s.max_quantity || 1000),
         refill: s.refill_supported === true, 
@@ -139,7 +181,17 @@ exports.handler = async (event) => {
   try {
     const params = parseRequest(event);
     const action = params.action;
-    const apiKey = params.key;
+
+    // Accept API key from multiple locations (Perfect Panel may send Bearer token)
+    const bearerHeader = event.headers?.authorization || event.headers?.Authorization;
+    let apiKey = params.key
+      || params.api_key
+      || params.token
+      || event.headers?.['x-api-key']
+      || event.headers?.['X-API-Key'];
+    if (!apiKey && bearerHeader && bearerHeader.toLowerCase().startsWith('bearer ')) {
+      apiKey = bearerHeader.slice(7).trim();
+    }
 
     // Helper: Error function that always returns balance to prevent panel errors
     const errorResponse = (msg) => ({ 
@@ -160,7 +212,11 @@ exports.handler = async (event) => {
         const user = await getUserFromApiKey(apiKey);
         if (!user) return errorResponse('Invalid API key'); 
         
-        const balanceStr = parseFloat(user.balance || 0).toFixed(2);
+        // Format balance with up to 5 decimals, trim trailing zeros
+        const balanceNum = parseFloat(user.balance || 0);
+        const balanceStr = String(balanceNum.toFixed(5))
+            .replace(/(\.\d*?[1-9])0+$/, '$1')
+            .replace(/\.0+$/, '');
         return { statusCode: 200, headers, body: JSON.stringify({ balance: balanceStr, funds: balanceStr, currency: 'USD' }) };
     }
 
@@ -180,7 +236,8 @@ exports.handler = async (event) => {
     // 4. ACTION HANDLERS
     switch (action || 'services') {
       case 'services':
-        const services = await getServices();
+        // If user is authenticated, pass user object to apply their discounts
+        const services = await getServices(user);
         return { statusCode: 200, headers, body: JSON.stringify(services) };
 
       case 'add':
@@ -199,7 +256,7 @@ exports.handler = async (event) => {
         if (!params.service || !params.link || !params.quantity) return errorResponse('Missing parameters');
         
         // Fetch Service & Provider info
-        const { data: sData } = await supabaseAdmin.from('services').select('*, provider_id, provider:providers(id, name, api_url, api_key)').eq('public_id', params.service).single();
+        const { data: sData } = await supabaseAdmin.from('services').select('*, rate, retail_rate, provider_id, provider:providers(id, name, api_url, api_key)').eq('public_id', params.service).single();
         if (!sData) return errorResponse('Service not found');
 
         // Quantity Check
@@ -213,7 +270,7 @@ exports.handler = async (event) => {
             .select('id, status, customer_status, provider_error, order_number')
             .eq('service_id', sData.id)
             .eq('link', params.link)
-            .in('status', ['pending', 'processing', 'in progress', 'failed', 'canceled'])
+            .in('status', ['pending', 'processing', 'in progress', 'failed'])
             .limit(1);
 
           if (Array.isArray(dup) && dup.length > 0) {
@@ -236,7 +293,52 @@ exports.handler = async (event) => {
         // reseller can resend; only active statuses are blocked.
 
         // Balance Check
-        const charge = (parseFloat(sData.rate) / 1000) * qty;
+        const rateValue = parseFloat(sData.retail_rate ?? sData.rate ?? 0);
+        
+        // Determine effective discount: user-specific service → global service → user global
+        const publicServiceId = Number(sData.public_id || sData.id || 0);
+        const userServiceDiscounts = (user.service_discounts && typeof user.service_discounts === 'object') 
+          ? user.service_discounts 
+          : {};
+        const userSpecificDiscount = userServiceDiscounts[publicServiceId];
+        const globalServiceDiscount = SERVICE_DISCOUNTS[publicServiceId];
+        const userGlobalDiscount = Number(user.discount_rate ?? 0);
+        
+        let effectiveDiscount = 0;
+        let discountSource = 'none';
+        
+        if (userSpecificDiscount !== undefined && userSpecificDiscount !== null && Number.isFinite(Number(userSpecificDiscount))) {
+          const val = Number(userSpecificDiscount);
+          if (val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+            discountSource = 'user-service';
+          }
+        } else if (globalServiceDiscount !== undefined && globalServiceDiscount !== null && Number.isFinite(Number(globalServiceDiscount))) {
+          const val = Number(globalServiceDiscount);
+          if (val >= 0 && val <= 100) {
+            effectiveDiscount = val;
+            discountSource = 'global-service';
+          }
+        } else if (userGlobalDiscount > 0 && userGlobalDiscount <= 100) {
+          effectiveDiscount = userGlobalDiscount;
+          discountSource = 'user-global';
+        }
+        
+        let finalRate = rateValue;
+        if (effectiveDiscount > 0) {
+            const discountAmount = rateValue * (effectiveDiscount / 100);
+            finalRate = rateValue - discountAmount;
+            console.log('[V2 ADD] Discount applied:', { original_rate: rateValue, discount_rate: effectiveDiscount + '%', source: discountSource, final_rate: finalRate });
+        }
+        
+        // Preserve micro-charges by keeping 5-decimal precision on orders
+        const charge = Number(((finalRate / 1000) * qty).toFixed(5));
+        console.log('[V2 ADD] Charge calculation:', { retail_rate: sData.retail_rate, rate: sData.rate, rateValue, finalRate, qty, charge, discount_applied: effectiveDiscount > 0 });
+        // Reject if rate is missing or computed charge is not positive
+        if (!Number.isFinite(charge) || charge <= 0) {
+          await auditLog(user.id, 'invalid_charge_computed', { service_id: sData.id, public_id: sData.public_id, rate: sData.rate, retail_rate: sData.retail_rate, rateValue, qty, charge }, 'warning');
+          return errorResponse('Service rate unavailable. Please try again later.');
+        }
         if (parseFloat(user.balance) < charge) {
             await auditLog(user.id, 'no_balance', { charge }, 'warning');
             return errorResponse('Not enough balance');
@@ -282,7 +384,7 @@ exports.handler = async (event) => {
           
           // Try to create order with generated order_number
           const insertResult = await supabaseAdmin.from('orders').insert({
-            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge,
+            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge, original_charge: charge,
               order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
           }).select('id, order_number').single();
 
@@ -315,7 +417,7 @@ exports.handler = async (event) => {
             .select('id, created_at, status, provider_error, order_number')
             .eq('service_id', sData.id)
             .eq('link', params.link)
-            .in('status', ['pending', 'processing', 'in progress', 'failed', 'canceled'])
+            .in('status', ['pending', 'processing', 'in progress', 'failed'])
             .neq('id', newOrder.id)
             .limit(1);
 
@@ -595,7 +697,7 @@ exports.handler = async (event) => {
                  .select('id, balance')
                  .eq('id', user.id)
                  .single();
-               const newBalance = Number((Number(uData?.balance || 0) + refundAmount).toFixed(2));
+               const newBalance = Number((Number(uData?.balance || 0) + refundAmount).toFixed(5));
                const { error: balErr } = await supabaseAdmin
                  .from('users')
                  .update({ balance: newBalance })
@@ -605,7 +707,7 @@ exports.handler = async (event) => {
                  await supabaseAdmin.from('payments').insert({
                    user_id: user.id,
                    order_id: cOrder.id,
-                   amount: -Math.abs(Number(refundAmount.toFixed(2))),
+                   amount: -Math.abs(Number(refundAmount.toFixed(5))),
                    method: 'refund',
                    status: 'refunded',
                    currency: 'USD',

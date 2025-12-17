@@ -257,12 +257,12 @@
             <div class="dashboard-content" id="dashboardContent">
                 <!-- Services Section -->
                 <div class="services-highlight">
-                    <h2 class="section-title">Cheap And High Quality Services</h2>
+                    <h2 class="section-title">Grow Your Social Media Presence Instantly</h2>
                     <div class="services-showcase" id="servicesShowcase">
                         <!-- Services will be loaded dynamically -->
                     </div>
                     <p class="services-note">
-                        Please read the service descriptions before placing an order. You can choose the service you need with the help of our support team. All of our services are actively functioning smoothly.
+                        Boost your engagement with our premium SMM services. Select from a wide range of affordable, high-quality packages tailored to maximize your social media growth. Fast delivery, real results, and 24/7 customer support guaranteed.
                     </p>
                 </div>
 
@@ -378,24 +378,25 @@
                             class="search-input" 
                             placeholder="Search orders..."
                         >
-                        <button class="search-btn">
+                        <button type="button" class="search-btn" aria-label="Search orders">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <circle cx="11" cy="11" r="8"/>
                                 <path d="m21 21-4.35-4.35"/>
                             </svg>
                         </button>
-                        <button type="button" class="btn-soft" id="refreshOrdersBtn">
+                        <button type="button" class="refresh-btn" id="refreshOrdersBtn">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="23 4 23 10 17 10"/>
                                 <polyline points="1 20 1 14 7 14"/>
                                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
                                 <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
                             </svg>
-                            Refresh orders
+                            Refresh
                         </button>
                     </div>
                 </div>
                 <div class="refund-alert" id="orderRefundAlert" role="status"></div>
+                <div class="orders-pager top" data-orders-pager></div>
                 <div class="orders-table-container">
                     <table class="orders-table">
                         <thead>
@@ -426,6 +427,7 @@
                         </tbody>
                     </table>
                 </div>
+                <div class="orders-pager bottom" data-orders-pager></div>
             </div>
 
             <!-- Payments View (Hidden by default) -->
@@ -479,11 +481,33 @@
         <button class="toast-close">×</button>
     </div>
 
-    <script src="js/refund-state.js"></script>
-    <script src="js/refund-banner.js"></script>
-    <script src="js/main.js"></script>
-    <script src="js/botzzz773-realtime.js"></script>
-    <script src="js/dashboard.js"></script>
+    <script src="js/refund-state.js?v=20251216-6"></script>
+    <script src="js/refund-banner.js?v=20251216-6"></script>
+    <script src="js/main.js?v=20251216-6"></script>
+    <script src="js/botzzz773-realtime.js?v=20251216-6"></script>
+    <script src="js/dashboard.js?v=20251216-8"></script>
+    
+    <!-- INLINE DEBUG: Order Search Test -->
+    <script>
+        console.log('[INLINE DEBUG] Script loaded at:', new Date().toISOString());
+        
+        // Wait for DOM and dashboard.js to load
+        setTimeout(() => {
+            const searchInput = document.getElementById('orderSearch');
+            const searchBtn = document.querySelector('.order-search .search-btn');
+            
+            console.log('[INLINE DEBUG] orderSearch element:', searchInput);
+            console.log('[INLINE DEBUG] search button:', searchBtn);
+            console.log('[INLINE DEBUG] Orders view:', document.getElementById('ordersView'));
+            
+            if (!searchInput) {
+                console.error('[INLINE DEBUG] #orderSearch NOT FOUND IN DOM');
+                // Try to find similar elements
+                const allInputs = document.querySelectorAll('input[type="text"]');
+                console.log('[INLINE DEBUG] All text inputs:', allInputs);
+            }
+        }, 2000);
+    </script>
     
     <!-- BOTZZZ773 Real-Time Integration -->
     <script>
@@ -527,11 +551,20 @@
                     // Subscribe to user's balance changes
                     BOTZZZ773Realtime.subscribeToBalance(function(data) {
                         console.log('[BOTZZZ773 Dashboard] Balance update:', data);
-                        // Update balance display
+                        // Update balance display with up to 5 decimals (trim trailing zeros)
                         if (data.record && data.record.balance !== undefined) {
                             var balanceEl = document.getElementById('balanceAmount');
                             if (balanceEl) {
-                                balanceEl.textContent = '$' + parseFloat(data.record.balance).toFixed(2);
+                                var fmt = window.BOTZZZ_formatBalanceDisplay || function(v) {
+                                    var num = Number(v);
+                                    if (!Number.isFinite(num)) return '$0';
+                                    var fixed = num.toFixed(5);
+                                    var trimmed = fixed
+                                        .replace(/(\.\d*?[1-9])0+$/, '$1')
+                                        .replace(/\.0+$/, '');
+                                    return '$' + trimmed;
+                                };
+                                balanceEl.textContent = fmt(data.record.balance);
                             }
                         }
                     });

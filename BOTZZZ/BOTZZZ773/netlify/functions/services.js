@@ -116,11 +116,23 @@ function normalizeCurrency(value, fallback = 'USD') {
   }
 
   const str = String(value).trim();
+  
+  // Empty string or just whitespace → return fallback
   if (!str) {
     return fallback;
   }
 
-  return str.toUpperCase().slice(0, 10);
+  // If value is obviously invalid/nonsensical, return fallback
+  const upperStr = str.toUpperCase();
+  const cleaned = upperStr.slice(0, 10);
+  
+  // Validate: should be 2-3 character currency code or similar
+  // If it's too short or contains invalid chars, default to USD
+  if (cleaned.length < 2 || /^[^A-Z0-9]/.test(cleaned)) {
+    return fallback;
+  }
+
+  return cleaned;
 }
 
 function sanitizeSlugValue(value, fallback = '') {
@@ -658,20 +670,79 @@ async function handleGetServices(event, user, headers) {
 async function fetchServicesFromProviders() {
   try {
     const { data: providers, error } = await supabaseAdmin
-      .from('providers')
-      .select('*')
-      .eq('status', 'active');
+      .from('services')
+      .select('id, provider_rate, rate, retail_rate, markup_percentage')
+      .eq('id', serviceId)
+      .single();
 
     if (error) {
+      logServiceError('Fetch existing service before update failed', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch service for update' })
+      };
+    }
+
+    // Smart Markup Strategy for admin updates as well
+    // If provider_rate is changing, enforce global rules:
+    // - Provider ↑: keep existing markup%, adjust retail = provider * (1 + markup%)
+    // - Provider ↓: keep retail constant, recalc markup% = ((retail - provider)/provider)*100
+    try {
+      const prevProvider = Number(service?.provider_rate);
+      const prevRetail = Number(service?.rate ?? service?.retail_rate);
+      const prevMarkup = Number(service?.markup_percentage);
+      const nextProvider = numericProviderRate;
+
+      const hasPrevProvider = Number.isFinite(prevProvider) && prevProvider > 0;
+      const hasPrevRetail = Number.isFinite(prevRetail) && prevRetail > 0;
+      const hasPrevMarkup = Number.isFinite(prevMarkup);
+      const providerChanging = Number.isFinite(nextProvider) && hasPrevProvider && nextProvider !== prevProvider;
+
+      if (providerChanging && hasPrevMarkup) {
+        if (nextProvider > prevProvider) {
+          // Provider increased: keep markup%, adjust retail
+          const newRetail = Number((nextProvider * (1 + prevMarkup / 100)).toFixed(4));
+          updates.rate = newRetail;
+          updates.retail_rate = newRetail;
+          updates.markup_percentage = prevMarkup;
+          // If client attempted to override, enforce global rule
+        } else if (nextProvider < prevProvider) {
+          // Provider decreased: keep retail, recalc markup%
+          const retailToKeep = hasPrevRetail ? prevRetail : (resolvedRetailRate ?? null);
+          if (Number.isFinite(retailToKeep) && retailToKeep > 0) {
+            const newMarkup = Number((((retailToKeep - nextProvider) / nextProvider) * 100).toFixed(2));
+            updates.rate = retailToKeep;
+            updates.retail_rate = retailToKeep;
+            updates.markup_percentage = newMarkup;
+          } else if (hasPrevMarkup) {
+            // Fallback if no retail to keep: compute from markup
+            const newRetail = Number((nextProvider * (1 + prevMarkup / 100)).toFixed(4));
+            updates.rate = newRetail;
+            updates.retail_rate = newRetail;
+            updates.markup_percentage = prevMarkup;
+          }
+        }
+      }
+    } catch (smartErr) {
+      logger.warn('Smart markup strategy (admin update) skipped due to error', serializeError(smartErr));
+    }
+
+    const { data: updatedService, error: updateError } = await supabaseAdmin
+      .from('services')
+      .update(updates)
+      .eq('id', serviceId)
+      .select()
+      .single();
       logServiceError('Failed to load providers for fallback', error);
-      return [];
+    if (updateError) {
     }
 
     if (!Array.isArray(providers) || !providers.length) {
       return [];
     }
 
-    const allServices = [];
+          details: updateError.message || updateError.hint || 'Unknown database error'
 
     for (const provider of providers) {
       if (!provider?.api_url || !provider?.api_key) {
@@ -733,9 +804,9 @@ function normalizeProviderService(provider, rawService) {
     rawService.average_time ?? rawService.avg_time ?? rawService.time ?? rawService.expected_time
   );
 
-  const currency = normalizeCurrency(
-    rawService.currency ?? rawService.price_currency ?? rawService.rate_currency ?? rawService.cur
-  );
+  // Force USD if currency is missing or invalid - CRITICAL FIX
+  const currencyRaw = rawService.currency ?? rawService.price_currency ?? rawService.rate_currency ?? rawService.cur ?? 'USD';
+  const currency = normalizeCurrency(currencyRaw, 'USD');
 
   return {
     id: `${provider.id || provider.name}:${rawService.service || rawService.id || rawService.name}`,

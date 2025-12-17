@@ -113,7 +113,15 @@ function copyApiKey() {
 function updateBalanceDisplay(balance) {
     const balanceEl = document.getElementById('currentBalance');
     if (balanceEl && Number.isFinite(balance)) {
-        balanceEl.textContent = '$' + balance.toFixed(2);
+        // Use global formatter if available, otherwise inline 5-decimal logic
+        if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+            balanceEl.textContent = window.BOTZZZ_formatBalanceDisplay(balance);
+        } else {
+            const formatted = balance.toFixed(5)
+                .replace(/(\.\d*?[1-9])0+$/, '$1')
+                .replace(/\.0+$/, '');
+            balanceEl.textContent = '$' + formatted;
+        }
     }
 }
 

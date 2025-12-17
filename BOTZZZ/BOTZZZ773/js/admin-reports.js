@@ -5,6 +5,17 @@ let currentChart = null;
 let currentReportTab = 'payments';
 let reportData = null;
 
+// Format currency dynamically (5 decimals, remove trailing zeros)
+function formatCurrencyDynamic(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '$0';
+    }
+    let formatted = Math.abs(number).toFixed(5).replace(/\.?0+$/, '');
+    const sign = number < 0 ? '-' : '';
+    return `$${sign}${formatted}`;
+}
+
 // Initialize chart on page load
 document.addEventListener('DOMContentLoaded', async () => {
     await loadReportData();
@@ -96,7 +107,7 @@ function initializeChart() {
                     ticks: {
                         color: '#a0a0a0',
                         callback: function(value) {
-                            return '$' + value.toLocaleString();
+                            return formatCurrencyDynamic(value);
                         }
                     }
                 },

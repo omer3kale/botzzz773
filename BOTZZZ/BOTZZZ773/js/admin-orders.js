@@ -344,6 +344,17 @@ function formatCurrency(value, fractionDigits = 2, fallback = 'N/A', currencyCod
     }
 }
 
+function formatCurrencyDynamic(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+        return '$0.00';
+    }
+    // Show up to 5 decimals, but remove trailing zeros (including decimal point if needed)
+    let formatted = Math.abs(number).toFixed(5).replace(/\.?0+$/, '');
+    const sign = number < 0 ? '-' : '';
+    return `$${sign}${formatted}`;
+}
+
 function truncateText(text, maxLength = 48) {
     if (!text) return '';
     const normalized = String(text);
@@ -1667,8 +1678,16 @@ function initializeRealtimeOrders() {
 
 function setupRealtimeSubscriptions() {
     try {
+        // Check if init exists and returns a promise
+        const initResult = window.BOTZZZ773Realtime.init();
+        
+        if (!initResult || typeof initResult.then !== 'function') {
+            console.warn('[BOTZZZ773 Orders] Realtime init does not return a promise, using polling fallback');
+            return false;
+        }
+        
         // Initialize realtime client
-        window.BOTZZZ773Realtime.init().then(function() {
+        initResult.then(function() {
             console.log('[BOTZZZ773 Orders] Real-time initialized');
             
             // Subscribe to order changes
@@ -1714,12 +1733,14 @@ function setupRealtimeSubscriptions() {
             console.error('[BOTZZZ773 Orders] Realtime init error:', error);
             realtimeEnabled = false;
             updateOrdersSyncStatus('Polling mode');
+            // Fallback to polling when realtime fails
+            startOrdersAutoRefresh();
         });
         
         return true;
 
     } catch (error) {
-        console.error('[BOTZZZ773 Orders] Realtime error:', error);
+        console.error('[BOTZZZ773 Orders] Realtime setup error:', error);
         return false;
     }
 }
@@ -1828,19 +1849,10 @@ async function initializeOrdersPage() {
     // Try to enable real-time updates first
     const realtimeActive = initializeRealtimeOrders();
     
-    // Start polling as fallback (runs at slower rate if realtime is active)
+    // If real-time failed to initialize, use polling fallback
     if (!realtimeActive) {
+        console.log('[ORDERS] Real-time unavailable, starting automatic polling fallback');
         startOrdersAutoRefresh();
-    } else {
-        // Use slower polling as backup when realtime is active
-        const BACKUP_POLL_INTERVAL = 30000; // 30s backup poll when realtime is active
-        if (ordersAutoRefreshTimer) {
-            clearInterval(ordersAutoRefreshTimer);
-        }
-        ordersAutoRefreshTimer = setInterval(async () => {
-            console.log('[ORDERS] Backup poll - verifying data consistency');
-            await loadOrders({ skipSync: true });
-        }, BACKUP_POLL_INTERVAL);
     }
 }
 
@@ -2026,7 +2038,7 @@ async function editOrder(orderId) {
                     </div>
                     <div class="form-group">
                         <label>Charge (USD)</label>
-                        <input type="number" name="charge" value="${escapeHtml(String(order.charge || '0'))}" min="0" step="0.01" required>
+                        <input type="number" name="charge" value="${escapeHtml(String(order.charge || '0'))}" min="0" step="0.00001" required>
                     </div>
                 </div>
                 <div class="form-group">
@@ -2353,7 +2365,7 @@ async function showAddOrderModal() {
                 </div>
                 <div class="form-group">
                     <label>Charge (USD)</label>
-                    <input type="number" name="charge" placeholder="12.50" min="0" step="0.01">
+                    <input type="number" name="charge" placeholder="12.50" min="0" step="0.00001">
                 </div>
             </div>
             <div class="form-row">
@@ -2436,6 +2448,122 @@ function exportData(format) {
     createModal(`Export Orders`, content, actions);
 }
 
+// Toggle Actions Dropdown
+function toggleOrdersActionsDropdown() {
+    const dropdown = document.getElementById('ordersActionsDropdown');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('ordersActionsDropdown');
+    const button = document.getElementById('ordersActionsButton');
+    if (dropdown && button && !dropdown.contains(e.target) && !button.contains(e.target)) {
+        dropdown.style.display = 'none';
+    }
+});
+
+// Copy Provider Order IDs
+function copyProviderOrderIds() {
+    const selectedOrders = getSelectedOrders();
+    if (selectedOrders.length === 0) {
+        showNotification('No orders selected', 'error');
+        return;
+    }
+    
+    const providerOrderIds = selectedOrders
+        .map(order => order.provider_order_id || 'N/A')
+        .filter(id => id !== 'N/A')
+        .join(', ');
+    
+    if (!providerOrderIds) {
+        showNotification('No provider order IDs found in selected orders', 'error');
+        return;
+    }
+    
+    navigator.clipboard.writeText(providerOrderIds).then(() => {
+        showNotification(`Copied ${providerOrderIds.split(', ').length} provider order IDs to clipboard`, 'success');
+    }).catch(() => {
+        showNotification('Failed to copy to clipboard', 'error');
+    });
+}
+
+// Export Selected Orders to CSV
+function exportSelectedOrders() {
+    const selectedOrders = getSelectedOrders();
+    if (selectedOrders.length === 0) {
+        showNotification('No orders selected', 'error');
+        return;
+    }
+    
+    // CSV Headers
+    const headers = [
+        'Order ID',
+        'Provider Order ID',
+        'Order Number',
+        'User',
+        'Service',
+        'Link',
+        'Quantity',
+        'Start Count',
+        'Remains',
+        'Charge',
+        'Cost',
+        'Profit',
+        'Status',
+        'Mode',
+        'Created At'
+    ];
+    
+    // CSV Rows
+    const rows = selectedOrders.map(order => [
+        order.id || '',
+        order.provider_order_id || '',
+        order.order_number || order.order_reference || order.public_id || '',
+        order.user?.email || order.user?.username || '',
+        order.service?.name || '',
+        order.link || '',
+        order.quantity || 0,
+        order.start_count || 0,
+        order.remains || 0,
+        order.charge || 0,
+        order.cost || 0,
+        ((order.charge || 0) - (order.cost || 0)).toFixed(5),
+        order.status || '',
+        order.mode || 'auto',
+        order.created_at || ''
+    ]);
+    
+    // Build CSV content
+    let csvContent = headers.join(',') + '\n';
+    rows.forEach(row => {
+        const escapedRow = row.map(cell => {
+            // Escape quotes and wrap in quotes if contains comma or newline
+            const cellStr = String(cell);
+            if (cellStr.includes(',') || cellStr.includes('\n') || cellStr.includes('"')) {
+                return '"' + cellStr.replace(/"/g, '""') + '"';
+            }
+            return cellStr;
+        });
+        csvContent += escapedRow.join(',') + '\n';
+    });
+    
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `orders_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    showNotification(`Exported ${selectedOrders.length} orders to CSV`, 'success');
+}
+
 function confirmExport(format) {
     showNotification(`Exporting orders to ${format.toUpperCase()}...`, 'success');
     closeModal();
@@ -2446,11 +2574,52 @@ function confirmExport(format) {
     }, 1500);
 }
 
-// Initialize search
+// Initialize search and pagination
 document.addEventListener('DOMContentLoaded', async () => {
     initializeOrdersQuickActions();
-    if (typeof handleSearch === 'function') {
-        handleSearch('orderSearch', 'ordersTable');
+    
+    // Set up server-side search with pagination
+    const searchInput = document.getElementById('orderSearch');
+    if (searchInput) {
+        let searchTimeout;
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            // Debounce search to avoid too many API calls
+            searchTimeout = setTimeout(() => {
+                window.ordersCurrentPage = 1;  // Reset to first page on new search
+                loadOrders({ skipSync: true });
+            }, 300);
+        });
+    }
+    
+    // Set up pagination buttons
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+    
+    if (prevPageBtn) {
+        prevPageBtn.addEventListener('click', () => {
+            console.log('[PAGINATION] Previous button clicked. Current page:', window.ordersCurrentPage);
+            if (window.ordersCurrentPage > 1) {
+                window.ordersCurrentPage--;
+                console.log('[PAGINATION] Moving to page:', window.ordersCurrentPage);
+                loadOrders({ skipSync: true });
+            } else {
+                console.log('[PAGINATION] Already on first page, cannot go back');
+            }
+        });
+    }
+    
+    if (nextPageBtn) {
+        nextPageBtn.addEventListener('click', () => {
+            console.log('[PAGINATION] Next button clicked. Current page:', window.ordersCurrentPage, 'Total pages:', window.ordersTotalPages);
+            if (window.ordersCurrentPage < window.ordersTotalPages) {
+                window.ordersCurrentPage++;
+                console.log('[PAGINATION] Moving to page:', window.ordersCurrentPage);
+                loadOrders({ skipSync: true });
+            } else {
+                console.log('[PAGINATION] Already on last page, cannot go forward');
+            }
+        });
     }
     
     // Add filter change listeners
@@ -2498,6 +2667,47 @@ function applyFilters() {
     });
 }
 
+// Update pagination controls
+function updatePaginationControls() {
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+    const paginationInfo = document.getElementById('paginationInfo');
+    
+    if (!prevPageBtn || !nextPageBtn || !paginationInfo) return;
+    
+    const currentPage = window.ordersCurrentPage || 1;
+    const totalPages = window.ordersTotalPages || 1;
+    const totalCount = window.ordersTotalCount || 0;
+    
+    // Update button states
+    prevPageBtn.disabled = currentPage <= 1;
+    nextPageBtn.disabled = currentPage >= totalPages;
+    
+    // Update page info text
+    if (totalCount === 0) {
+        paginationInfo.textContent = 'No orders found';
+    } else {
+        const startItem = (currentPage - 1) * (window.ordersPerPage || 50) + 1;
+        const endItem = Math.min(currentPage * (window.ordersPerPage || 50), totalCount);
+        paginationInfo.textContent = `Page ${currentPage} of ${totalPages} • Showing ${startItem}-${endItem} of ${totalCount} orders`;
+    }
+}
+
+// Pagination button handlers (called from HTML onclick)
+function handlePrevPage() {
+    if (window.ordersCurrentPage > 1) {
+        window.ordersCurrentPage--;
+        loadOrders({ skipSync: true });
+    }
+}
+
+function handleNextPage() {
+    if (window.ordersCurrentPage < window.ordersTotalPages) {
+        window.ordersCurrentPage++;
+        loadOrders({ skipSync: true });
+    }
+}
+
 // Load real orders from database
 async function loadOrders({ skipSync = false } = {}) {
     const tbody = document.getElementById('ordersTableBody');
@@ -2523,11 +2733,29 @@ async function loadOrders({ skipSync = false } = {}) {
             throw new Error('Not authenticated');
         }
 
-        console.log('[ORDERS] Fetching ALL orders from API (no status filter)...');
-        const apiUrl = '/.netlify/functions/orders';
-        console.log('[ORDERS] Request URL:', apiUrl);
+        // Initialize pagination state if needed
+        if (!window.ordersCurrentPage) window.ordersCurrentPage = 1;
+        if (!window.ordersPerPage) window.ordersPerPage = 50;  // Show 50 orders per page
+
+        // Get search query from input
+        const searchInput = document.getElementById('orderSearch');
+        const searchQuery = searchInput ? searchInput.value.trim() : '';
         
-        const response = await fetch(apiUrl, {
+        // Calculate offset for API call
+        const offset = (window.ordersCurrentPage - 1) * window.ordersPerPage;
+
+        // Build API URL with pagination and search
+        const apiUrl = new URL('/.netlify/functions/orders', window.location.origin);
+        apiUrl.searchParams.append('limit', window.ordersPerPage);
+        apiUrl.searchParams.append('offset', offset);
+        if (searchQuery) {
+            apiUrl.searchParams.append('search', searchQuery);
+        }
+
+        console.log('[ORDERS] Fetching orders with pagination/search...');
+        console.log('[ORDERS] Request URL:', apiUrl.toString());
+        
+        const response = await fetch(apiUrl.toString(), {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2536,7 +2764,6 @@ async function loadOrders({ skipSync = false } = {}) {
         });
 
         console.log('[ORDERS] API response status:', response.status);
-        console.log('[ORDERS] Response headers:', Object.fromEntries(response.headers.entries()));
         
         if (!response.ok) {
             const errorText = await response.text();
@@ -2546,17 +2773,30 @@ async function loadOrders({ skipSync = false } = {}) {
 
         const data = await response.json();
         ordersCache = Array.isArray(data.orders) ? data.orders : [];
+        
+        // Store pagination info
+        if (data.pagination) {
+            window.ordersTotalCount = data.pagination.totalCount;
+            window.ordersTotalPages = data.pagination.totalPages;
+            window.ordersCurrentPage = data.pagination.currentPage;
+        } else {
+            // Fallback for responses without pagination (shouldn't happen with new API)
+            window.ordersTotalCount = ordersCache.length;
+            window.ordersTotalPages = Math.ceil(ordersCache.length / window.ordersPerPage);
+        }
+        
+        updatePaginationControls();
+        
         pruneSelectedOrderIds();
 
         // Debug logging for orders loaded
-        console.log('[ORDERS] Total orders received:', ordersCache.length);
-        if (ordersCache.length > 0) {
-            const statusBreakdown = ordersCache.reduce((acc, order) => {
-                const status = order.status || 'unknown';
-                acc[status] = (acc[status] || 0) + 1;
-                return acc;
-            }, {});
-            console.log('[ORDERS] Status breakdown:', statusBreakdown);
+        console.log('[ORDERS] Orders received:', ordersCache.length);
+        if (data.pagination) {
+            console.log('[ORDERS] Pagination:', {
+                page: data.pagination.currentPage,
+                totalPages: data.pagination.totalPages,
+                total: data.pagination.totalCount
+            });
         }
 
         if (ordersCache.length > 0) {
@@ -2641,18 +2881,24 @@ async function loadOrders({ skipSync = false } = {}) {
 
                 const defaultCurrency = 'USD';
                 const providerCurrency = String(order.provider_currency || defaultCurrency).toUpperCase();
-                const customerCharge = toNumberOrNull(order.charge);
+                // For accurate display: use charge first, if 0 fallback to original_charge
+                const chargeValue = toNumberOrNull(order.charge);
+                const originalChargeValue = toNumberOrNull(order.original_charge);
+                const customerCharge = (chargeValue !== null && chargeValue !== 0) ? chargeValue : originalChargeValue;
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null && providerCurrency === defaultCurrency)
-                    ? Number((customerCharge - providerCost).toFixed(2))
+                    ? Number((customerCharge - providerCost).toFixed(5))
                     : null;
                 const profitPercent = (profitValue !== null && customerCharge !== null && customerCharge !== 0)
-                    ? Number(((profitValue / customerCharge) * 100).toFixed(1))
+                    ? ((profitValue / customerCharge) * 100)
                     : null;
                 const profitClass = profitValue !== null && profitValue < 0 ? 'profit-negative' : 'profit-positive';
-                const profitMarkup = profitValue !== null
-                    ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue)}${profitPercent !== null ? ` (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)` : ''}</span>`
-                    : '';
+                                const profitMarkup = profitValue !== null
+                                        ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue, 5)}</span>`
+                                            + (profitPercent !== null
+                                                ? `<br><span class="cell-secondary ${profitClass}">${profitPercent > 0 ? '+' : ''}${(window.formatTrimZeros ? window.formatTrimZeros(profitPercent, 5) : profitPercent.toFixed(1))}%</span>`
+                                                : '')
+                                        : '';
 
                 const providerDotKey = providerStatusKey || 'pending';
                 const providerStatusValue = providerStatusLabel || 'Provider status pending';
@@ -2695,8 +2941,8 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td>${escapeHtml(orderUser?.username || orderUser?.email || 'Unknown')}</td>
                         <td>
                             <div class="cell-stack">
-                                <span class="cell-primary cell-highlight">IN: ${formatCurrency(customerCharge)}</span>
-                                <span class="cell-secondary">OUT: ${formatCurrency(providerCost, 4, 'N/A', providerCurrency)}</span>
+                                <span class="cell-primary cell-highlight">IN: ${formatCurrency(customerCharge, 5)}</span>
+                                <span class="cell-secondary">OUT: ${formatCurrency(providerCost, 5, 'N/A', providerCurrency)}</span>
                                 ${profitMarkup}
                             </div>
                         </td>
@@ -2756,17 +3002,19 @@ async function loadOrders({ skipSync = false } = {}) {
                 updateOrdersSyncStatus(formatRelativeTime(new Date(mostRecentSync).toISOString()), 'success');
             }
 
-            const paginationInfo = document.getElementById('paginationInfo');
-            if (paginationInfo) {
-                const count = ordersCache.length;
-                paginationInfo.textContent = `Showing ${count > 0 ? '1' : '0'}-${Math.min(count, 50)} of ${count}`;
-            }
+            updateSelectedOrdersSummary();
+            updatePaginationControls();  // Update pagination after rendering orders
         } else {
             console.log('[ORDERS] No orders found in response');
             tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px; color: #888;">No orders found</td></tr>';
             ordersCache = [];
             selectedOrderIds.clear();
             updateSelectedOrdersSummary();
+            
+            // Ensure pagination state reflects no results
+            if (!window.ordersTotalCount) window.ordersTotalCount = 0;
+            if (!window.ordersTotalPages) window.ordersTotalPages = 1;
+            updatePaginationControls();
         }
     } catch (error) {
         console.error('[ORDERS] Load orders error:', error);
@@ -2781,6 +3029,11 @@ async function loadOrders({ skipSync = false } = {}) {
         ordersCache = [];
         selectedOrderIds.clear();
         updateSelectedOrdersSummary();
+        
+        // Reset pagination state on error
+        window.ordersTotalCount = 0;
+        window.ordersTotalPages = 1;
+        updatePaginationControls();
     }
 }
 
@@ -3004,7 +3257,7 @@ async function loadFailedOrders() {
 
                 const quantity = toNumberOrNull(order.quantity) || 'N/A';
                 const chargeValue = toNumberOrNull(order.charge || order.retail_charge || order.customer_charge || order.amount);
-                const charge = chargeValue !== null ? formatCurrency(chargeValue, 2, 'N/A', order.currency || 'USD') : 'N/A';
+                const charge = chargeValue !== null ? formatCurrencyDynamic(chargeValue) : 'N/A';
 
                 const userName = escapeHtml(orderUser?.username || orderUser?.email || extractedUserName);
                 const serviceName = escapeHtml(orderService?.name || extractedServiceName);
@@ -3234,13 +3487,13 @@ async function bulkCancelSelectedOrders() {
 async function bulkDeleteSelectedOrders() {
     const resolvedOrders = getSelectedOrders();
     if (resolvedOrders.length === 0) {
-        showNotification('Silinecek sipariş bulunamadı. Lütfen tekrar seçin.', 'error');
+        showNotification('No orders found to delete. Please select orders.', 'error');
         return;
     }
 
     const confirmationLines = [
-        `${resolvedOrders.length} siparişi silmek istediğinize emin misiniz?`,
-        'Bu işlem geri alınamaz.'
+        `Are you sure you want to delete ${resolvedOrders.length} order(s)?`,
+        'This action cannot be undone.'
     ];
 
     if (!confirm(confirmationLines.join('\n\n'))) {
@@ -3261,11 +3514,11 @@ async function bulkDeleteSelectedOrders() {
         }
 
         if (results.success.length > 0 && results.failed.length === 0) {
-            showNotification(`${results.success.length} sipariş silindi.`, 'success');
+            showNotification(`${results.success.length} order(s) deleted successfully.`, 'success');
         } else if (results.success.length > 0) {
-            showNotification(`${results.success.length} silindi, ${results.failed.length} başarısız.`, 'warning');
+            showNotification(`${results.success.length} deleted, ${results.failed.length} failed.`, 'warning');
         } else {
-            showNotification('Seçili siparişler silinemedi.', 'error');
+            showNotification('Failed to delete selected orders.', 'error');
         }
 
         refreshOrdersAfterAdminChange();

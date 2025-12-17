@@ -316,7 +316,8 @@ async function handleWebhook(event, headers) {
         .single();
 
       if (userData) {
-        const newBalance = (parseFloat(userData.balance) + parseFloat(payment.amount)).toFixed(2);
+        const balanceNum = parseFloat(userData.balance) + parseFloat(payment.amount);
+        const newBalance = Number(balanceNum.toFixed(5));
 
         await supabaseAdmin
           .from('users')

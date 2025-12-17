@@ -75,6 +75,8 @@
     // USER DISCOUNT RATE
     // ==========================================
     let userDiscountRate = 0; // Percentage discount (0-100)
+    let userServiceDiscounts = {}; // Per-service discounts for this user { serviceId: rate }
+    const PER_SERVICE_DISCOUNTS = { 9071: 10 }; // Global per-service overrides if any
 
     // ==========================================
     // AUTHENTICATION CHECK
@@ -107,6 +109,20 @@
         userDiscountRate = parseFloat(user.discount_rate) || 0;
     }
 
+    // Format balance with up to 5 decimals, trimming trailing zeros
+    function formatBalanceDisplay(amount) {
+        const num = Number(amount);
+        if (!Number.isFinite(num)) return '$0';
+        const fixed = num.toFixed(5); // cap at 5 decimals
+        const trimmed = fixed
+            .replace(/(\.\d*?[1-9])0+$/, '$1') // drop trailing zeros after non-zero
+            .replace(/\.0+$/, ''); // drop .0 if no decimals remain
+        return `$${trimmed}`;
+    }
+
+    // Expose for inline scripts (balance realtime listener)
+    window.BOTZZZ_formatBalanceDisplay = formatBalanceDisplay;
+
     // Update UI with user data
     function updateUserDisplay() {
         const userNameEl = document.getElementById('userName');
@@ -117,7 +133,7 @@
         }
 
         if (balanceAmountEl && user.balance !== undefined) {
-            balanceAmountEl.textContent = `$${parseFloat(user.balance).toFixed(2)}`;
+            balanceAmountEl.textContent = formatBalanceDisplay(user.balance);
         }
     }
 
@@ -141,10 +157,13 @@
                 localStorage.setItem('user', JSON.stringify(user));
                 updateUserDisplay();
                 
-                // Update discount rate
+                // Update discount rate and service-specific discounts
                 if (data.user.discount_rate !== undefined) {
                     userDiscountRate = parseFloat(data.user.discount_rate) || 0;
                     updateDiscountBadge();
+                }
+                if (data.user.service_discounts && typeof data.user.service_discounts === 'object') {
+                    userServiceDiscounts = data.user.service_discounts;
                 }
                 
                 if (window.BalanceSync) {
@@ -188,11 +207,11 @@
 
     function resolveOrderDisplayLabel(order = {}) {
         if (order.order_number !== undefined && order.order_number !== null && String(order.order_number).trim().length > 0) {
-            return `#${String(order.order_number).trim()}`;
+            return String(order.order_number).trim();
         }
         if (order.id) {
             const compactId = String(order.id).replace(/[^a-zA-Z0-9]/g, '').substring(0, 10).toUpperCase();
-            return `#${compactId}`;
+            return compactId;
         }
         return '—';
     }
@@ -636,7 +655,7 @@
     // Load services from database
     async function loadServicesFromDatabase() {
         try {
-            const response = await fetch('/.netlify/functions/services?audience=customer', {
+            let response = await fetch('/.netlify/functions/services?audience=customer', {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
@@ -644,7 +663,7 @@
                 }
             });
 
-            const rawBody = await response.text();
+            let rawBody = await response.text();
             let data;
             try {
                 data = rawBody ? JSON.parse(rawBody) : {};
@@ -653,9 +672,17 @@
                 throw new Error('Received invalid response while loading services');
             }
 
-            if (response.status === 401 || response.status === 403) {
-                console.warn('[DASHBOARD] Services request unauthorized. Response:', data);
-                throw new Error('Unauthorized access to services');
+            // Fallback to public /v2 if unauthorized or function not OK
+            if (!response.ok || response.status === 401 || response.status === 403) {
+                console.warn('[DASHBOARD] Function services request failed or unauthorized. Falling back to /v2?action=services');
+                response = await fetch('/v2?action=services', { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+                rawBody = await response.text();
+                try {
+                    data = rawBody ? JSON.parse(rawBody) : {};
+                } catch (parseError) {
+                    console.error('[DASHBOARD] Failed to parse v2 services response:', parseError, rawBody);
+                    throw new Error('Received invalid response while loading services (v2)');
+                }
             }
             
             // Debug: Log entire response
@@ -725,16 +752,16 @@
                             provider_order_id: providerOrderReference,
                             provider_service_id: providerServiceReference,
                             name: service.name,
-                            price: parseFloat(service.rate),
+                            price: parseFloat(service.rate ?? service.price ?? 0),
                             min: minQuantity,
                             max: maxQuantity,
                             avgTime: avgTimeValue,
                             currency: currencyCode,
                             capabilities: {
-                                refill: Boolean(service.refill_supported),
-                                cancel: Boolean(service.cancel_supported),
-                                dripfeed: Boolean(service.dripfeed_supported),
-                                subscription: Boolean(service.subscription_supported)
+                                refill: Boolean(service.refill_supported ?? service.refill),
+                                cancel: Boolean(service.cancel_supported ?? service.cancel),
+                                dripfeed: Boolean(service.dripfeed_supported ?? service.dripfeed),
+                                subscription: Boolean(service.subscription_supported ?? service.subscription)
                             },
                             description: service.description || '',
                             categoryLabel,
@@ -778,37 +805,88 @@
     const searchInput = document.getElementById('searchServices');
 
     let selectedService = null;
+    let lastSearchResults = []; // Track search results for category filtering
+
+    // Helper function to render service option
+    function createServiceOption(service) {
+        const option = document.createElement('option');
+        const hasPublicId = Number.isFinite(service.publicId);
+        const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
+        option.value = service.id;
+        
+        // Compute effective discount
+        const basePriceNum = Number(service.price || 0);
+        let effectiveDiscount = 0;
+        const publicId = hasPublicId ? Number(service.publicId) : null;
+        if (publicId && userServiceDiscounts[publicId] !== undefined && userServiceDiscounts[publicId] !== null) {
+            const val = Number(userServiceDiscounts[publicId]);
+            if (Number.isFinite(val) && val >= 0 && val <= 100) effectiveDiscount = val;
+        } else if (publicId && Object.prototype.hasOwnProperty.call(PER_SERVICE_DISCOUNTS, publicId)) {
+            const val = Number(PER_SERVICE_DISCOUNTS[publicId]);
+            if (Number.isFinite(val) && val >= 0 && val <= 100) effectiveDiscount = val;
+        } else if (userDiscountRate > 0 && userDiscountRate <= 100) {
+            effectiveDiscount = userDiscountRate;
+        }
+        
+        const finalPriceNum = effectiveDiscount > 0 ? (basePriceNum - (basePriceNum * (effectiveDiscount / 100))) : basePriceNum;
+        const finalPrice = finalPriceNum.toFixed(4);
+        const basePrice = basePriceNum.toFixed(4);
+        
+        // Include category info if available
+        let optionText = `[${labelId}] ${service.name} — $${finalPrice}/1K${effectiveDiscount > 0 ? ` (was $${basePrice})` : ''}`;
+        if (service.categoryLabel) {
+            const categoryDisplay = `${getCategoryIcon(service.categorySlug)} ${service.categoryLabel}`;
+            optionText = `[${labelId}] [${categoryDisplay}] ${service.name} — $${finalPrice}/1K${effectiveDiscount > 0 ? ` (was $${basePrice})` : ''}`;
+        }
+        option.textContent = optionText;
+        
+        option.dataset.price = finalPriceNum;
+        option.dataset.basePrice = basePriceNum;
+        option.dataset.discount = effectiveDiscount;
+        option.dataset.min = service.min;
+        option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
+        option.dataset.avgTime = service.avgTime;
+        option.dataset.description = service.description;
+        option.dataset.serviceName = service.name;
+        option.dataset.currency = service.currency;
+        option.dataset.capabilities = JSON.stringify(service.capabilities || {});
+        
+        const providerRef = service.provider_order_id || service.provider_service_id;
+        if (providerRef) {
+            option.dataset.providerId = providerRef;
+        }
+        if (hasPublicId) {
+            option.dataset.publicId = service.publicId;
+        }
+        
+        return option;
+    }
 
     // Populate services based on category
     if (categorySelect && serviceSelect) {
         categorySelect.addEventListener('change', (e) => {
             const category = e.target.value;
-            serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
             
-            if (category && servicesData[category]) {
-                servicesData[category].forEach(service => {
-                    const option = document.createElement('option');
-                    option.value = service.id;
-                    const hasPublicId = Number.isFinite(service.publicId);
-                    const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
-                    option.textContent = `[${labelId}] ${service.name}`;
-                    option.dataset.price = service.price;
-                    option.dataset.min = service.min;
-                    option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
-                    option.dataset.avgTime = service.avgTime;
-                    option.dataset.description = service.description;
-                    option.dataset.serviceName = service.name;
-                    option.dataset.currency = service.currency;
-                    option.dataset.capabilities = JSON.stringify(service.capabilities || {});
-                    const providerRef = service.provider_order_id || service.provider_service_id;
-                    if (providerRef) {
-                        option.dataset.providerId = providerRef;
-                    }
-                    if (hasPublicId) {
-                        option.dataset.publicId = service.publicId;
-                    }
-                    serviceSelect.appendChild(option);
-                });
+            // If there's an active search, ignore category selection and show all search results
+            if (searchInput && searchInput.value.trim().length >= 2) {
+                // Show all search results regardless of category selection
+                serviceSelect.innerHTML = '';
+                if (lastSearchResults.length > 0) {
+                    lastSearchResults.forEach(service => {
+                        serviceSelect.appendChild(createServiceOption(service));
+                    });
+                } else {
+                    serviceSelect.innerHTML = '<option value="" disabled selected>No services found</option>';
+                }
+            } else {
+                // No active search - populate with category services
+                serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
+                
+                if (category && servicesData[category]) {
+                    servicesData[category].forEach(service => {
+                        serviceSelect.appendChild(createServiceOption(service));
+                    });
+                }
             }
             
             resetOrderCalculation();
@@ -865,11 +943,14 @@
                         ? `#${selectedService.publicId}`
                         : 'ID Pending';
                     const priceDisplay = formatCurrencyDisplay(selectedService.price, selectedService.currency, 4);
+                    const discountInfo = Number(option.dataset.discount || 0);
+                    const basePrice = Number(option.dataset.basePrice || selectedService.price);
+                    const baseDisplay = formatCurrencyDisplay(basePrice, selectedService.currency, 4);
                     const capabilityMarkup = renderCapabilityPills(selectedService.capabilities || {});
                     serviceInfo.innerHTML = `
                         <div class="service-meta-row service-meta-row--wrap">
                             <span><strong>Service ID:</strong> ${serviceLabel}</span>
-                            <span><strong>Price:</strong> ${priceDisplay} / 1000</span>
+                            <span><strong>Price:</strong> ${priceDisplay} / 1000${discountInfo > 0 ? ` (was ${baseDisplay})` : ''}</span>
                             <span><strong>Range:</strong> ${selectedService.min} - ${Number.isFinite(selectedService.max) ? selectedService.max.toLocaleString() : 'Unlimited'}</span>
                         </div>
                         <div class="service-meta-row service-meta-row--compact">${capabilityMarkup}</div>
@@ -895,12 +976,8 @@
         const quantity = parseInt(quantityInput.value) || 0;
         
         if (quantity >= selectedService.min && quantity <= selectedService.max) {
+            // Price is already discounted in selectedService.price
             let charge = (quantity / 1000) * selectedService.price;
-            
-            // Apply user discount if available
-            if (userDiscountRate > 0) {
-                charge = charge * (1 - userDiscountRate / 100);
-            }
             
             if (chargeAmount) {
                 chargeAmount.textContent = formatCurrencyDisplay(charge, selectedService.currency);
@@ -931,10 +1008,13 @@
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
+            const selectedCategory = categorySelect ? categorySelect.value : '';
             
             if (searchTerm.length < 2) {
-                categorySelect.value = '';
+                // Reset search results
+                lastSearchResults = [];
                 serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
+                // Don't reset category select anymore
                 return;
             }
 
@@ -952,39 +1032,73 @@
                 });
             });
 
-            // Populate service select with results
-            serviceSelect.innerHTML = '<option value="" disabled selected>Search results...</option>';
-            results.forEach(service => {
-                const option = document.createElement('option');
-                const hasPublicId = Number.isFinite(service.publicId);
-                const labelId = hasPublicId ? `#${service.publicId}` : 'ID Pending';
-                option.value = service.id;
-                const categoryDisplay = `${getCategoryIcon(service.categorySlug)} ${service.categoryLabel}`;
-                option.textContent = `[${labelId}] [${categoryDisplay}] ${service.name}`;
-                option.dataset.price = service.price;
-                option.dataset.min = service.min;
-                option.dataset.max = service.max === Infinity ? 'Infinity' : service.max;
-                option.dataset.avgTime = service.avgTime;
-                option.dataset.description = service.description;
-                option.dataset.serviceName = service.name;
-                option.dataset.currency = service.currency;
-                option.dataset.capabilities = JSON.stringify(service.capabilities || {});
-                const providerRef = service.provider_order_id || service.provider_service_id;
-                if (providerRef) {
-                    option.dataset.providerId = providerRef;
-                }
-                if (hasPublicId) {
-                    option.dataset.publicId = service.publicId;
-                }
-                serviceSelect.appendChild(option);
-            });
+            // If no results from curated list, try full provider list (fallback)
+            if (results.length === 0 && Array.isArray(window.servicesCache)) {
+                const all = window.servicesCache;
+                all.forEach(svc => {
+                    const name = String(svc.name || '').toLowerCase();
+                    const rawId = String(svc.id || svc.service || svc.public_id || '').toLowerCase();
+                    const publicIdVal = svc.public_id ?? svc.publicId;
+                    const matches = name.includes(searchTerm) || rawId.includes(searchTerm) || (publicIdVal && String(publicIdVal).includes(searchTerm));
+                    if (matches) {
+                        const rawCategory = svc.category || 'Other';
+                        const categorySlug = slugifyCategory(rawCategory);
+                        const categoryLabel = formatCategoryLabel(rawCategory);
+                        const publicId = (publicIdVal === null || publicIdVal === undefined || publicIdVal === '') ? null : Number(publicIdVal);
+                        const minQuantity = Number(svc.min_quantity ?? svc.min_order ?? 100) || 100;
+                        const maxQuantity = Number(svc.max_quantity ?? svc.max_order ?? 10000) || 10000;
+                        const currencyCode = (svc.currency || 'USD').toUpperCase();
+                        const avgTimeValue = svc.average_time || svc.avg_time || 'Not specified';
+                        results.push({
+                            id: String(svc.id ?? svc.service ?? publicId),
+                            publicId: Number.isFinite(publicId) ? publicId : null,
+                            name: svc.name || 'Untitled Service',
+                            price: parseFloat(svc.rate ?? svc.price ?? 0),
+                            min: minQuantity,
+                            max: maxQuantity,
+                            avgTime: avgTimeValue,
+                            currency: currencyCode,
+                            capabilities: {
+                                refill: Boolean(svc.refill_supported ?? svc.refill),
+                                cancel: Boolean(svc.cancel_supported ?? svc.cancel),
+                                dripfeed: Boolean(svc.dripfeed_supported ?? svc.dripfeed),
+                                subscription: Boolean(svc.subscription_supported ?? svc.subscription)
+                            },
+                            description: svc.description || '',
+                            categoryLabel,
+                            categorySlug
+                        });
+                    }
+                });
+            }
 
-            if (results.length === 0) {
+            // Store search results for category filtering
+            lastSearchResults = results;
+
+            // Filter by selected category if one is chosen
+            let displayResults = results;
+            if (selectedCategory) {
+                displayResults = results.filter(s => s.categorySlug === selectedCategory);
+            }
+
+            // Populate service select with filtered results
+            serviceSelect.innerHTML = '';
+            if (displayResults.length > 0) {
+                displayResults.forEach(service => {
+                    serviceSelect.appendChild(createServiceOption(service));
+                });
+                // Auto-select first result if only one
+                if (displayResults.length === 1) {
+                    serviceSelect.value = displayResults[0].id;
+                    serviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            } else if (results.length > 0) {
+                // Results exist but filtered out by category
+                serviceSelect.innerHTML = '<option value="" disabled selected>No services in this category</option>';
+            } else {
+                // No results at all
                 serviceSelect.innerHTML = '<option value="" disabled selected>No services found</option>';
             }
-            
-            // Reset category select when searching
-            categorySelect.value = '';
         });
     }
 
@@ -1042,8 +1156,10 @@
                 if (response.ok) {
                     showToast('Order placed successfully!', 'success');
                     
-                    // Update user balance
-                    user.balance = Number((parseFloat(user.balance) - charge).toFixed(2));
+                    // Update user balance with 5-decimal precision and trim trailing zeros
+                    const newBalance = Number((parseFloat(user.balance) - charge).toFixed(5));
+                    const formattedBalance = String(newBalance.toFixed(5)).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+                    user.balance = Number(formattedBalance);
                     localStorage.setItem('user', JSON.stringify(user));
                     updateUserDisplay();
                     if (window.BalanceSync) {
@@ -1094,6 +1210,7 @@
     const orderStatusRefreshLabel = document.getElementById('orderStatusRefreshLabel');
     const orderRefundAlert = document.getElementById('orderRefundAlert');
     const refreshOrdersBtn = document.getElementById('refreshOrdersBtn');
+    const orderSearchInput = document.getElementById('orderSearch');
     const refundsLink = document.getElementById('refundsLink');
     const refundsView = document.getElementById('refundsView');
     const refundsEligibleList = document.getElementById('refundsEligibleList');
@@ -1402,7 +1519,7 @@
             .join('');
     }
 
-    function updateRefundDisplays(orders = []) {
+    async function updateRefundDisplays(orders = []) {
         const refundedOrders = Array.isArray(orders)
             ? orders
                 .filter(order => isOrderRefunded(order))
@@ -1427,9 +1544,17 @@
         }
 
         const latestRefund = refundedOrders[0];
+        
+        // Use original_charge for refund amount if available (pre-refund charge), otherwise fall back to current charge
         const numericAmount = Math.abs(Number(
-            latestRefund.charge ?? latestRefund.customer_charge ?? latestRefund.retail_charge ?? latestRefund.amount ?? 0
+            latestRefund.original_charge 
+            ?? latestRefund.charge 
+            ?? latestRefund.customer_charge 
+            ?? latestRefund.retail_charge 
+            ?? latestRefund.amount 
+            ?? 0
         ));
+        
         const currencyCode = latestRefund.currency || latestRefund.customer_currency || latestRefund.retail_currency || 'USD';
         const amount = formatCurrencyDisplay(numericAmount, currencyCode);
         const label = resolveOrderDisplayLabel(latestRefund);
@@ -1593,6 +1718,112 @@
     window.BOTZZZ773_handleDashboardOrderUpdate = handleRealtimeOrderUpdate;
 
     // Load orders from backend
+    let ordersPageOffset = 0;
+    const ordersPageLimit = 100; // show 100 per page
+
+    function parseSearchQuery() {
+        const raw = orderSearchInput ? String(orderSearchInput.value || '').trim() : '';
+        if (!raw) return {};
+        // Accept comma-separated order_numbers (e.g., 37000041,37000052)
+        const parts = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        if (parts.length === 0) return {};
+        // Only send numbers for order_number search (not ids)
+        return { numbers: parts.join(',') };
+    }
+
+    function buildOrdersQueryParams(extra = {}) {
+        const searchParams = parseSearchQuery();
+        const qp = new URLSearchParams();
+        qp.set('limit', String(ordersPageLimit));
+        qp.set('offset', String(ordersPageOffset));
+        if (searchParams.numbers) qp.set('numbers', searchParams.numbers);
+        if (extra.status) qp.set('status', extra.status);
+        const queryString = qp.toString();
+        console.log('[DASHBOARD] Built query params:', queryString);
+        return queryString;
+    }
+
+    function attachPaginationControls(hasMore) {
+        const pagers = Array.from(document.querySelectorAll('[data-orders-pager]'));
+        if (pagers.length === 0) {
+            console.warn('[DASHBOARD] Pagination container not found');
+            return;
+        }
+
+        const start = ordersPageOffset + 1;
+        const end = ordersPageOffset + ordersPageLimit;
+
+        pagers.forEach((pager) => {
+            pager.innerHTML = `
+                <button type="button" class="btn-soft" data-orders-prev disabled>Prev</button>
+                <span class="pager-info" data-orders-info></span>
+                <button type="button" class="btn-soft" data-orders-next>Next</button>
+            `;
+
+            const prevBtn = pager.querySelector('[data-orders-prev]');
+            const nextBtn = pager.querySelector('[data-orders-next]');
+            const infoEl = pager.querySelector('[data-orders-info]');
+
+            if (prevBtn) {
+                prevBtn.disabled = ordersPageOffset <= 0;
+                prevBtn.onclick = () => {
+                    if (ordersPageOffset >= ordersPageLimit) {
+                        ordersPageOffset -= ordersPageLimit;
+                        loadOrders({ silent: true, reason: 'pager-prev' });
+                    }
+                };
+            }
+
+            if (nextBtn) {
+                nextBtn.disabled = !hasMore;
+                nextBtn.onclick = () => {
+                    if (hasMore) {
+                        ordersPageOffset += ordersPageLimit;
+                        loadOrders({ silent: true, reason: 'pager-next' });
+                    }
+                };
+            }
+
+            if (infoEl) {
+                infoEl.textContent = `Showing ${start}–${end}`;
+            }
+        });
+    }
+
+    if (orderSearchInput) {
+        console.log('[DASHBOARD] Order search input found, attaching listeners');
+        let debounceTimer = null;
+        const triggerSearch = () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+                console.log('[DASHBOARD] Search triggered, query:', orderSearchInput.value);
+                ordersPageOffset = 0; // reset paging on new search
+                loadOrders({ silent: true, reason: 'search' });
+            }, 300);
+        };
+        orderSearchInput.addEventListener('input', triggerSearch);
+        orderSearchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                console.log('[DASHBOARD] Enter key pressed');
+                triggerSearch();
+            }
+        });
+        const searchBtn = document.querySelector('.order-search .search-btn');
+        if (searchBtn) {
+            console.log('[DASHBOARD] Search button found');
+            searchBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                console.log('[DASHBOARD] Search button clicked');
+                triggerSearch();
+            });
+        } else {
+            console.warn('[DASHBOARD] Search button NOT found');
+        }
+    } else {
+        console.error('[DASHBOARD] Order search input NOT found - #orderSearch element missing');
+    }
+
     async function loadOrders(options = {}) {
         const {
             silent = false,
@@ -1621,7 +1852,8 @@
         ordersLoadingInFlight = true;
 
         try {
-            const response = await fetch('/.netlify/functions/orders', {
+            const qs = buildOrdersQueryParams();
+            const response = await fetch('/.netlify/functions/orders?' + qs, {
                 method: 'GET',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -1638,6 +1870,8 @@
                 if (ordersTableBody) {
                     if (result.orders.length > 0) {
                         displayOrders(result.orders);
+                        const hasMore = result.orders.length === ordersPageLimit; // heuristic
+                        attachPaginationControls(hasMore);
                     } else {
                         ordersTableBody.innerHTML = `
                             <tr>
@@ -1651,6 +1885,7 @@
                                 </td>
                             </tr>
                         `;
+                        attachPaginationControls(false);
                     }
                 }
                 startOrdersAutoRefresh();
@@ -1737,7 +1972,7 @@
                 || order.customer_currency
                 || order.service?.currency
                 || 'USD';
-            const chargeRaw = Number(order.charge ?? order.retail_charge ?? order.customer_charge ?? order.amount ?? 0);
+            const chargeRaw = Number(order.original_charge ?? order.charge ?? order.retail_charge ?? order.customer_charge ?? order.amount ?? 0);
             const chargeDisplay = formatCurrencyDisplay(chargeRaw, currencyGuess);
 
             const quantity = Number.isFinite(Number(order.quantity))

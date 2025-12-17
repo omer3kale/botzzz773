@@ -167,17 +167,34 @@ async function updateOrderLogic(localOrder, remoteOrder) {
         // (orders.js handles Perfect Panel compatibility in response mapping)
     } 
     // Scenario 2: Partial (Partial Refund)
-    else if (newStatus === 'partial' && oldStatus !== 'partial') {
+    // Process refund if: status is partial AND (first time becoming partial OR remains changed)
+    else if (newStatus === 'partial') {
         const quantity = parseInt(localOrder.quantity);
         const totalCharge = parseFloat(localOrder.charge);
+        const oldRemains = parseInt(localOrder.remains) || 0;
         
         if (quantity > 0 && remains > 0) {
-            const unitPrice = totalCharge / quantity;
-            const refundAmount = unitPrice * remains;
+            // Check if this is first time partial (oldStatus !== 'partial')
+            // OR if remains value changed (indicates new partial progress)
+            const isFirstPartial = oldStatus !== 'partial';
+            const remainsChanged = remains !== oldRemains;
             
-            if (refundAmount > 0) {
-                await processRefund(localOrder.user_id, refundAmount, localOrder.id, 'PARTIAL');
-                // Keep DB charge as original for accurate history; API layer maps partial charge for reseller
+            if (isFirstPartial || remainsChanged) {
+                const unitPrice = totalCharge / quantity;
+                
+                // For first partial: refund all remaining items
+                // For subsequent: refund only the delta (new remains)
+                let refundQuantity = remains;
+                if (!isFirstPartial && remainsChanged) {
+                    refundQuantity = Math.abs(remains - oldRemains);
+                }
+                
+                const refundAmount = unitPrice * refundQuantity;
+                
+                if (refundAmount > 0) {
+                    await processRefund(localOrder.user_id, refundAmount, localOrder.id, 'PARTIAL');
+                    // Keep DB charge as original for accurate history; API layer maps partial charge for reseller
+                }
             }
         }
     }

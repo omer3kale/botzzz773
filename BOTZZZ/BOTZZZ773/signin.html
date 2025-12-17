@@ -343,7 +343,7 @@
                     } else {
                         localStorage.setItem('token', data.token);
                         localStorage.setItem('user', JSON.stringify(data.user));
-                        const destination = data.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                        const destination = data.user.role === 'admin' ? '/admin/index.html' : '/';
                         window.location.href = destination;
                     }
                 } else {
@@ -515,7 +515,7 @@
                                                     otpFeedback.className = 'otp-feedback success';
                                                 }
                                                 
-                                                const destination = verifyData.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                                                const destination = verifyData.user.role === 'admin' ? '/admin/index.html' : '/';
                                                 setTimeout(() => window.location.href = destination, 500);
                                             } else {
                                                 if (otpFeedback) {
@@ -575,7 +575,7 @@
                             }
                             
                             // Redirect based on role
-                            const destination = data.user.role === 'admin' ? '/admin/index.html' : '/dashboard.html';
+                            const destination = data.user.role === 'admin' ? '/admin/index.html' : '/';
                             console.log('[SIGNIN] Success! Redirecting to:', destination);
                             window.location.href = destination;
                             return;

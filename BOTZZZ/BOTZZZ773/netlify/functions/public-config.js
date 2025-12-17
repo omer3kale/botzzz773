@@ -42,6 +42,25 @@ exports.handler = async (event) => {
       .eq('key', 'integrations')
       .maybeSingle();
 
+    // If settings table doesn't exist or no data, provide default config
+    if (error && error.code === '42P01') {
+      // Table doesn't exist - graceful fallback
+      console.warn('[public-config] Settings table not found, using empty config');
+      const payload = {
+        success: true,
+        monitoring: buildMonitoringConfig({}),
+        updatedAt: new Date().toISOString(),
+        note: 'Using default config - settings table not available'
+      };
+      cachedPayload = payload;
+      cacheExpiresAt = now + CACHE_TTL_MS;
+      return {
+        statusCode: 200,
+        headers: baseHeaders,
+        body: JSON.stringify({ ...payload, cached: false })
+      };
+    }
+
     if (error) {
       throw error;
     }
@@ -64,10 +83,17 @@ exports.handler = async (event) => {
     };
   } catch (error) {
     console.error('[public-config] Failed to load settings', error);
+    // Return default config instead of error
+    const payload = {
+      success: true,
+      monitoring: buildMonitoringConfig({}),
+      updatedAt: new Date().toISOString(),
+      note: 'Using default config - error loading settings'
+    };
     return {
-      statusCode: 500,
+      statusCode: 200,
       headers: baseHeaders,
-      body: JSON.stringify({ success: false, error: 'Unable to load monitoring config' })
+      body: JSON.stringify(payload)
     };
   }
 };

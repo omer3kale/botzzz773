@@ -1,5 +1,5 @@
 // Service Worker for BOTZZZ773 PWA
-const CACHE_VERSION = 'v1.0.0';
+const CACHE_VERSION = 'v1.1.1-balance';
 const CACHE_NAME = `botzzz773-${CACHE_VERSION}`;
 const API_CACHE_NAME = `botzzz773-api-${CACHE_VERSION}`;
 const PENDING_REQUESTS_CACHE = 'botzzz773-pending-requests';
@@ -20,7 +20,7 @@ const STATIC_ASSETS = [
   '/css/style.css',
   '/css/dashboard-styles.css',
   '/js/main.js',
-  '/js/dashboard.js',
+  // '/js/dashboard.js', // Temporarily exclude to force network fetch
   '/js/services.js',
   '/js/order.js',
   '/js/pwa.js',
