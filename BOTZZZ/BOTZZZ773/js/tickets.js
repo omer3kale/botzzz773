@@ -213,7 +213,7 @@ function renderTickets(filter = 'all') {
     ticketsList.innerHTML = filteredTickets.map(ticket => `
         <div class="ticket-item ${currentTicket?.id === ticket.id ? 'active' : ''}" onclick="selectTicket('${ticket.id}')">
             <div class="ticket-item-header">
-                <span class="ticket-id">${ticket.id}</span>
+                <span class="ticket-id">#${ticket.short_id || ticket.id}</span>
                 <span class="ticket-status ${ticket.status}">${ticket.status}</span>
             </div>
             <div class="ticket-subject">${ticket.subject}</div>
@@ -237,8 +237,36 @@ function renderTickets(filter = 'all') {
 }
 
 // Select ticket
-function selectTicket(ticketId) {
-    currentTicket = tickets.find(t => t.id === ticketId);
+async function selectTicket(ticketId) {
+    const ticket = tickets.find(t => t.id === ticketId);
+    currentTicket = ticket;
+    
+    // Send short_id to API instead of UUID
+    const shortId = ticket.short_id || ticket.id.substring(0, 6);
+    
+    // Fetch full ticket details including messages
+    try {
+        const response = await fetch(`/.netlify/functions/tickets?shortId=${encodeURIComponent(shortId)}`, {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+            if (data.ticket) {
+                currentTicket = data.ticket;
+                
+                // Update notification badges if ticket was marked as read
+                if (window.checkUnreadTickets) {
+                    window.checkUnreadTickets();
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading ticket details:', error);
+    }
+    
     renderTicketDetails();
     renderTickets(); // Re-render to update active state
 }
@@ -263,7 +291,7 @@ function renderTicketDetails() {
     ticketDetails.innerHTML = `
         <div class="ticket-details-header">
             <div class="ticket-details-info">
-                <div class="ticket-details-id">${currentTicket.id}</div>
+                <div class="ticket-details-id">#${currentTicket.short_id || currentTicket.id}</div>
                 <h2 class="ticket-details-subject">${currentTicket.subject}</h2>
                 <div class="ticket-details-meta">
                     <div class="ticket-details-meta-item">
@@ -276,36 +304,41 @@ function renderTicketDetails() {
                         <strong>Status:</strong>
                         <span class="ticket-status ${currentTicket.status}">${currentTicket.status}</span>
                     </div>
-                    ${currentTicket.orderId ? `
+                    ${currentTicket.order_id ? `
                         <div class="ticket-details-meta-item">
-                            <strong>Order ID:</strong> ${currentTicket.orderId}
+                            <strong>Order ID:</strong> ${currentTicket.order_id}
                         </div>
                     ` : ''}
                     <div class="ticket-details-meta-item">
-                        <strong>Created:</strong> ${currentTicket.createdAt}
+                        <strong>Created:</strong> ${formatDate(currentTicket.created_at)}
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="ticket-messages">
-            ${currentTicket.messages.map(message => `
-                <div class="message ${message.role === 'admin' ? 'admin' : ''}">
+            ${(currentTicket.messages || []).map(message => {
+                const isAdmin = message.is_admin || false;
+                const author = isAdmin ? 'Support Team' : (currentTicket.user?.username || currentTicket.user?.email || 'User');
+                const firstLetter = author.charAt(0).toUpperCase();
+                return `
+                <div class="message ${isAdmin ? 'admin' : ''}">
                     <div class="message-header">
                         <div class="message-author">
                             <div class="message-avatar">
-                                ${message.author.charAt(0).toUpperCase()}
+                                ${firstLetter}
                             </div>
                             <div class="message-author-info">
-                                <div class="message-author-name">${message.author}</div>
-                                ${message.role === 'admin' ? '<div class="message-author-role">Support Team</div>' : ''}
+                                <div class="message-author-name">${author}</div>
+                                ${isAdmin ? '<div class="message-author-role">Support Team</div>' : ''}
                             </div>
                         </div>
-                        <div class="message-date">${message.date}</div>
+                        <div class="message-date">${formatDate(message.created_at)}</div>
                     </div>
-                    <div class="message-content">${message.content}</div>
+                    <div class="message-content">${message.message}</div>
                 </div>
-            `).join('')}
+                `;
+            }).join('')}
         </div>
 
         ${currentTicket.status !== 'closed' ? `

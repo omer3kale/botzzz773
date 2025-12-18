@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Badge Test</title>
+</head>
+<body>
+    <h1>Ticket Badge Debug Test</h1>
+    
+    <div id="output"></div>
+    
+    <script>
+        async function testBadgeSystem() {
+            const output = document.getElementById('output');
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            
+            output.innerHTML += `<p><strong>Token found:</strong> ${!!token}</p>`;
+            output.innerHTML += `<p><strong>User found:</strong> ${!!user}</p>`;
+            
+            if (!token) {
+                output.innerHTML += `<p style="color:red;">❌ No token in localStorage. Please sign in first.</p>`;
+                return;
+            }
+            
+            output.innerHTML += `<p>Testing API endpoint...</p>`;
+            
+            try {
+                const url = new URL('/.netlify/functions/tickets', window.location.origin);
+                url.searchParams.append('action', 'getUnreadCount');
+                
+                console.log('Fetching:', url.toString());
+                output.innerHTML += `<p><strong>URL:</strong> ${url.toString()}</p>`;
+                
+                const response = await fetch(url.toString(), {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                output.innerHTML += `<p><strong>Response Status:</strong> ${response.status}</p>`;
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    output.innerHTML += `<p><strong>Response Data:</strong> <pre>${JSON.stringify(data, null, 2)}</pre></p>`;
+                    output.innerHTML += `<p style="color:green;"><strong>✅ Unread count:</strong> ${data.unreadCount}</p>`;
+                } else {
+                    const text = await response.text();
+                    output.innerHTML += `<p style="color:red;"><strong>❌ Error:</strong> ${text}</p>`;
+                }
+            } catch (error) {
+                output.innerHTML += `<p style="color:red;"><strong>❌ Fetch Error:</strong> ${error.message}</p>`;
+                console.error('Error:', error);
+            }
+        }
+        
+        testBadgeSystem();
+    </script>
+</body>
+</html>

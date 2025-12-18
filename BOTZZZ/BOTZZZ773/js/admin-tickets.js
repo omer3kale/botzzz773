@@ -27,7 +27,7 @@ function getTicketDisplayLabel(ticket) {
     }
     const subject = ticket.subject ? ticket.subject.trim() : '';
     const status = ticket.status ? ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1) : 'Unknown';
-    const ticketId = ticket.id != null ? `#${ticket.id}` : 'Ticket';
+    const ticketId = ticket.short_id ? `#${ticket.short_id}` : (ticket.id != null ? `#${ticket.id}` : 'Ticket');
     if (subject) {
         return `${ticketId} • ${subject.length > 36 ? `${subject.substring(0, 33)}...` : subject}`;
     }
@@ -37,6 +37,9 @@ function getTicketDisplayLabel(ticket) {
 function getTicketSelectionKey(ticket) {
     if (!ticket) {
         return '';
+    }
+    if (ticket.short_id != null) {
+        return String(ticket.short_id);
     }
     if (ticket.id != null) {
         return String(ticket.id);
@@ -71,7 +74,7 @@ function updateUnreadQuickCardState() {
     const statusEl = document.getElementById('unreadTicketsStatus');
     const unreadCount = ticketsCache.filter(ticket => {
         const status = (ticket.status || '').toLowerCase();
-        return status === 'open' || status === 'pending';
+        return status === 'open';
     }).length;
 
     if (statusEl) {
@@ -94,12 +97,20 @@ function updateSelectedTicketsSummary() {
     const countEl = document.getElementById('selectedTicketsCount');
     const detailEl = document.getElementById('selectedTicketsDetail');
     const cardEl = document.getElementById('selectedTicketsCard');
+    const bulkActionsContainer = document.getElementById('bulkActionsContainer');
 
+    const count = selectedTicketIds.size;
+    
+    // Update bulk actions visibility regardless of other elements
+    if (bulkActionsContainer) {
+        bulkActionsContainer.style.display = count > 0 ? 'block' : 'none';
+    }
+
+    // If quick action cards don't exist, skip updating them
     if (!countEl || !detailEl || !cardEl) {
         return;
     }
 
-    const count = selectedTicketIds.size;
     countEl.textContent = `${count} selected`;
 
     if (count === 0) {
@@ -119,6 +130,7 @@ function updateSelectedTicketsSummary() {
 
     cardEl.classList.toggle('is-active', count > 0);
     cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
+    
     syncTicketsMasterToggleState();
 }
 
@@ -178,7 +190,7 @@ function openSelectedTicketsModal() {
         const categoryLabel = ticket.category || 'General';
         const userLabel = ticket.user?.username || ticket.user?.email || ticket.user_email || ticket.username || ticket.user || 'Unknown user';
         const updated = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : (ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'Unknown');
-    const ticketIdLabel = ticket.id != null ? `#${ticket.id}` : `Ticket ${String(ticketId)}`;
+    const ticketIdLabel = ticket.short_id != null ? `#${ticket.short_id}` : (ticket.id != null ? `#${ticket.id}` : `Ticket ${String(ticketId)}`);
 
         return `
             <li class="selected-ticket-item">
@@ -220,7 +232,7 @@ function toggleUnreadTicketsQuickAction() {
     updateUnreadQuickCardState();
     const unreadCount = ticketsCache.filter(ticket => {
         const status = (ticket.status || '').toLowerCase();
-        return status === 'open' || status === 'pending';
+        return status === 'open';
     }).length;
     if (unreadFilterActive) {
         if (unreadCount === 0) {
@@ -339,13 +351,16 @@ function applyUnreadFilter() {
 }
 
 // Modal Helper Functions
-function createModal(title, content, actions = '') {
+function createModal(title, content, actions = '', headerContent = '') {
     const modalHTML = `
         <div class="modal-overlay" id="activeModal" onclick="if(event.target === this) closeModal()">
             <div class="modal-content" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <h3>${title}</h3>
-                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                <div class="modal-header" style="padding: 16px 24px; flex-direction: column; align-items: flex-start;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%; margin-bottom: 8px;">
+                        <h3 style="margin: 0;">${title}</h3>
+                        <button class="modal-close" onclick="closeModal()">&times;</button>
+                    </div>
+                    ${headerContent ? `<div style="margin-top: 0; width: 100%;">${headerContent}</div>` : ''}
                 </div>
                 <div class="modal-body">
                     ${content}
@@ -540,65 +555,103 @@ async function viewTicket(ticketId) {
         }
         
         const ticket = data.ticket;
+        const displayId = ticket.short_id ? `#${ticket.short_id}` : `#${ticket.id}`;
+        const statusColor = {
+            'open': '#ef4444',
+            'answered': '#3b82f6',
+            'closed': '#6b7280'
+        }[ticket.status] || '#8b5cf6';
+        
+        // Header content with ticket information
+        const headerContent = `
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <!-- First Row: Status, User, Category -->
+                <div style="display: grid; grid-template-columns: auto 1fr auto 1fr auto 1fr; gap: 16px; align-items: center; font-size: 13px;">
+                    <div style="color: #6b7280;">Status:</div>
+                    <div style="color: ${statusColor}; font-weight: 600; padding: 2px 8px; background: ${statusColor}20; border-radius: 4px; display: inline-block; width: fit-content;">${ticket.status.toUpperCase()}</div>
+                    
+                    <div style="color: #6b7280;">User:</div>
+                    <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml((ticket.user && (ticket.user.username || ticket.user.email)) || ticket.user_email || ticket.username || 'Unknown')}</div>
+                    
+                    <div style="color: #6b7280;">Category:</div>
+                    <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml(ticket.category || 'General')}</div>
+                </div>
+                
+                <!-- Second Row: Priority, Created -->
+                <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 16px; align-items: center; font-size: 13px;">
+                    <div style="color: #6b7280;">Priority:</div>
+                    <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml(ticket.priority || 'Normal')}</div>
+                    
+                    <div style="color: #6b7280;">Created:</div>
+                    <div style="color: #e5e7eb; font-weight: 500;">${new Date(ticket.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                </div>
+                
+                <!-- Third Row: Subject (Full Width) -->
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 16px; align-items: flex-start; font-size: 13px;">
+                    <div style="color: #6b7280; white-space: nowrap;">Subject:</div>
+                    <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml(ticket.subject)}</div>
+                </div>
+            </div>
+        `;
         
         const content = `
-            <div class="ticket-details">
-                <div class="ticket-header" style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px; margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: start;">
-                        <div>
-                            <h3 style="margin: 0 0 8px;">${escapeHtml(ticket.subject)}</h3>
-                            <div style="color: #888; font-size: 14px;">
-                                Ticket #${ticket.id} • Created ${new Date(ticket.created_at).toLocaleDateString()}
-                            </div>
-                        </div>
-                        <div style="text-align: right;">
-                            <span class="badge badge-${ticket.status === 'open' ? 'success' : ticket.status === 'closed' ? 'secondary' : 'warning'}">${ticket.status}</span>
-                            <div style="color: #888; font-size: 12px; margin-top: 4px;">Priority: ${ticket.priority || 'Normal'}</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.1);">
-                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 13px;">
-                            <div>
-                                <div style="color: #888;">User</div>
-                                <div>${escapeHtml((ticket.user && (ticket.user.username || ticket.user.email)) || ticket.user_email || ticket.username || 'Unknown')}</div>
-                            </div>
-                            <div>
-                                <div style="color: #888;">Category</div>
-                                <div>${escapeHtml(ticket.category)}</div>
-                            </div>
-                            <div>
-                                <div style="color: #888;">Order ID</div>
-                                <div>${ticket.order_id || 'N/A'}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="ticket-conversation" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
+            <div class="ticket-details" style="display: flex; flex-direction: column; height: 500px;">
+                <!-- Messages Section -->
+                <div class="ticket-conversation" style="flex: 1; overflow-y: auto; margin-bottom: 16px; padding-right: 4px; border-radius: 6px;">
                     ${ticket.messages && ticket.messages.length > 0 ? ticket.messages.map(msg => `
-                        <div class="message ${msg.is_admin ? 'admin-message' : 'user-message'}" style="background: rgba(${msg.is_admin ? '255, 20, 147' : '16, 185, 129'}, 0.1); border-left: 3px solid ${msg.is_admin ? '#FF1494' : '#10b981'}; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
-                            <div style="font-weight: 600; margin-bottom: 4px; display: flex; justify-content: space-between;">
-                                <span>${escapeHtml(msg.sender_name || (msg.is_admin ? 'Admin' : 'User'))}</span>
-                                <span style="font-size: 12px; color: #888;">${new Date(msg.created_at).toLocaleString()}</span>
+                        <div style="background: ${msg.is_admin ? 'rgba(255, 20, 147, 0.08)' : 'rgba(16, 185, 129, 0.08)'}; border-left: 3px solid ${msg.is_admin ? '#FF1494' : '#10b981'}; padding: 12px; border-radius: 6px; margin-bottom: 10px;">
+                            <div style="font-weight: 600; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: ${msg.is_admin ? '#FF1494' : '#10b981'}; font-size: 13px;">${escapeHtml(msg.sender_name || (msg.is_admin ? 'Admin' : 'User'))}</span>
+                                <span style="font-size: 11px; color: #6b7280;">${new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
-                            <p style="margin: 0;">${escapeHtml(msg.message)}</p>
+                            <p style="margin: 0; color: #d1d5db; font-size: 13px; line-height: 1.5;">${escapeHtml(msg.message)}</p>
                         </div>
-                    `).join('') : '<p style="color: #888; text-align: center;">No messages yet</p>'}
+                    `).join('') : '<div style="color: #6b7280; text-align: center; padding: 20px; font-size: 13px;">No messages yet</div>'}
                 </div>
 
-                <form id="replyTicketForm" onsubmit="submitReplyTicket(event, '${ticketId}')" class="admin-form">
-                    <div class="form-group">
-                        <label>Reply Message</label>
-                        <textarea name="replyMessage" rows="4" placeholder="Type your reply..." required></textarea>
-                    </div>
-                    <div style="display: flex; gap: 12px; align-items: center;">
-                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <input type="checkbox" name="closeTicket">
-                            <span>Close ticket after sending</span>
-                        </label>
-                    </div>
+                <!-- Reply Form Section -->
+                <form id="replyTicketForm" onsubmit="submitReplyTicket(event, '${ticketId}')" class="admin-form" style="border-top: 1px solid #374151; padding-top: 16px;">
+                    <input type="hidden" name="shortId" value="${ticket.short_id}">
+                <!-- Quick Responses Dropdown -->
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label style="font-size: 12px; color: #9ca3af; margin-bottom: 4px; display: block;">Quick Responses</label>
+                    <select id="quickResponseSelect" onchange="insertQuickResponse(this)" style="background: #1f2937; border: 1px solid #374151; color: #e5e7eb; padding: 8px; border-radius: 4px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; cursor: pointer;">
+                        <option value="">Select a quick response...</option>
+                        <option value="We are working on your issue.">We are working on your issue.</option>
+                        <option value="Your issue has been resolved.">Your issue has been resolved.</option>
+                        <option value="Refund has been processed.">Refund has been processed.</option>
+                        <option value="We need more information.">We need more information.</option>
+                        <option value="Please provide order details for verification.">Please provide order details for verification.</option>
+                        <option value="Thank you for your patience. We'll get back to you soon.">Thank you for your patience. We'll get back to you soon.</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label style="font-size: 12px; color: #9ca3af; margin-bottom: 4px; display: block;">Reply Message *</label>
+                    <textarea name="replyMessage" rows="3" placeholder="Type your reply..." required style="background: #1f2937; border: 1px solid #374151; color: #e5e7eb; padding: 8px; border-radius: 4px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+                </div>
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #d1d5db; font-size: 12px;">
+                        <input type="checkbox" name="closeTicket" style="cursor: pointer;">
+                        <span>Close ticket after sending</span>
+                    </label>
                 </form>
             </div>
+            
+            <style>
+                .ticket-conversation::-webkit-scrollbar {
+                    width: 6px;
+                }
+                .ticket-conversation::-webkit-scrollbar-track {
+                    background: transparent;
+                }
+                .ticket-conversation::-webkit-scrollbar-thumb {
+                    background: #4b5563;
+                    border-radius: 3px;
+                }
+                .ticket-conversation::-webkit-scrollbar-thumb:hover {
+                    background: #5a6573;
+                }
+            </style>
         `;
         
         const actions = `
@@ -608,7 +661,7 @@ async function viewTicket(ticketId) {
             </button>
         `;
         
-        createModal(`Ticket #${ticketId}`, content, actions);
+        createModal(`Ticket ${displayId}`, content, actions, headerContent);
     } catch (error) {
         console.error('Error loading ticket:', error);
         alert('Failed to load ticket details');
@@ -618,7 +671,16 @@ async function viewTicket(ticketId) {
 async function submitReplyTicket(event, ticketId) {
     event.preventDefault();
     const formData = new FormData(event.target);
-    const message = formData.get('message');
+    const message = formData.get('replyMessage');
+    const closeTicket = formData.get('closeTicket');
+    const shortId = formData.get('shortId'); // Get from hidden input
+    
+    console.log('[ADMIN REPLY] ticketId:', ticketId, 'shortId:', shortId, 'message:', message);
+    
+    if (!ticketId || !message) {
+        alert('Ticket ID and message are required');
+        return;
+    }
     
     const submitBtn = document.querySelector('button[form="replyTicketForm"]');
     if (submitBtn) {
@@ -628,6 +690,8 @@ async function submitReplyTicket(event, ticketId) {
     
     try {
         const token = localStorage.getItem('token');
+        console.log('[ADMIN REPLY] Sending:', { action: 'reply', shortId, messageLength: message.length, isAdmin: true });
+        
         const response = await fetch('/.netlify/functions/tickets', {
             method: 'POST',
             headers: {
@@ -636,9 +700,10 @@ async function submitReplyTicket(event, ticketId) {
             },
             body: JSON.stringify({
                 action: 'reply',
-                ticketId: ticketId,
+                shortId: shortId,
                 message: message,
-                isAdmin: true
+                isAdmin: true,
+                autoClose: closeTicket === 'on'
             })
         });
         
@@ -940,7 +1005,7 @@ function showUnread() {
     updateUnreadQuickCardState();
     const unreadCount = ticketsCache.filter(ticket => {
         const status = (ticket.status || '').toLowerCase();
-        return status === 'open' || status === 'pending';
+        return status === 'open';
     }).length;
     showNotification(
         unreadCount === 0 ? 'No unread tickets available right now' : `Showing ${unreadCount} unread ticket${unreadCount === 1 ? '' : 's'}`,
@@ -1020,7 +1085,7 @@ async function loadTickets() {
             const displayId = (ticket.short_id ? String(ticket.short_id) : (ticket.id != null ? String(ticket.id) : selectionKey));
             const checkboxLabel = ticket.short_id ? `Select ticket #${ticket.short_id}` : (ticket.id != null ? `Select ticket #${ticket.id}` : 'Select ticket');
             const status = (ticket.status || '').toLowerCase();
-            const isUnread = status === 'open' || status === 'pending';
+            const isUnread = status === 'open';
             const createdDate = ticket.created_at ? new Date(ticket.created_at).toLocaleString() : 'Unknown';
             const updatedDate = ticket.updated_at ? new Date(ticket.updated_at).toLocaleString() : createdDate;
             const categoryLabel = ticket.category || 'General';
@@ -1036,9 +1101,10 @@ async function loadTickets() {
             if (isSelected) rowClasses.push('is-selected');
             const rowClassAttr = rowClasses.length ? ` class="${rowClasses.join(' ')}"` : '';
 
-            const statusOptions = ['open', 'pending', 'answered', 'closed'].map(option =>
+            const statusOptions = ['open', 'answered', 'closed'].map(option =>
                 `<option value="${option}" ${status === option ? 'selected' : ''}>${option}</option>`
             ).join('');
+
 
             // Assignee column removed
 
@@ -1097,6 +1163,26 @@ async function loadTickets() {
         lastTicketsRefreshAt = new Date();
         const timeText = lastTicketsRefreshAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         setTicketsRefreshStatus(`Updated ${timeText}`);
+
+        // Update admin sidebar tickets badge (open tickets)
+        try {
+            if (typeof window.refreshAdminTicketsBadge === 'function') {
+                window.refreshAdminTicketsBadge();
+            } else {
+                const badgeEl = document.getElementById('adminSidebarTicketBadge');
+                if (badgeEl) {
+                    const openCount = ticketsCache.filter(t => (t.status || '').toLowerCase() === 'open').length;
+                    if (openCount > 0) {
+                        badgeEl.textContent = openCount > 99 ? '99+' : String(openCount);
+                        badgeEl.style.display = 'inline-flex';
+                        badgeEl.style.alignItems = 'center';
+                        badgeEl.style.justifyContent = 'center';
+                    } else {
+                        badgeEl.style.display = 'none';
+                    }
+                }
+            }
+        } catch (e) {}
     } catch (error) {
         console.error('Load tickets error:', error);
         tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load tickets. Please refresh the page.</td></tr>';
@@ -1109,3 +1195,273 @@ async function loadTickets() {
         }
     }
 }
+
+// Insert quick response into reply textarea
+function insertQuickResponse(selectElement) {
+    const selectedText = selectElement.value;
+    if (!selectedText) return;
+    
+    const textarea = document.querySelector('textarea[name="replyMessage"]');
+    if (textarea) {
+        textarea.value = selectedText;
+        textarea.focus();
+        selectElement.value = '';
+    }
+}
+
+// Toggle bulk actions dropdown menu
+function toggleBulkActionsMenu() {
+    const menu = document.getElementById('bulkActionsMenu');
+    if (menu) {
+        menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Close bulk actions menu when clicking outside
+document.addEventListener('click', function(event) {
+    const bulkActionsContainer = document.getElementById('bulkActionsContainer');
+    if (bulkActionsContainer && !bulkActionsContainer.contains(event.target)) {
+        const menu = document.getElementById('bulkActionsMenu');
+        if (menu) {
+            menu.style.display = 'none';
+        }
+    }
+});
+
+// Open bulk reply modal with quick responses
+function openBulkReplyModal() {
+    if (selectedTicketIds.size === 0) {
+        showNotification('Select tickets first', 'error');
+        return;
+    }
+    
+    const selectedCount = selectedTicketIds.size;
+    const content = `
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+            <div style="background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; padding: 12px; border-radius: 4px;">
+                <p style="margin: 0; color: #e5e7eb; font-size: 13px;">You are replying to <strong>${selectedCount}</strong> selected ticket${selectedCount > 1 ? 's' : ''}.</p>
+            </div>
+            
+            <div>
+                <label style="font-size: 12px; color: #9ca3af; margin-bottom: 4px; display: block;">Quick Responses</label>
+                <select id="bulkQuickResponseSelect" onchange="insertBulkQuickResponse(this)" style="background: #1f2937; border: 1px solid #374151; color: #e5e7eb; padding: 8px; border-radius: 4px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; cursor: pointer;">
+                    <option value="">Select a quick response...</option>
+                    <option value="We are working on your issue.">We are working on your issue.</option>
+                    <option value="Your issue has been resolved.">Your issue has been resolved.</option>
+                    <option value="Refund has been processed.">Refund has been processed.</option>
+                    <option value="We need more information.">We need more information.</option>
+                    <option value="Please provide order details for verification.">Please provide order details for verification.</option>
+                    <option value="Thank you for your patience. We'll get back to you soon.">Thank you for your patience. We'll get back to you soon.</option>
+                </select>
+            </div>
+            
+            <div>
+                <label style="font-size: 12px; color: #9ca3af; margin-bottom: 4px; display: block;">Reply Message *</label>
+                <textarea id="bulkReplyMessage" rows="4" placeholder="Type your reply to all selected tickets..." required style="background: #1f2937; border: 1px solid #374151; color: #e5e7eb; padding: 8px; border-radius: 4px; font-family: inherit; font-size: 13px; width: 100%; box-sizing: border-box; resize: vertical;"></textarea>
+            </div>
+        </div>
+    `;
+    
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeBulkReplyModal()">Cancel</button>
+        <button type="button" class="btn-primary" onclick="submitBulkReply()">
+            <i class="fas fa-paper-plane"></i> Send Reply to All
+        </button>
+    `;
+    
+    createModal('Reply to All Selected Tickets', content, actions);
+    document.getElementById('bulkActionsMenu').style.display = 'none';
+}
+
+// Insert quick response into bulk reply textarea
+function insertBulkQuickResponse(selectElement) {
+    const selectedText = selectElement.value;
+    if (!selectedText) return;
+    
+    const textarea = document.getElementById('bulkReplyMessage');
+    if (textarea) {
+        textarea.value = selectedText;
+        textarea.focus();
+        selectElement.value = '';
+    }
+}
+
+// Close bulk reply modal
+function closeBulkReplyModal() {
+    closeModal();
+}
+
+// Submit bulk reply
+async function submitBulkReply() {
+    const message = document.getElementById('bulkReplyMessage')?.value;
+    
+    if (!message) {
+        showNotification('Please enter a reply message', 'error');
+        return;
+    }
+    
+    if (selectedTicketIds.size === 0) {
+        showNotification('No tickets selected', 'error');
+        return;
+    }
+    
+    const ticketIds = Array.from(selectedTicketIds);
+    const submitBtn = document.querySelector('button[onclick="submitBulkReply()"]');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+    }
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/tickets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'bulkReply',
+                shortIds: ticketIds,
+                message: message,
+                isAdmin: true
+            })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('Bulk reply error:', response.status, errText);
+            showNotification(`Error: ${response.status === 401 ? 'Unauthorized' : 'Failed to send replies'}`, 'error');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Reply to All';
+            }
+            return;
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            showNotification(`Reply sent to ${selectedTicketIds.size} ticket${selectedTicketIds.size > 1 ? 's' : ''}`, 'success');
+            closeModal();
+            setTimeout(() => loadTickets(), 500);
+        } else {
+            showNotification(data.error || 'Failed to send replies', 'error');
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Reply to All';
+            }
+        }
+    } catch (error) {
+        console.error('Bulk reply error:', error);
+        showNotification('Error sending replies', 'error');
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Reply to All';
+        }
+    }
+}
+
+// Close all selected tickets
+async function closeBulkTickets() {
+    if (selectedTicketIds.size === 0) {
+        showNotification('Select tickets first', 'error');
+        return;
+    }
+    
+    if (!confirm(`Close ${selectedTicketIds.size} selected ticket${selectedTicketIds.size > 1 ? 's' : ''}?`)) {
+        return;
+    }
+    
+    const ticketIds = Array.from(selectedTicketIds);
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/tickets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'bulkClose',
+                shortIds: ticketIds,
+                isAdmin: true
+            })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('Bulk close error:', response.status, errText);
+            showNotification(`Error: ${response.status === 401 ? 'Unauthorized' : 'Failed to close tickets'}`, 'error');
+            return;
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            showNotification(`Closed ${selectedTicketIds.size} ticket${selectedTicketIds.size > 1 ? 's' : ''}`, 'success');
+            selectedTicketIds.clear();
+            updateSelectedTicketsSummary();
+            setTimeout(() => loadTickets(), 500);
+        } else {
+            showNotification(data.error || 'Failed to close tickets', 'error');
+        }
+    } catch (error) {
+        console.error('Bulk close error:', error);
+        showNotification('Error closing tickets', 'error');
+    }
+    
+    document.getElementById('bulkActionsMenu').style.display = 'none';
+}
+
+// Delete all selected tickets
+async function deleteBulkTickets() {
+    if (selectedTicketIds.size === 0) {
+        showNotification('Select tickets first', 'error');
+        return;
+    }
+    
+    if (!confirm(`Permanently delete ${selectedTicketIds.size} selected ticket${selectedTicketIds.size > 1 ? 's' : ''}? This cannot be undone.`)) {
+        return;
+    }
+    
+    const ticketIds = Array.from(selectedTicketIds);
+    
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/tickets', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                action: 'bulkDelete',
+                shortIds: ticketIds,
+                isAdmin: true
+            })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error('Bulk delete error:', response.status, errText);
+            showNotification(`Error: ${response.status === 401 ? 'Unauthorized' : 'Failed to delete tickets'}`, 'error');
+            return;
+        }
+        
+        const data = await response.json();
+        if (data.success) {
+            showNotification(`Deleted ${selectedTicketIds.size} ticket${selectedTicketIds.size > 1 ? 's' : ''}`, 'success');
+            selectedTicketIds.clear();
+            updateSelectedTicketsSummary();
+            setTimeout(() => loadTickets(), 500);
+        } else {
+            showNotification(data.error || 'Failed to delete tickets', 'error');
+        }
+    } catch (error) {
+        console.error('Bulk delete error:', error);
+        showNotification('Error deleting tickets', 'error');
+    }
+    
+    document.getElementById('bulkActionsMenu').style.display = 'none';
+}
+

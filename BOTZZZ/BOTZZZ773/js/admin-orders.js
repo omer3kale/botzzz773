@@ -56,6 +56,12 @@ let currentOrdersView = 'all'; // 'all' | 'failed' | 'provider-errors'
 
 // BOTZZZ773 Real-time WebSocket state
 let realtimeEnabled = false;
+// Configurable debounce for search input (can be overridden via localStorage)
+window.ordersSearchDebounceMs = (function(){
+    const raw = localStorage.getItem('ordersSearchDebounceMs');
+    const ms = raw ? parseInt(raw, 10) : 300;
+    return Number.isFinite(ms) && ms >= 100 ? ms : 300;
+})();
 
 const adminOrdersPopupShell = (() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -1633,6 +1639,10 @@ function startOrdersAutoRefresh() {
         clearInterval(ordersAutoRefreshTimer);
     }
 
+    const intervalRaw = localStorage.getItem('ordersRefreshIntervalMs');
+    const intervalMs = intervalRaw ? parseInt(intervalRaw, 10) : ORDERS_AUTO_REFRESH_INTERVAL;
+    const refreshMs = Number.isFinite(intervalMs) && intervalMs >= 10000 ? intervalMs : ORDERS_AUTO_REFRESH_INTERVAL;
+
     ordersAutoRefreshTimer = setInterval(async () => {
         await syncOrderStatuses({ silent: true });
         // Refresh based on current view state
@@ -1641,7 +1651,7 @@ function startOrdersAutoRefresh() {
         } else if (currentOrdersView !== 'provider-errors') {
             await loadOrders({ skipSync: true });
         }
-    }, ORDERS_AUTO_REFRESH_INTERVAL);
+    }, refreshMs);
 }
 
 /**
@@ -1841,10 +1851,30 @@ async function initializeOrdersPage() {
     const tabs = document.querySelectorAll('.filter-tab');
     tabs.forEach(tab => tab.classList.remove('active'));
     document.querySelector('[data-status="all"]')?.classList.add('active');
-    
-    updateOrdersSyncStatus('Provider sync pending...');
-    await syncOrderStatuses({ silent: true, force: true });
+
+    // Load orders first for faster initial paint
+    updateOrdersSyncStatus('Loading orders...');
     await loadOrders({ skipSync: true });
+
+    // Optionally run provider sync in background
+    const syncOnLoadRaw = localStorage.getItem('ordersSyncOnLoad');
+    const syncOnLoad = syncOnLoadRaw === null ? true : (syncOnLoadRaw === 'true');
+    if (syncOnLoad) {
+        updateOrdersSyncStatus('Provider sync running...', 'info');
+        try {
+            await syncOrderStatuses({ silent: true, force: true });
+            refreshOrdersAfterAdminChange();
+        } catch (error) {
+            console.warn('[ORDERS] Background provider sync failed:', error?.message || error);
+            // Show friendly error instead of technical timeout
+            const friendlyMsg = error?.name === 'TimeoutError' 
+                ? 'Sync timeout - try manual sync later' 
+                : 'Sync failed - check connection';
+            updateOrdersSyncStatus(friendlyMsg, 'error');
+        }
+    } else {
+        updateOrdersSyncStatus('Sync on load disabled', 'warning');
+    }
     
     // Try to enable real-time updates first
     const realtimeActive = initializeRealtimeOrders();
@@ -1854,6 +1884,81 @@ async function initializeOrdersPage() {
         console.log('[ORDERS] Real-time unavailable, starting automatic polling fallback');
         startOrdersAutoRefresh();
     }
+}
+function openOrdersSettings() {
+    const currentPerPage = window.ordersPerPage || 50;
+    const debounceMs = window.ordersSearchDebounceMs || 300;
+    const refreshRaw = localStorage.getItem('ordersRefreshIntervalMs');
+    const refreshMs = refreshRaw ? parseInt(refreshRaw, 10) : 30000;
+    const syncOnLoadRaw = localStorage.getItem('ordersSyncOnLoad');
+    const syncOnLoad = syncOnLoadRaw === null ? true : (syncOnLoadRaw === 'true');
+
+    const content = `
+        <div class="settings-modal">
+            <div class="settings-header">
+                <i class="fas fa-sliders-h"></i>
+                <strong>Orders Settings</strong>
+                <span class="settings-subtitle">Performans ve davranış tercihleri</span>
+            </div>
+            <div class="settings-grid">
+                <div class="settings-item">
+                    <label>Orders per page</label>
+                    <input class="settings-input" type="number" id="cfgOrdersPerPage" min="10" max="100" step="5" value="${currentPerPage}" />
+                    <div class="settings-help">10–100 • Daha az satır daha hızlı yükleme sağlar</div>
+                </div>
+                <div class="settings-item">
+                    <label>Auto-refresh interval (seconds)</label>
+                    <input class="settings-input" type="number" id="cfgRefreshSeconds" min="10" max="120" step="5" value="${Math.round(refreshMs/1000)}" />
+                    <div class="settings-help">Realtime yoksa polling aralığı • 10–120 sn</div>
+                </div>
+                <div class="settings-item">
+                    <label>Search debounce (ms)</label>
+                    <input class="settings-input" type="number" id="cfgSearchDebounce" min="150" max="1000" step="50" value="${debounceMs}" />
+                    <div class="settings-help">Yazarken arama gecikmesi • 150–1000 ms</div>
+                </div>
+                <div class="settings-item">
+                    <label class="settings-inline">
+                        <input type="checkbox" id="cfgSyncOnLoad" ${syncOnLoad ? 'checked' : ''} />
+                        Sync providers on page load
+                    </label>
+                    <div class="settings-help">Açılışta provider senkronizasyonu çalıştırılır</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const actions = `
+        <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveOrdersSettings()">Save</button>
+    `;
+
+    createModal('Orders Settings', content, actions);
+}
+
+function saveOrdersSettings() {
+    const perPage = parseInt(document.getElementById('cfgOrdersPerPage')?.value || '50', 10);
+    const refreshSec = parseInt(document.getElementById('cfgRefreshSeconds')?.value || '30', 10);
+    const debounce = parseInt(document.getElementById('cfgSearchDebounce')?.value || '300', 10);
+    const syncOnLoad = !!document.getElementById('cfgSyncOnLoad')?.checked;
+
+    const validPerPage = Number.isFinite(perPage) ? Math.min(Math.max(perPage, 10), 100) : 50;
+    const validRefreshMs = Number.isFinite(refreshSec) ? Math.min(Math.max(refreshSec, 10), 120) * 1000 : 30000;
+    const validDebounce = Number.isFinite(debounce) ? Math.min(Math.max(debounce, 150), 1000) : 300;
+
+    localStorage.setItem('ordersPerPage', String(validPerPage));
+    localStorage.setItem('ordersRefreshIntervalMs', String(validRefreshMs));
+    localStorage.setItem('ordersSearchDebounceMs', String(validDebounce));
+    localStorage.setItem('ordersSyncOnLoad', String(syncOnLoad));
+
+    // Apply immediately
+    window.ordersPerPage = validPerPage;
+    window.ordersSearchDebounceMs = validDebounce;
+    startOrdersAutoRefresh();
+
+    closeModal();
+    showNotification('Settings saved', 'success');
+    // Reload current view quickly to reflect per-page
+    refreshOrdersAfterAdminChange();
 }
 
 // Modal Helper Functions (shared with admin-users.js pattern)
@@ -1889,7 +1994,7 @@ function closeModal() {
 }
 
 // Filter orders by status
-function filterOrders(status) {
+async function filterOrders(status) {
     console.log('[ORDERS] filterOrders called with status:', status);
     
     // If we're currently in provider-errors view, hide it first to restore the orders layout
@@ -1897,14 +2002,23 @@ function filterOrders(status) {
         console.log('[ORDERS] Leaving provider-errors view, restoring orders layout');
         // Restore hidden elements manually (don't call hideProviderErrors as it reloads orders)
         const ordersLayout = document.querySelector('.orders-layout');
-        const filtersBar = document.querySelector('.filters-bar');
+        const filtersBar = document.querySelector('.filter-bar');
+        const bulkBar = document.getElementById('ordersBulkActionBar');
+        const syncBar = document.querySelector('.sync-status-bar');
         const pagination = document.querySelector('.pagination');
-        const providerErrorsView = document.querySelector('.provider-errors-view');
-        
+        const providerErrorsView = document.getElementById('providerErrorsView');
+
         if (ordersLayout) ordersLayout.style.display = '';
         if (filtersBar) filtersBar.style.display = '';
+        if (bulkBar) bulkBar.style.display = '';
+        if (syncBar) syncBar.style.display = '';
         if (pagination) pagination.style.display = '';
         if (providerErrorsView) providerErrorsView.style.display = 'none';
+
+        // Ensure orders are loaded before applying client-side filters
+        if (status !== 'failed') {
+            await loadOrders({ skipSync: true });
+        }
     }
     
     const rows = document.querySelectorAll('#ordersTableBody tr');
@@ -2473,18 +2587,26 @@ function copyProviderOrderIds() {
         return;
     }
     
-    const providerOrderIds = selectedOrders
-        .map(order => order.provider_order_id || 'N/A')
-        .filter(id => id !== 'N/A')
-        .join(', ');
+    const providerOrderIds = [];
+    selectedOrders.forEach(order => {
+        const providerOrderId = resolveProviderOrderIdFromRecord(order) || order.provider_order_id;
+        if (providerOrderId && providerOrderId !== 'N/A') {
+            // Remove # prefix if present
+            const cleanId = String(providerOrderId).replace(/^#/, '');
+            providerOrderIds.push(cleanId);
+        }
+    });
     
-    if (!providerOrderIds) {
-        showNotification('No provider order IDs found in selected orders', 'error');
+    if (providerOrderIds.length === 0) {
+        showNotification('Selected orders have no provider IDs yet', 'error');
         return;
     }
     
-    navigator.clipboard.writeText(providerOrderIds).then(() => {
-        showNotification(`Copied ${providerOrderIds.split(', ').length} provider order IDs to clipboard`, 'success');
+    // Join with newline for easy copy-paste
+    const idsText = providerOrderIds.join('\n');
+    
+    navigator.clipboard.writeText(idsText).then(() => {
+        showNotification(`Copied ${providerOrderIds.length} provider order ID(s)`, 'success');
     }).catch(() => {
         showNotification('Failed to copy to clipboard', 'error');
     });
@@ -2536,18 +2658,15 @@ function exportSelectedOrders() {
         order.created_at || ''
     ]);
     
-    // Build CSV content
-    let csvContent = headers.join(',') + '\n';
+    // Build CSV content with UTF-8 BOM for Excel compatibility
+    let csvContent = '\uFEFF' + headers.join(',') + '\r\n';
     rows.forEach(row => {
         const escapedRow = row.map(cell => {
-            // Escape quotes and wrap in quotes if contains comma or newline
-            const cellStr = String(cell);
-            if (cellStr.includes(',') || cellStr.includes('\n') || cellStr.includes('"')) {
-                return '"' + cellStr.replace(/"/g, '""') + '"';
-            }
-            return cellStr;
+            // Always wrap in quotes and escape internal quotes for Excel
+            const cellStr = String(cell).replace(/"/g, '""');
+            return '"' + cellStr + '"';
         });
-        csvContent += escapedRow.join(',') + '\n';
+        csvContent += escapedRow.join(',') + '\r\n'; // Windows line endings
     });
     
     // Download CSV
@@ -2588,7 +2707,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             searchTimeout = setTimeout(() => {
                 window.ordersCurrentPage = 1;  // Reset to first page on new search
                 loadOrders({ skipSync: true });
-            }, 300);
+            }, window.ordersSearchDebounceMs);
         });
     }
     
@@ -2622,14 +2741,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // Add filter change listeners
-    const filters = ['dateFilter', 'serviceFilter', 'providerFilter', 'modeFilter'];
-    filters.forEach(filterId => {
-        const filter = document.getElementById(filterId);
-        if (filter) {
-            filter.addEventListener('change', applyFilters);
-        }
-    });
+    // Filter listeners removed - filters deprecated
 
     const bulkActionSelect = document.getElementById('ordersBulkActionSelect');
     if (bulkActionSelect) {
@@ -2651,20 +2763,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Apply all filters
+// Apply all filters - deprecated, kept for backwards compatibility
 function applyFilters() {
-    const dateFilter = document.getElementById('dateFilter')?.value;
-    const serviceFilter = document.getElementById('serviceFilter')?.value;
-    const providerFilter = document.getElementById('providerFilter')?.value;
-    const modeFilter = document.getElementById('modeFilter')?.value;
-    
-    // In production, this would make an API call with filter parameters
-    console.log('Applying filters:', {
-        date: dateFilter,
-        service: serviceFilter,
-        provider: providerFilter,
-        mode: modeFilter
-    });
+    // Filters removed from UI
 }
 
 // Update pagination controls
@@ -2733,9 +2834,15 @@ async function loadOrders({ skipSync = false } = {}) {
             throw new Error('Not authenticated');
         }
 
-        // Initialize pagination state if needed
+        // Initialize pagination state if needed (allow override via localStorage)
         if (!window.ordersCurrentPage) window.ordersCurrentPage = 1;
-        if (!window.ordersPerPage) window.ordersPerPage = 50;  // Show 50 orders per page
+        if (!window.ordersPerPage) {
+            const perPageOverrideRaw = localStorage.getItem('ordersPerPage');
+            const perPageOverride = perPageOverrideRaw ? parseInt(perPageOverrideRaw, 10) : NaN;
+            window.ordersPerPage = Number.isFinite(perPageOverride) && perPageOverride > 0
+                ? Math.min(perPageOverride, 100)
+                : 50;  // default
+        }
 
         // Get search query from input
         const searchInput = document.getElementById('orderSearch');
@@ -2884,7 +2991,11 @@ async function loadOrders({ skipSync = false } = {}) {
                 // For accurate display: use charge first, if 0 fallback to original_charge
                 const chargeValue = toNumberOrNull(order.charge);
                 const originalChargeValue = toNumberOrNull(order.original_charge);
-                const customerCharge = (chargeValue !== null && chargeValue !== 0) ? chargeValue : originalChargeValue;
+                // Display rule: when canceled, show IN as the stored charge (will be 0 per API cancel mapping)
+                // without falling back to original_charge. This keeps refunds/ledger intact while UI shows 0/0.
+                const customerCharge = (order.status === 'canceled' || order.status === 'cancelled')
+                    ? chargeValue
+                    : ((chargeValue !== null && chargeValue !== 0) ? chargeValue : originalChargeValue);
                 const providerCost = toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null && providerCurrency === defaultCurrency)
                     ? Number((customerCharge - providerCost).toFixed(5))
@@ -3877,16 +3988,42 @@ async function loadProviderErrors() {
         const data = await response.json();
         providerErrorsCache = data.errors || [];
 
-        // Update filter dropdown with providers
-        if (filterSelect && data.providerSummary) {
+        // Update filter dropdown with providers that have errors (fallback to runtime aggregation if summary missing)
+        if (filterSelect) {
+            const summaryFromApi = Array.isArray(data.providerSummary) ? data.providerSummary : [];
+            const fallbackSummary = summaryFromApi.length === 0 && Array.isArray(providerErrorsCache)
+                ? Object.values(providerErrorsCache.reduce((acc, err) => {
+                    const provider = err.provider || err.order?.service?.provider || {};
+                    const providerId = provider.id || err.provider_id || err.order?.service?.provider_id || 'unknown';
+                    const providerName = provider.name || 'Unknown Provider';
+                    if (!acc[providerId]) {
+                        acc[providerId] = { provider_id: providerId, provider_name: providerName, count: 0 };
+                    }
+                    acc[providerId].count += 1;
+                    return acc;
+                }, {}))
+                : [];
+
+            const providerOptions = summaryFromApi.length > 0 ? summaryFromApi : fallbackSummary;
+
             const currentValue = filterSelect.value;
             filterSelect.innerHTML = '<option value="">All Providers</option>';
-            data.providerSummary.forEach(p => {
+
+            if (providerOptions.length === 0) {
                 const opt = document.createElement('option');
-                opt.value = p.provider_id;
-                opt.textContent = `${p.provider_name} (${p.count} errors)`;
+                opt.value = '';
+                opt.disabled = true;
+                opt.textContent = 'No providers with errors';
                 filterSelect.appendChild(opt);
-            });
+            } else {
+                providerOptions.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.provider_id;
+                    opt.textContent = `${p.provider_name} (${p.count} errors)`;
+                    filterSelect.appendChild(opt);
+                });
+            }
+
             filterSelect.value = currentValue;
         }
 
@@ -3932,10 +4069,27 @@ async function loadProviderErrors() {
             
             const orderId = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';
             const providerName = provider.name || 'Unknown';
+            const servicePublicId = service.public_id || 'N/A';
             const serviceName = service.name || 'Unknown Service';
+            const serviceDisplay = `#${escapeHtml(servicePublicId)} · ${escapeHtml(serviceName)}`;
             const customerEmail = user.email || user.username || 'Unknown';
             const errorTime = err.error_timestamp ? new Date(err.error_timestamp).toLocaleString() : 'N/A';
             const retryCount = err.retry_count || 0;
+            
+            // Calculate provider cost if not recorded: quantity * (provider_rate / 1000)
+            let providerCharge = Number(order.provider_cost || 0);
+            if (providerCharge === 0 && order.quantity && service.rate) {
+                const retailRate = Number(service.rate || 0);
+                const markup = Number(service.provider?.markup || 0);
+                if (retailRate > 0 && markup !== undefined) {
+                    // Calculate provider rate: rate / (1 + markup%)
+                    const providerRate = markup > -100 ? retailRate / (1 + markup / 100) : null;
+                    if (providerRate !== null && providerRate > 0) {
+                        // Calculate charge: quantity * (providerRate / 1000)
+                        providerCharge = (providerRate * Number(order.quantity)) / 1000;
+                    }
+                }
+            }
 
             return `
                 <tr data-error-id="${err.id}">
@@ -3951,12 +4105,15 @@ async function loadProviderErrors() {
                         <div style="color: #dc2626; font-size: 13px; word-break: break-word;">${escapeHtml(err.error_message || 'Unknown error')}</div>
                     </td>
                     <td>
-                        <div style="font-size: 13px;">${escapeHtml(serviceName.substring(0, 40))}${serviceName.length > 40 ? '...' : ''}</div>
+                        <div style="font-size: 13px;" title="${serviceDisplay}">${serviceDisplay}</div>
                         <div style="font-size: 11px; color: #64748b;">${escapeHtml(service.category || 'N/A')}</div>
                     </td>
                     <td>
                         <div style="font-size: 13px;">${escapeHtml(customerEmail)}</div>
                         <div style="font-size: 11px; color: #64748b;">$${Number(order.charge || 0).toFixed(2)}</div>
+                    </td>
+                    <td style="text-align: center;">
+                        <div style="font-size: 13px; font-weight: 500;">$${providerCharge.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '')}</div>
                     </td>
                     <td style="text-align: center;">
                         <span style="background: ${retryCount > 2 ? '#dc2626' : '#f59e0b'}; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">${retryCount}</span>
@@ -4064,7 +4221,7 @@ async function retryProviderOrder(orderId) {
             },
             body: JSON.stringify({
                 action: 'resend_order',
-                orderId
+                order_id: orderId
             })
         });
 

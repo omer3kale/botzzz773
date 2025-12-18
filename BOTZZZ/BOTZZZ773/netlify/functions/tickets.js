@@ -27,12 +27,16 @@ function checkRateLimit(userId) {
 
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log('[Tickets Auth] No valid auth header:', authHeader ? 'exists but no Bearer' : 'missing');
     return null;
   }
   const token = authHeader.substring(7);
   try {
-    return jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('[Tickets Auth] Token decoded successfully for user:', decoded.userId || decoded.id);
+    return decoded;
   } catch (error) {
+    console.error('[Tickets Auth] Token verification failed:', error.message);
     return null;
   }
 }
@@ -49,7 +53,7 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  const user = getUserFromToken(event.headers.authorization);
+  const user = getUserFromToken(event.headers.authorization || event.headers.Authorization);
   if (!user) {
     return {
       statusCode: 401,
@@ -60,8 +64,11 @@ exports.handler = async (event) => {
     };
   }
 
+  console.log('[Tickets Handler] User object:', JSON.stringify(user, null, 2));
+
   // Verify user has valid userId and email
   if (!user.userId || !user.email) {
+    console.log('[Tickets Handler] User missing userId or email. userId:', user.userId, 'email:', user.email);
     return {
       statusCode: 403,
       headers,
@@ -114,9 +121,74 @@ exports.handler = async (event) => {
 
 async function handleGetTickets(user, data, headers) {
   try {
-    const { ticketId } = data;
+    const { ticketId, shortId, action } = data;
+    console.log('[GET TICKETS] Action:', action, 'User:', user.userId, 'ShortId:', shortId, 'TicketId:', ticketId);
 
-    if (ticketId) {
+    // Handle getUnreadCount action (user vs admin)
+    if (action === 'getUnreadCount') {
+      if (user.role === 'admin') {
+        console.log(`[GET ADMIN OPEN COUNT] Admin ${user.userId}: Fetching open tickets requiring attention...`);
+        const { data: openTickets, error: adminCountError } = await supabaseAdmin
+          .from('tickets')
+          .select('id')
+          .eq('status', 'open');
+
+        if (adminCountError) {
+          console.error('[GET ADMIN OPEN COUNT ERROR]', adminCountError);
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({ unreadCount: 0, error: adminCountError.message })
+          };
+        }
+
+        const openCount = openTickets ? openTickets.length : 0;
+        console.log(`[GET ADMIN OPEN COUNT] Admin ${user.userId}: Found ${openCount} open tickets`);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ unreadCount: openCount })
+        };
+      }
+
+      console.log(`[GET UNREAD COUNT] User ${user.userId}: Fetching unread tickets...`);
+      const { data: tickets, error } = await supabaseAdmin
+        .from('tickets')
+        .select('id')
+        .eq('user_id', user.userId)
+        .eq('has_unread_replies', true);
+
+      if (error) {
+        console.error('[GET UNREAD COUNT ERROR]', error);
+        // Return 0 if column doesn't exist yet - graceful fallback
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ unreadCount: 0, error: error.message })
+        };
+      }
+
+      const count = tickets ? tickets.length : 0;
+      console.log(`[GET UNREAD COUNT] User ${user.userId}: Found ${count} unread tickets`);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ unreadCount: count })
+      };
+    }
+
+    if (ticketId || shortId) {
+      // Resolve short_id to UUID if needed
+      let queryId = ticketId;
+      let queryField = 'id';
+      
+      if (shortId && !ticketId) {
+        queryField = 'short_id';
+        queryId = shortId;
+      }
+      
+      console.log(`[GET TICKET] Field: ${queryField}, Value: ${queryId}`);
+      
       // Get specific ticket with messages
       let query = supabaseAdmin
         .from('tickets')
@@ -125,7 +197,7 @@ async function handleGetTickets(user, data, headers) {
           user:users(id, email, username),
           messages:ticket_messages(*)
         `)
-        .eq('id', ticketId)
+        .eq(queryField, queryId)
         .single();
 
       // Non-admins can only see their own tickets
@@ -142,6 +214,18 @@ async function handleGetTickets(user, data, headers) {
           headers,
           body: JSON.stringify({ error: 'Ticket not found' })
         };
+      }
+
+      // Mark ticket as read when user views it (not for admins)
+      if (user.role !== 'admin' && ticket.has_unread_replies) {
+        await supabaseAdmin
+          .from('tickets')
+          .update({ 
+            has_unread_replies: false,
+            last_viewed_at: new Date().toISOString()
+          })
+          // Use the fetched ticket's UUID to ensure update works with shortId requests
+          .eq('id', ticket.id);
       }
 
       return {
@@ -195,6 +279,8 @@ async function handleCreateTicket(user, data, headers) {
   try {
     const { subject, category, priority, message, orderId } = data;
 
+    console.log('[TICKET CREATE] Request data:', { subject, category, priority, message: message?.substring(0, 50), orderId, userId: user.userId });
+
     // Input sanitization
     if (!subject || !category || !message) {
       return {
@@ -224,9 +310,16 @@ async function handleCreateTicket(user, data, headers) {
         status: 'open'
       };
       
-      // Add orderId if provided
+      // Add orderId if provided and is valid UUID format
       if (orderId) {
-        ticketData.order_id = parseInt(orderId, 10);
+        // Validate UUID format (reject numeric IDs like "12345")
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(orderId)) {
+          ticketData.order_id = orderId;
+        } else {
+          console.warn(`[TICKET CREATE] Invalid order ID format (not UUID): ${orderId}`);
+          // Skip invalid orderId - ticket will be created without order association
+        }
       }
       
       ticket = await insertTicketRecord(ticketData);
@@ -235,7 +328,10 @@ async function handleCreateTicket(user, data, headers) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create ticket' })
+        body: JSON.stringify({ 
+          error: 'Failed to create ticket',
+          details: ticketError.message || 'Unknown error'
+        })
       };
     }
 
@@ -266,7 +362,10 @@ async function handleCreateTicket(user, data, headers) {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ 
+        error: 'Internal server error',
+        details: error.message || 'Unknown error'
+      })
     };
   }
 }
@@ -317,14 +416,21 @@ async function handleUpdateTicket(user, data, headers) {
       }
 
       // Add message
+      const messageData = {
+        ticket_id: ticketId,
+        message,
+        is_admin: user.role === 'admin'
+      };
+      
+      // Only add user_id if it's a valid UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (user.userId && uuidRegex.test(user.userId)) {
+        messageData.user_id = user.userId;
+      }
+
       await supabaseAdmin
         .from('ticket_messages')
-        .insert({
-          ticket_id: ticketId,
-          user_id: user.userId,
-          message,
-          is_admin: user.role === 'admin'
-        });
+        .insert(messageData);
 
       // Update ticket status if closed
       if (ticket.status === 'closed') {
@@ -408,6 +514,12 @@ async function handlePostActions(user, data, headers) {
     return await handleReplyTicket(user, data, headers);
   } else if (action === 'close') {
     return await handleCloseTicket(user, data, headers);
+  } else if (action === 'bulkReply') {
+    return await handleBulkReply(user, data, headers);
+  } else if (action === 'bulkClose') {
+    return await handleBulkClose(user, data, headers);
+  } else if (action === 'bulkDelete') {
+    return await handleBulkDelete(user, data, headers);
   }
 
   // Default to create ticket (no action or action === 'create')
@@ -431,13 +543,45 @@ async function handlePutActions(user, data, headers) {
 
 async function handleReplyTicket(user, data, headers) {
   try {
-    const { ticketId, message, isAdmin, autoClose } = data;
+    const { ticketId, shortId, message, isAdmin, autoClose } = data;
+    
+    let finalTicketId = ticketId;
 
-    if (!ticketId || !message) {
+    console.log('[REPLY TICKET] Input:', { ticketId, shortId, messageLength: message?.length, isAdmin, autoClose });
+
+    if (!message) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: 'Ticket ID and message are required' })
+        body: JSON.stringify({ error: 'Message is required' })
+      };
+    }
+    
+    // If shortId provided, resolve to UUID
+    if (shortId && !ticketId) {
+      const { data: ticketData, error: resolveError } = await supabaseAdmin
+        .from('tickets')
+        .select('id')
+        .eq('short_id', shortId)
+        .single();
+      
+      if (resolveError || !ticketData) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ error: 'Ticket not found' })
+        };
+      }
+      
+      finalTicketId = ticketData.id;
+      console.log('[REPLY TICKET] Resolved shortId', shortId, 'to UUID', finalTicketId);
+    }
+    
+    if (!finalTicketId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Ticket ID is required' })
       };
     }
 
@@ -454,7 +598,7 @@ async function handleReplyTicket(user, data, headers) {
     const { data: ticket, error: ticketError } = await supabaseAdmin
       .from('tickets')
       .select('id, user_id, status')
-      .eq('id', ticketId)
+      .eq('id', finalTicketId)
       .single();
 
     if (ticketError || !ticket) {
@@ -475,14 +619,21 @@ async function handleReplyTicket(user, data, headers) {
     }
 
     // UNIFIED LOGIC: Always insert into ticket_messages table
+    const messageData = {
+      ticket_id: finalTicketId,
+      message: message.trim(),
+      is_admin: user.role === 'admin' || isAdmin === true
+    };
+    
+    // Only add user_id if it's a valid UUID (not for dev-admin or similar)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (user.userId && uuidRegex.test(user.userId)) {
+      messageData.user_id = user.userId;
+    }
+    
     const { error: messageError } = await supabaseAdmin
       .from('ticket_messages')
-      .insert({
-        ticket_id: ticketId,
-        user_id: user.userId,
-        message: message.trim(),
-        is_admin: user.role === 'admin' || isAdmin === true
-      });
+      .insert(messageData);
 
     if (messageError) {
       console.error('Insert message error:', messageError);
@@ -493,7 +644,7 @@ async function handleReplyTicket(user, data, headers) {
       };
     }
 
-    // Update ticket metadata
+    // Update ticket metadata and status transitions
     const updateData = {
       last_reply_by: user.role === 'admin' ? 'admin' : user.email,
       updated_at: new Date().toISOString()
@@ -502,15 +653,21 @@ async function handleReplyTicket(user, data, headers) {
     if (autoClose) {
       updateData.status = 'closed';
       updateData.closed_at = new Date().toISOString();
-    } else if (ticket.status === 'closed') {
-      // Reopen if replying to closed ticket
-      updateData.status = 'open';
+    } else {
+      if (user.role === 'admin') {
+        // Admin replying marks ticket as answered and sets unread flag for user
+        updateData.status = 'answered';
+        updateData.has_unread_replies = true;  // Set unread flag so user sees notification
+      } else {
+        // User replying moves ticket back to open regardless of previous state
+        updateData.status = 'open';
+      }
     }
 
     await supabaseAdmin
       .from('tickets')
       .update(updateData)
-      .eq('id', ticketId);
+      .eq('id', finalTicketId);
 
     return {
       statusCode: 200,
@@ -525,7 +682,10 @@ async function handleReplyTicket(user, data, headers) {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ 
+        error: 'Internal server error',
+        details: error.message || 'Unknown error'
+      })
     };
   }
 }
@@ -730,6 +890,292 @@ async function handleDeleteTicket(user, data, headers) {
     };
   } catch (error) {
     console.error('Delete ticket error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// Handle bulk reply to multiple tickets
+async function handleBulkReply(user, data, headers) {
+  try {
+    console.log('[BulkReply] User check - userId:', user?.userId, 'role:', user?.role);
+    if (!user || (!user.id && !user.userId)) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Unauthorized' })
+      };
+    }
+
+    if (!user.is_admin && user.role !== 'admin' && !user.role?.includes('admin')) {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Only admins can reply to tickets' })
+      };
+    }
+
+    const { shortIds, message, isAdmin } = data;
+    if (!shortIds || !Array.isArray(shortIds) || shortIds.length === 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid short IDs' })
+      };
+    }
+
+    if (!message) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Message is required' })
+      };
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    console.log('[BulkReply] Processing', shortIds.length, 'tickets');
+
+    for (const shortId of shortIds) {
+      try {
+        // Get ticket
+        const { data: tickets, error: fetchError } = await supabaseAdmin
+          .from('tickets')
+          .select('*')
+          .eq('short_id', shortId)
+          .single();
+
+        if (fetchError || !tickets) {
+          console.error('[BulkReply] Ticket not found:', shortId, fetchError?.message);
+          failCount++;
+          continue;
+        }
+
+        console.log('[BulkReply] Processing ticket:', shortId, 'id:', tickets.id);
+
+        // Add message (don't send user_id for admin users since they don't have UUID)
+        const messageData = {
+          ticket_id: tickets.id,
+          message: message,
+          is_admin: true
+        };
+        
+        // Only add user_id if it's a valid UUID format (not dev-admin or similar)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (user.userId && uuidRegex.test(user.userId)) {
+          messageData.user_id = user.userId;
+        }
+
+        const { error: msgError } = await supabaseAdmin
+          .from('ticket_messages')
+          .insert(messageData);
+
+        if (msgError) {
+          console.error('[BulkReply] Message insert error:', msgError.message);
+          failCount++;
+          continue;
+        }
+
+        // Update ticket status and mark as having unread replies
+        const { error: updateError } = await supabaseAdmin
+          .from('tickets')
+          .update({
+            status: 'answered',
+            has_unread_replies: true,
+            last_reply_by: 'admin',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', tickets.id);
+
+        if (updateError) {
+          console.error('[BulkReply] Ticket update error:', updateError.message);
+          failCount++;
+        } else {
+          successCount++;
+        }
+      } catch (error) {
+        console.error(`Error replying to ticket ${shortId}:`, error);
+        failCount++;
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: successCount > 0,
+        message: `Replied to ${successCount} ticket(s)`,
+        successCount,
+        failCount
+      })
+    };
+  } catch (error) {
+    console.error('Bulk reply error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// Handle bulk close tickets
+async function handleBulkClose(user, data, headers) {
+  try {
+    if (!user || (!user.id && !user.userId)) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Unauthorized' })
+      };
+    }
+
+    if (!user.is_admin && user.role !== 'admin' && !user.role?.includes('admin')) {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Only admins can close tickets' })
+      };
+    }
+
+    const { shortIds } = data;
+    if (!shortIds || !Array.isArray(shortIds) || shortIds.length === 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid short IDs' })
+      };
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const shortId of shortIds) {
+      try {
+        const { error } = await supabaseAdmin
+          .from('tickets')
+          .update({
+            status: 'closed',
+            closed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('short_id', shortId);
+
+        if (error) {
+          failCount++;
+        } else {
+          successCount++;
+        }
+      } catch (error) {
+        console.error(`Error closing ticket ${shortId}:`, error);
+        failCount++;
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: successCount > 0,
+        message: `Closed ${successCount} ticket(s)`,
+        successCount,
+        failCount
+      })
+    };
+  } catch (error) {
+    console.error('Bulk close error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// Handle bulk delete tickets
+async function handleBulkDelete(user, data, headers) {
+  try {
+    if (!user || (!user.id && !user.userId)) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Unauthorized' })
+      };
+    }
+
+    if (!user.is_admin && user.role !== 'admin' && !user.role?.includes('admin')) {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Only admins can delete tickets' })
+      };
+    }
+
+    const { shortIds } = data;
+    if (!shortIds || !Array.isArray(shortIds) || shortIds.length === 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Invalid short IDs' })
+      };
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const shortId of shortIds) {
+      try {
+        // First, get the ticket ID
+        const { data: ticket, error: fetchError } = await supabaseAdmin
+          .from('tickets')
+          .select('id')
+          .eq('short_id', shortId)
+          .single();
+
+        if (fetchError || !ticket) {
+          failCount++;
+          continue;
+        }
+
+        // Delete associated messages
+        await supabaseAdmin
+          .from('ticket_messages')
+          .delete()
+          .eq('ticket_id', ticket.id);
+
+        // Delete the ticket
+        const { error: deleteError } = await supabaseAdmin
+          .from('tickets')
+          .delete()
+          .eq('id', ticket.id);
+
+        if (deleteError) {
+          failCount++;
+        } else {
+          successCount++;
+        }
+      } catch (error) {
+        console.error(`Error deleting ticket ${shortId}:`, error);
+        failCount++;
+      }
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: successCount > 0,
+        message: `Deleted ${successCount} ticket(s)`,
+        successCount,
+        failCount
+      })
+    };
+  } catch (error) {
+    console.error('Bulk delete error:', error);
     return {
       statusCode: 500,
       headers,

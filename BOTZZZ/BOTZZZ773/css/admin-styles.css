@@ -893,9 +893,18 @@ body.popup-mode .admin-main {
     background: var(--admin-primary);
     color: white;
     font-size: 11px;
-    padding: 2px 6px;
-    border-radius: 10px;
-    font-weight: 600;
+    padding: 3px 7px;
+    border-radius: 12px;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1;
+    box-shadow: 0 2px 4px rgba(255, 20, 148, 0.3);
+    transition: all 0.2s ease;
 }
 
 /* Main Content */
@@ -1392,71 +1401,77 @@ body.sidebar-collapsed .admin-main {
 }
 
 /* Column width optimization for better horizontal layout */
-/* Users Table (11 columns) */
+/* Users Table (10 columns) */
 .users-table-panel .admin-table th:nth-child(1),
 .users-table-panel .admin-table td:nth-child(1) {
-    width: 40px; /* Checkbox column */
-    min-width: 40px;
+    width: 160px; /* Username */
+    min-width: 160px;
+    white-space: nowrap;
 }
 
 .users-table-panel .admin-table th:nth-child(2),
 .users-table-panel .admin-table td:nth-child(2) {
-    width: 140px; /* Username column */
-    min-width: 140px;
+    width: 230px; /* Email */
+    min-width: 230px;
+    word-break: break-all;
+}
+
+.users-table-panel .cell-username {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.users-table-panel .cell-email {
+    word-break: break-all;
 }
 
 .users-table-panel .admin-table th:nth-child(3),
 .users-table-panel .admin-table td:nth-child(3) {
-    width: 200px; /* Email column */
-    min-width: 200px;
+    width: 110px; /* Balance */
+    min-width: 110px;
 }
 
 .users-table-panel .admin-table th:nth-child(4),
 .users-table-panel .admin-table td:nth-child(4) {
-    width: 100px; /* Balance column */
-    min-width: 100px;
+    width: 110px; /* Spent */
+    min-width: 110px;
 }
 
 .users-table-panel .admin-table th:nth-child(5),
 .users-table-panel .admin-table td:nth-child(5) {
-    width: 100px; /* Spent column */
-    min-width: 100px;
+    width: 110px; /* Profit */
+    min-width: 110px;
 }
 
 .users-table-panel .admin-table th:nth-child(6),
 .users-table-panel .admin-table td:nth-child(6) {
-    width: 100px; /* Profit column */
-    min-width: 100px;
+    width: 110px; /* Status */
+    min-width: 110px;
 }
 
 .users-table-panel .admin-table th:nth-child(7),
 .users-table-panel .admin-table td:nth-child(7) {
-    width: 100px; /* Status */
-    min-width: 100px;
+    width: 170px; /* Created */
+    min-width: 170px;
 }
 
 .users-table-panel .admin-table th:nth-child(8),
 .users-table-panel .admin-table td:nth-child(8) {
-    width: 160px; /* Created */
+    width: 160px; /* Last Auth */
     min-width: 160px;
 }
 
 .users-table-panel .admin-table th:nth-child(9),
 .users-table-panel .admin-table td:nth-child(9) {
-    width: 160px; /* Last Auth */
-    min-width: 160px;
+    width: 90px; /* Discount */
+    min-width: 90px;
 }
 
 .users-table-panel .admin-table th:nth-child(10),
 .users-table-panel .admin-table td:nth-child(10) {
-    width: 80px; /* Discount */
-    min-width: 80px;
-}
-
-.users-table-panel .admin-table th:nth-child(11),
-.users-table-panel .admin-table td:nth-child(11) {
-    width: 100px; /* Actions */
-    min-width: 100px;
+    width: 110px; /* Actions */
+    min-width: 110px;
 }
 
 /* Orders Table (13 columns) - Original layout */
@@ -2828,6 +2843,65 @@ body.sidebar-collapsed .admin-main {
 .modal-footer button {
     font-size: 13px !important; /* Reduced from default */
     padding: 8px 16px !important; /* More compact */
+}
+
+/* Settings Modal Enhancements */
+.settings-modal {
+    display: grid;
+    gap: 16px;
+}
+
+.settings-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--admin-darker-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 10px;
+}
+.settings-header i { color: var(--admin-primary); }
+.settings-subtitle {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--admin-gray-text);
+}
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+}
+
+.settings-item {
+    background: var(--admin-darker-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 10px;
+    padding: 14px;
+}
+.settings-item label {
+    display: block;
+    font-size: 12px;
+    color: var(--admin-gray-text);
+    margin-bottom: 8px;
+}
+.settings-input {
+    width: 100%;
+    background: var(--admin-dark-bg);
+    border: 1px solid var(--admin-border);
+    border-radius: 8px;
+    color: var(--admin-light-text);
+    padding: 8px 10px;
+}
+.settings-help {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--admin-gray-text);
+}
+.settings-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .modal-footer {

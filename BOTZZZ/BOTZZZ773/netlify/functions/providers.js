@@ -488,7 +488,7 @@ async function syncProvider(data, headers) {
 
     const { data: provider, error: providerError } = await supabaseAdmin
       .from('providers')
-      .select('id, name, api_url, api_key, status, markup')
+      .select('id, name, api_url, api_key, status, markup, currency')
       .eq('id', providerId)
       .single();
 

@@ -98,14 +98,19 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE TABLE IF NOT EXISTS tickets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ticket_number VARCHAR(20) UNIQUE NOT NULL,
+    short_id VARCHAR(6) UNIQUE NOT NULL,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     subject VARCHAR(255) NOT NULL,
     category VARCHAR(50) NOT NULL,
     priority VARCHAR(20) DEFAULT 'medium',
     status VARCHAR(20) DEFAULT 'open',
     order_id UUID REFERENCES orders(id) ON DELETE SET NULL,
+    last_reply_by VARCHAR(255),
+    has_unread_replies BOOLEAN DEFAULT false,
+    last_viewed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    closed_at TIMESTAMP WITH TIME ZONE
 );
 
 -- Ticket Messages Table
@@ -188,6 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_user_id ON tickets(user_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_short_id ON tickets(short_id);
 CREATE INDEX IF NOT EXISTS idx_services_category ON services(category);
 CREATE INDEX IF NOT EXISTS idx_services_status ON services(status);
 CREATE INDEX IF NOT EXISTS idx_services_provider_service_id ON services(provider_service_id);

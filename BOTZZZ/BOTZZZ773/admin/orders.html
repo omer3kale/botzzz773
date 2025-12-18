@@ -50,7 +50,7 @@
         <div class="admin-header-right">
             <div class="admin-search">
                 <i class="fas fa-search"></i>
-                <input type="text" id="orderSearch" placeholder="Search: order, provider ID, user, service...">
+                <input type="text" id="orderSearch" placeholder="Search: order, provider ID, user, service ID, service name...">
             </div>
             <div class="admin-notifications">
                 <i class="fas fa-bell"></i>
@@ -112,7 +112,7 @@
             <a href="tickets.html" class="admin-nav-item">
                 <i class="fas fa-ticket-alt"></i>
                 <span>Tickets</span>
-                <span class="nav-badge">10</span>
+                <span class="nav-badge" id="adminSidebarTicketBadge" style="display:none"></span>
             </a>
             <a href="reports.html" class="admin-nav-item">
                 <i class="fas fa-chart-bar"></i>
@@ -130,9 +130,6 @@
         <div class="admin-page-header">
             <h1>Orders</h1>
             <div class="page-actions">
-                <button class="btn-secondary" onclick="exportData('csv')">
-                    <i class="fas fa-download"></i> Export
-                </button>
                 <button class="btn-primary" onclick="showAddOrderModal()">
                     <i class="fas fa-plus"></i> Add Order
                 </button>
@@ -170,40 +167,7 @@
             </button>
         </div>
 
-        <!-- Additional Filters -->
-        <div class="filter-bar">
-            <div class="filter-group">
-                <select class="filter-select" id="dateFilter">
-                    <option value="90">Created: Last 90 days</option>
-                    <option value="30">Created: Last 30 days</option>
-                    <option value="7">Created: Last 7 days</option>
-                    <option value="1">Created: Today</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <select class="filter-select" id="serviceFilter">
-                    <option value="">Service: All</option>
-                    <option value="instagram">Instagram</option>
-                    <option value="tiktok">TikTok</option>
-                    <option value="kick">Kick</option>
-                    <option value="telegram">Telegram</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <select class="filter-select" id="providerFilter">
-                    <option value="">Provider: All</option>
-                    <option value="provider1">Provider 1</option>
-                    <option value="provider2">Provider 2</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <select class="filter-select" id="modeFilter">
-                    <option value="">Mode: All</option>
-                    <option value="auto">Auto</option>
-                    <option value="manual">Manual</option>
-                </select>
-            </div>
-        </div>
+
 
         <div class="sync-status-bar">
             <div class="sync-status-meta">
@@ -237,6 +201,9 @@
             </div>
             <button class="btn-secondary" id="ordersSyncButton" onclick="manualOrdersSync()">
                 <i class="fas fa-sync-alt"></i> Sync Now
+            </button>
+            <button class="btn-secondary" id="ordersSettingsButton" onclick="openOrdersSettings()" style="margin-left: 8px;">
+                <i class="fas fa-sliders-h"></i> Settings
             </button>
         </div>
 
@@ -282,15 +249,9 @@
             <div class="provider-errors-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                 <h2 style="margin: 0; color: #dc2626;"><i class="fas fa-exclamation-triangle"></i> Provider API Errors</h2>
                 <div>
-                    <select id="providerErrorFilter" class="filter-select" onchange="loadProviderErrors()" style="margin-right: 8px;">
+                    <select id="providerErrorFilter" class="filter-select" onchange="loadProviderErrors()">
                         <option value="">All Providers</option>
                     </select>
-                    <button class="btn-secondary" onclick="loadProviderErrors()">
-                        <i class="fas fa-sync-alt"></i> Refresh
-                    </button>
-                    <button class="btn-secondary" onclick="hideProviderErrors()" style="margin-left: 8px;">
-                        <i class="fas fa-times"></i> Back to Orders
-                    </button>
                 </div>
             </div>
             
@@ -308,6 +269,7 @@
                             <th>Error Message</th>
                             <th>Service</th>
                             <th>Customer</th>
+                            <th>Provider Cost</th>
                             <th>Retries</th>
                             <th>Time</th>
                             <th>Actions</th>

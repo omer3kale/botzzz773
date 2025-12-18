@@ -110,14 +110,19 @@ CREATE TABLE payments (
 CREATE TABLE tickets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     ticket_number VARCHAR(20) UNIQUE NOT NULL,
+    short_id VARCHAR(6) UNIQUE NOT NULL,
     user_id UUID,
     subject VARCHAR(255) NOT NULL,
     category VARCHAR(50) NOT NULL,
     priority VARCHAR(20) DEFAULT 'medium',
     status VARCHAR(20) DEFAULT 'open',
     order_id UUID,
+    last_reply_by VARCHAR(255),
+    has_unread_replies BOOLEAN DEFAULT false,
+    last_viewed_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    closed_at TIMESTAMP WITH TIME ZONE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL
 );
@@ -163,6 +168,7 @@ CREATE INDEX idx_payments_user_id ON payments(user_id);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_tickets_user_id ON tickets(user_id);
 CREATE INDEX idx_tickets_status ON tickets(status);
+CREATE INDEX idx_tickets_short_id ON tickets(short_id);
 CREATE INDEX idx_services_category ON services(category);
 CREATE INDEX idx_services_status ON services(status);
 CREATE INDEX idx_services_provider_service_id ON services(provider_service_id);

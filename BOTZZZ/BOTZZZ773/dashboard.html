@@ -172,13 +172,14 @@
                     <span class="sidebar-link-label">Child Panel</span>
                 </a>
 
-                <a href="tickets.html" class="sidebar-link">
+                <a href="tickets.html" class="sidebar-link" style="position: relative;">
                     <span class="sidebar-link-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                         </svg>
                     </span>
                     <span class="sidebar-link-label">Tickets</span>
+                    <span class="notification-badge" id="sidebarTicketBadge" style="display: none;">0</span>
                 </a>
 
                 <a href="#massorder" class="sidebar-link">
@@ -572,11 +573,28 @@
                     // Subscribe to user's tickets
                     BOTZZZ773Realtime.subscribeToTickets(function(data) {
                         console.log('[BOTZZZ773 Dashboard] Ticket update:', data.eventType);
+                        // Refresh unread ticket count on any ticket update
+                        if (window.checkUnreadTickets) {
+                            window.checkUnreadTickets();
+                        }
                     });
                 }).catch(function(err) {
                     console.warn('[BOTZZZ773] Dashboard real-time init failed:', err);
                 });
+                
+                // Initial check for unread tickets
+                if (window.checkUnreadTickets) {
+                    window.checkUnreadTickets();
+                }
             });
+            
+            // Fallback: Check unread tickets after 1 second if main.js loaded
+            setTimeout(() => {
+                if (window.checkUnreadTickets) {
+                    window.checkUnreadTickets();
+                    console.log('[DASHBOARD] Fallback unread check triggered');
+                }
+            }, 1000);
         })();
     </script>
     

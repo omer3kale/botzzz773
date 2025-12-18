@@ -7,9 +7,18 @@ const { buildGatewayOrderId } = require('./utils/payment-gateway-helpers');
 const JWT_SECRET = process.env.JWT_SECRET;
 const HELEKET_MERCHANT_ID = process.env.HELEKET_MERCHANT_ID;
 const HELEKET_API_KEY = process.env.HELEKET_API_KEY;
-const HELEKET_API_BASE = process.env.HELEKET_API_BASE || 'https://api.heleket.com';
 const SITE_URL = process.env.SITE_URL || 'https://www.botzzz773.pro';
 const MIN_AMOUNT = 1;
+
+// SSRF protection: Only allow official Heleket API endpoint
+const ALLOWED_HELEKET_ENDPOINTS = ['https://api.heleket.com'];
+const HELEKET_API_BASE = (() => {
+  const envBase = process.env.HELEKET_API_BASE;
+  if (envBase && ALLOWED_HELEKET_ENDPOINTS.includes(envBase)) {
+    return envBase;
+  }
+  return 'https://api.heleket.com';
+})();
 
 const HELEKET_SUCCESS_STATUSES = new Set(['paid', 'paid_over']);
 const HELEKET_FAILURE_STATUSES = new Set(['fail', 'wrong_amount', 'cancel', 'system_fail', 'refund_fail']);
@@ -35,17 +44,21 @@ function getUserFromToken(authHeader) {
 }
 
 function serializePayload(payload = {}) {
-  const jsonString = JSON.stringify(payload || {});
-  return jsonString;
+  // Match PHP json_encode($data, JSON_UNESCAPED_UNICODE):
+  // - Preserve key insertion order as constructed
+  // - Keep null values
+  // - UTF-8, no unicode escaping
+  return JSON.stringify(payload);
 }
 
 function generateHeleketSignature(payload) {
   if (!HELEKET_API_KEY) {
     throw new Error('HELEKET_API_KEY is not configured');
   }
+  // PHP ref: md5(base64_encode(json_encode($data, JSON_UNESCAPED_UNICODE)) . $apiPaymentKey)
   const jsonString = serializePayload(payload);
-  // Try without Base64 encoding: MD5(JSON + API_KEY)
-  return crypto.createHash('md5').update(jsonString + HELEKET_API_KEY).digest('hex');
+  const base64Payload = Buffer.from(jsonString, 'utf8').toString('base64');
+  return crypto.createHash('md5').update(base64Payload + HELEKET_API_KEY, 'utf8').digest('hex');
 }
 
 function formatAmount(amount) {
@@ -65,7 +78,7 @@ async function creditUserBalance(payment, metadata = {}) {
     .single();
 
   if (error || !userData) {
-    console.error('[HELEKET] Failed to retrieve user balance', error);
+    console.error('[HELEKET] Failed to retrieve user balance');
     return false;
   }
 
@@ -79,7 +92,7 @@ async function creditUserBalance(payment, metadata = {}) {
     .eq('id', payment.user_id);
 
   if (updateError) {
-    console.error('[HELEKET] Failed to update balance', updateError);
+    console.error('[HELEKET] Failed to update balance');
     return false;
   }
 
@@ -121,8 +134,8 @@ exports.handler = async (event) => {
   try {
     parsedBody = JSON.parse(rawBody);
   } catch (error) {
-    console.warn('[HELEKET] Failed to parse request body', error);
-    return respond(headers, 400, { error: 'Invalid JSON payload' });
+    console.warn('[HELEKET] Failed to parse request body');
+    return respond(headers, 400, { error: 'Invalid request' });
   }
 
   const queryAction = event.queryStringParameters?.action;
@@ -165,25 +178,7 @@ async function handleCreatePayment(event, data, headers) {
 
   const orderId = buildGatewayOrderId('HELEKT', user.userId);
 
-  const { error: insertError } = await supabaseAdmin
-    .from('payments')
-    .insert({
-      user_id: user.userId,
-      amount: amount,
-      method: 'heleket',
-      status: 'pending',
-      transaction_id: orderId,
-      details: {
-        gateway: 'heleket',
-        status: 'created'
-      }
-    });
-
-  if (insertError) {
-    console.error('[HELEKET] Failed to insert payment', insertError);
-    return respond(headers, 500, { error: 'Failed to create payment record' });
-  }
-
+  // Invoice payload - payment kaydı webhook'ta oluşturulacak
   const invoicePayload = {
     amount: formatAmount(amount),
     currency: 'USD',
@@ -192,17 +187,20 @@ async function handleCreatePayment(event, data, headers) {
     url_success: `${SITE_URL}/payment-success.html`,
     url_callback: `${SITE_URL}/.netlify/functions/heleket?action=webhook`,
     is_payment_multiple: false,
-    lifetime: 3600,
-    payer_email: data.email || user.email || null,
-    additional_data: JSON.stringify({ userId: user.userId }).slice(0, 255)
+    lifetime: 3600
   };
+  
+  // Add optional fields only if they exist
+  if (data.email || user.email) {
+    invoicePayload.payer_email = data.email || user.email;
+  }
+  if (user.userId) {
+    invoicePayload.additional_data = String(user.userId);
+  }
 
   let heleketResponse;
   try {
     const signature = generateHeleketSignature(invoicePayload);
-    console.log('[HELEKET] Payload:', JSON.stringify(invoicePayload));
-    console.log('[HELEKET] Generated signature:', signature);
-    console.log('[HELEKET] Merchant ID:', HELEKET_MERCHANT_ID);
     
     heleketResponse = await fetch(`${HELEKET_API_BASE}/v1/payment`, {
       method: 'POST',
@@ -214,35 +212,20 @@ async function handleCreatePayment(event, data, headers) {
       body: JSON.stringify(invoicePayload)
     });
   } catch (apiError) {
-    console.error('[HELEKET] API request failed', apiError);
-    await supabaseAdmin.from('payments').delete().eq('transaction_id', orderId);
+    console.error('[HELEKET] API request failed');
     return respond(headers, 502, { error: 'Unable to reach Heleket API' });
   }
 
   const apiResult = await heleketResponse.json().catch(() => null);
 
   if (!heleketResponse.ok || !apiResult || apiResult.state !== 0) {
-    console.error('[HELEKET] API error response', apiResult);
-    await supabaseAdmin.from('payments').delete().eq('transaction_id', orderId);
+    console.error('[HELEKET] API error:', apiResult?.state, apiResult?.message);
     return respond(headers, 502, {
-      error: apiResult?.message || 'Failed to create Heleket invoice'
+      error: 'Payment gateway error'
     });
   }
 
   const invoice = apiResult.result;
-
-  await supabaseAdmin
-    .from('payments')
-    .update({
-      details: {
-        gateway: 'heleket',
-        heleket_uuid: invoice.uuid,
-        heleket_status: invoice.status || invoice.payment_status,
-        payment_url: invoice.url,
-        last_invoice_sync: new Date().toISOString()
-      }
-    })
-    .eq('transaction_id', orderId);
 
   return respond(headers, 200, {
     success: true,
@@ -287,12 +270,65 @@ async function handleWebhook(body, headers) {
     .eq('transaction_id', orderId)
     .single();
 
+  const normalizedStatus = normalizeStatus(payload.status || payload.payment_status);
+
+  // Eğer payment kaydı yoksa ve ödeme başarılıysa, kayıt oluştur
+  if (!payment && HELEKET_SUCCESS_STATUSES.has(normalizedStatus)) {
+    // User ID'yi order_id'den veya payload'dan al
+    const userId = payload.additional_data || orderId.split('-')[1]; // HELEKT-userId-timestamp formatından
+    
+    if (!userId) {
+      console.error('[HELEKET] Cannot determine user_id from webhook');
+      return respond(headers, 400, { error: 'Invalid order data' });
+    }
+
+    // Payment kaydı oluştur (completed olarak)
+    const { data: newPayment, error: insertError } = await supabaseAdmin
+      .from('payments')
+      .insert({
+        user_id: userId,
+        amount: parseFloat(payload.payment_amount_usd || payload.payment_amount || 0),
+        method: 'heleket',
+        status: 'completed',
+        transaction_id: orderId,
+        details: {
+          gateway: 'heleket',
+          heleket_uuid: payload.uuid,
+          heleket_status: normalizedStatus,
+          payment_amount: payload.payment_amount,
+          payment_amount_usd: payload.payment_amount_usd,
+          first_webhook: new Date().toISOString(),
+          raw_webhook: body
+        }
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('[HELEKET] Failed to create payment record');
+      return respond(headers, 500, { error: 'Database error' });
+    }
+
+    // Bakiye ekle
+    await creditUserBalance(newPayment, {
+      uuid: payload.uuid,
+      status: normalizedStatus,
+      txid: payload.txid || null
+    });
+
+    return respond(headers, 200, { success: true });
+  }
+
   if (!payment) {
+    // Payment yok ve başarılı ödeme de değil → Sadece log
     console.warn('[HELEKET] Payment not found for webhook', orderId);
     return respond(headers, 404, { error: 'Payment not found' });
   }
 
-  const normalizedStatus = normalizeStatus(payload.status || payload.payment_status);
+  // Idempotency: Eğer ödeme zaten completed ise webhook'u işleme (duplicate protection)
+  if (payment.status === 'completed') {
+    return respond(headers, 200, { success: true });
+  }
   const detailPatch = {
     ...(payment.details || {}),
     gateway: 'heleket',

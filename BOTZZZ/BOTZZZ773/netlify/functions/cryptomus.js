@@ -13,6 +13,16 @@ const CRYPTOMUS_MERCHANT_ID = process.env.CRYPTOMUS_MERCHANT_ID;
 const CRYPTOMUS_API_KEY = process.env.CRYPTOMUS_API_KEY;
 const SITE_URL = process.env.SITE_URL;
 
+// SSRF protection: Only allow official Cryptomus API endpoint
+const ALLOWED_CRYPTOMUS_ENDPOINTS = ['https://api.cryptomus.com'];
+const CRYPTOMUS_API_BASE = (() => {
+  const envBase = process.env.CRYPTOMUS_API_BASE;
+  if (envBase && ALLOWED_CRYPTOMUS_ENDPOINTS.includes(envBase)) {
+    return envBase;
+  }
+  return 'https://api.cryptomus.com';
+})();
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -129,29 +139,7 @@ async function handleCreatePayment(event, data, headers) {
     // Create unique order ID
     const orderId = buildGatewayOrderId('CRYPTO', user.userId);
 
-    // Create payment record
-    const { data: payment, error } = await supabaseAdmin
-      .from('payments')
-      .insert({
-        user_id: user.userId,
-        amount: amount,
-        method: 'cryptomus',
-        status: 'pending',
-        transaction_id: orderId
-      })
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Create payment error:', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to create payment' })
-      };
-    }
-
-    // Create Cryptomus invoice
+    // Create Cryptomus invoice - payment kaydı webhook'ta oluşturulacak
     const invoiceData = {
       amount: amount.toString(),
       currency: 'USD',
@@ -164,14 +152,7 @@ async function handleCreatePayment(event, data, headers) {
 
     const sign = generateCryptomusSignature(invoiceData);
 
-    console.log('[CRYPTOMUS] Creating invoice:', {
-      orderId,
-      amount,
-      merchantIdLength: CRYPTOMUS_MERCHANT_ID.length,
-      signatureLength: sign.length
-    });
-
-    const cryptomusResponse = await fetch('https://api.cryptomus.com/v1/payment', {
+    const cryptomusResponse = await fetch(`${CRYPTOMUS_API_BASE}/v1/payment`, {
       method: 'POST',
       headers: {
         'merchant': CRYPTOMUS_MERCHANT_ID,
@@ -183,40 +164,15 @@ async function handleCreatePayment(event, data, headers) {
 
     const cryptomusData = await cryptomusResponse.json();
 
-    console.log('[CRYPTOMUS] API response:', {
-      status: cryptomusResponse.status,
-      state: cryptomusData.state,
-      message: cryptomusData.message
-    });
-
     if (!cryptomusResponse.ok || cryptomusData.state !== 0) {
-      console.error('Cryptomus API error:', cryptomusData);
-
-      // Delete the pending payment record
-      await supabaseAdmin
-        .from('payments')
-        .delete()
-        .eq('transaction_id', orderId);
-
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
-          error: cryptomusData.message || 'Failed to create Cryptomus invoice'
+          error: 'Payment gateway error'
         })
       };
     }
-
-    // Update payment with Cryptomus UUID
-    await supabaseAdmin
-      .from('payments')
-      .update({
-        details: {
-          cryptomus_uuid: cryptomusData.result.uuid,
-          payment_url: cryptomusData.result.url
-        }
-      })
-      .eq('transaction_id', orderId);
 
     return {
       statusCode: 200,
@@ -272,12 +228,104 @@ async function handleWebhook(event, headers) {
       .eq('transaction_id', order_id)
       .single();
 
+    const normalizedStatus = normalizeCryptoStatus(status);
+
+    // Eğer payment kaydı yoksa ve ödeme başarılıysa, kayıt oluştur
+    if (!payment && (normalizedStatus === 'paid' || normalizedStatus === 'paid_over')) {
+      // User ID'yi order_id'den al: CRYPTO-userId-timestamp formatı
+      const userId = order_id.split('-')[1];
+      
+      if (!userId) {
+        console.error('[CRYPTOMUS] Cannot determine user_id from webhook');
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Invalid order data' })
+        };
+      }
+
+      // Payment kaydı oluştur (completed olarak)
+      const { data: newPayment, error: insertError } = await supabaseAdmin
+        .from('payments')
+        .insert({
+          user_id: userId,
+          amount: parseFloat(payment_amount_usd || payment_amount || 0),
+          method: 'cryptomus',
+          status: 'completed',
+          transaction_id: order_id,
+          details: {
+            cryptomus_uuid: uuid,
+            status: status,
+            payment_amount: payment_amount,
+            payment_amount_usd: payment_amount_usd,
+            first_webhook: new Date().toISOString()
+          }
+        })
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('[CRYPTOMUS] Failed to create payment record');
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ error: 'Database error' })
+        };
+      }
+
+      // Bakiye ekle
+      const { data: userData } = await supabaseAdmin
+        .from('users')
+        .select('balance')
+        .eq('id', newPayment.user_id)
+        .single();
+
+      if (userData) {
+        const balanceNum = parseFloat(userData.balance) + parseFloat(newPayment.amount);
+        const newBalance = Number(balanceNum.toFixed(5));
+
+        await supabaseAdmin
+          .from('users')
+          .update({ balance: newBalance })
+          .eq('id', newPayment.user_id);
+
+        await supabaseAdmin
+          .from('activity_logs')
+          .insert({
+            user_id: newPayment.user_id,
+            action: 'payment_completed',
+            details: {
+              amount: newPayment.amount,
+              method: 'cryptomus',
+              transaction_id: order_id,
+              uuid: uuid,
+              status: status
+            }
+          });
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true })
+      };
+    }
+
     if (!payment) {
       console.error('Payment not found:', order_id);
       return {
         statusCode: 404,
         headers,
         body: JSON.stringify({ error: 'Payment not found' })
+      };
+    }
+
+    // Idempotency: Eğer ödeme zaten completed ise webhook'u işleme (duplicate protection)
+    if (payment.status === 'completed') {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true })
       };
     }
 
@@ -296,10 +344,7 @@ async function handleWebhook(event, headers) {
       })
       .eq('transaction_id', order_id);
 
-    // Check if payment is confirmed/paid
-    const normalizedStatus = normalizeCryptoStatus(status);
-
-    if ((normalizedStatus === 'paid' || normalizedStatus === 'paid_over') && payment.status === 'pending') {
+    if (normalizedStatus === 'paid' || normalizedStatus === 'paid_over') {
       // Update payment status to completed
       await supabaseAdmin
         .from('payments')

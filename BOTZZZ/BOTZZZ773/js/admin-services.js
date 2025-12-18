@@ -364,11 +364,9 @@ async function parseApiResponse(response) {
 function buildProviderOptions(providers, includePlaceholder = true) {
     const placeholder = includePlaceholder ? '<option value="">Select provider</option>' : '';
     const options = (providers || []).map(provider => {
-                const statusLabel = provider.status ? ` (${provider.status})` : '';
-                if (provider.child_category) {
-                    options.setAttribute('data-child-category', String(provider.child_category));
-                }
-        return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}</option>`;
+            const statusLabel = provider.status ? ` (${provider.status})` : '';
+            const healthWarning = provider.health_status === 'degraded' ? ' ⚠️ Unhealthy' : '';
+            return `<option value="${provider.id}">${escapeHtml(provider.name)}${statusLabel}${healthWarning}</option>`;
     }).join('');
     return placeholder + (options || (includePlaceholder ? '' : '<option value="" disabled>No providers available</option>'));
 }

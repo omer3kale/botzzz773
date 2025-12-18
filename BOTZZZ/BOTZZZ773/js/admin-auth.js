@@ -29,7 +29,7 @@
 
     const guardConfig = Object.freeze({
         matchPattern: '/.netlify/functions/',
-        timeoutMs: 10000,
+        timeoutMs: 30000,
         maxRetries: 2,
         baseRetryDelayMs: 400,
         maxRetryDelayMs: 4000,

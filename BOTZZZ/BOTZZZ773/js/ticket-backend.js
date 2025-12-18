@@ -49,7 +49,7 @@ function renderTickets(filter = 'all') {
         <div class="ticket-item ${selectedTicketId === ticket.id ? 'active' : ''}" 
              onclick="selectTicket('${ticket.id}')">
             <div class="ticket-header">
-                <h4>${ticket.subject}</h4>
+                <h4>#${ticket.short_id || ticket.id} • ${ticket.subject}</h4>
                 <span class="status-badge ${ticket.status}">${ticket.status}</span>
             </div>
             <p class="ticket-category">${ticket.category}</p>
@@ -93,7 +93,7 @@ function renderTicketDetails(ticket) {
     ticketDetails.innerHTML = `
         <div class="ticket-detail-header">
             <div>
-                <h3>${ticket.subject}</h3>
+                <h3>#${ticket.short_id || ticket.id} • ${ticket.subject}</h3>
                 <p>Category: ${ticket.category} | Priority: ${ticket.priority}</p>
             </div>
             <span class="status-badge ${ticket.status}">${ticket.status}</span>
@@ -219,6 +219,7 @@ async function handleCreateTicket(e) {
     const category = document.getElementById('ticketCategory')?.value;
     const priority = document.querySelector('#ticketPriority')?.value || 'medium';
     const message = document.getElementById('ticketMessage')?.value.trim();
+    const orderId = document.getElementById('ticketOrderId')?.value.trim();
 
     if (!subject || !category || !message) {
         showTicketMessage('Please fill in all fields', 'error');
@@ -231,7 +232,7 @@ async function handleCreateTicket(e) {
     submitBtn.textContent = 'Creating...';
 
     try {
-        const data = await api.createTicket(subject, category, priority, message);
+        const data = await api.createTicket(subject, category, priority, message, orderId);
         
         if (data.success && data.ticket) {
             showTicketMessage('Ticket created successfully', 'success');

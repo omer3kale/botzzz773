@@ -109,7 +109,7 @@
             <a href="tickets.html" class="admin-nav-item active">
                 <i class="fas fa-ticket-alt"></i>
                 <span>Tickets</span>
-                <span class="nav-badge">10</span>
+                <span class="nav-badge" id="adminSidebarTicketBadge" style="display:none"></span>
             </a>
             <a href="reports.html" class="admin-nav-item">
                 <i class="fas fa-chart-bar"></i>
@@ -127,6 +127,23 @@
         <div class="admin-page-header">
             <h1>Support Tickets</h1>
             <div class="page-actions">
+                <!-- Bulk Actions Dropdown -->
+                <div class="bulk-actions-container" id="bulkActionsContainer" style="position: relative; display: none;">
+                    <button class="btn-secondary" id="bulkActionsBtn" onclick="toggleBulkActionsMenu()">
+                        <i class="fas fa-cogs"></i> Actions
+                    </button>
+                    <div class="bulk-actions-menu" id="bulkActionsMenu" style="display: none; position: absolute; top: 100%; right: 140px; background: #1f2937; border: 1px solid #374151; border-radius: 4px; z-index: 1000; min-width: 150px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                        <button type="button" class="bulk-action-item" onclick="openBulkReplyModal()" style="display: block; width: 100%; padding: 12px 16px; text-align: left; background: none; border: none; color: #e5e7eb; cursor: pointer; font-size: 13px; border-bottom: 1px solid #374151;">
+                            <i class="fas fa-reply"></i> Reply All
+                        </button>
+                        <button type="button" class="bulk-action-item" onclick="closeBulkTickets()" style="display: block; width: 100%; padding: 12px 16px; text-align: left; background: none; border: none; color: #e5e7eb; cursor: pointer; font-size: 13px; border-bottom: 1px solid #374151;">
+                            <i class="fas fa-times-circle"></i> Close All
+                        </button>
+                        <button type="button" class="bulk-action-item" onclick="deleteBulkTickets()" style="display: block; width: 100%; padding: 12px 16px; text-align: left; background: none; border: none; color: #ef4444; cursor: pointer; font-size: 13px;">
+                            <i class="fas fa-trash"></i> Delete All
+                        </button>
+                    </div>
+                </div>
                 <button class="btn-secondary" onclick="triggerTicketsRefresh()">
                     <i class="fas fa-sync-alt"></i> Refresh
                 </button>

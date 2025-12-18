@@ -27,7 +27,7 @@ exports.handler = async (event = {}) => {
   try {
     let providerQuery = supabaseAdmin
       .from('providers')
-      .select('id, name, status, api_url, api_key, health_status, services_count, markup')
+      .select('id, name, status, api_url, api_key, health_status, services_count, markup, currency')
       .eq('status', 'active');
 
     if (targetProviderId) {

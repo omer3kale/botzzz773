@@ -227,6 +227,11 @@ async function syncProviderServices(provider, options = {}) {
   const pricingEngine = options.pricingEngine || await getPricingEngine();
   const { services, latencyMs } = await fetchProviderServices(provider);
 
+  // Provider'ın currency ayarını al (çoğu provider TRY kullanıyor)
+  const providerCurrency = provider.currency || 'USD';
+  console.log(`[SERVICE SYNC] Provider ${provider.name} (ID: ${provider.id}) currency: ${providerCurrency} (from provider.currency: ${provider.currency})`);
+  console.log(`[SERVICE SYNC] Starting sync of ${services.length} services from provider...`);
+
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
     .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name, category, description, min_quantity, max_quantity')
@@ -276,7 +281,8 @@ async function syncProviderServices(provider, options = {}) {
       );
 
       // Force USD if currency is missing or invalid - CRITICAL FIX
-      const currencyRaw = payload.currency ?? payload.price_currency ?? payload.rate_currency ?? payload.cur ?? 'USD';
+      // Priority: payload currency > provider currency > USD fallback
+      const currencyRaw = payload.currency ?? payload.price_currency ?? payload.rate_currency ?? payload.cur ?? providerCurrency;
       const currency = normalizeCurrency(currencyRaw, 'USD');
 
       // AUTO-CONVERT provider cost if not USD
@@ -336,6 +342,43 @@ async function syncProviderServices(provider, options = {}) {
 
       const existing = existingMap.get(serviceKey);
       
+      // PRICE CHANGE DETECTION:
+      // Compare in ORIGINAL currency if available, otherwise USD
+      // This prevents false "price changed" logs due to exchange rate fluctuations
+      let prevOriginalAmount = null;
+      let newOriginalAmount = rate; // Default to raw rate
+      let originalCurrency = currency;
+      let providerPriceChanged = false;
+      
+      if (existing) {
+        // Extract previous currency conversion info from metadata
+        const prevMetadata = existing.provider_metadata || {};
+        const prevConversion = prevMetadata._currency_conversion;
+        
+        if (prevConversion && prevConversion.originalAmount !== undefined) {
+          // Previous had conversion - compare original amounts
+          prevOriginalAmount = prevConversion.originalAmount;
+          originalCurrency = prevConversion.originalCurrency || currency;
+        } else {
+          // No previous conversion - use USD rate
+          prevOriginalAmount = toRate(existing.provider_rate);
+          originalCurrency = 'USD';
+        }
+        
+        if (currencyConversion) {
+          // Current has conversion - use original amount
+          newOriginalAmount = currencyConversion.originalAmount;
+          originalCurrency = currencyConversion.originalCurrency;
+        }
+        
+        // Detect actual provider price change (in original currency, ignore exchange rate changes)
+        providerPriceChanged = prevOriginalAmount !== newOriginalAmount;
+        
+        if (providerPriceChanged) {
+          console.log(`[PRICE CHANGE] Service ${serviceKey}: ${originalCurrency} ${prevOriginalAmount} → ${newOriginalAmount}`);
+        }
+      }
+      
       // Get existing markup - if set, always use it for calculating retail rate
       const existingMarkup = existing ? toPercent(existing.markup_percentage) : null;
 
@@ -384,8 +427,9 @@ async function syncProviderServices(provider, options = {}) {
         }
 
         // Preserve admin-customized service description
-        const existingDescription = existing.description ? String(existing.description).trim() : '';
-        if (existingDescription) {
+        // ALWAYS preserve existing description, even if admin left it blank
+        // Never override with provider description during sync
+        if (existing.description !== null && existing.description !== undefined) {
           basePayload.description = existing.description;
         }
 
@@ -406,10 +450,9 @@ async function syncProviderServices(provider, options = {}) {
         let newRetailRate = toRate(basePayload.rate);
         
         // Smart Markup Strategy: Handle provider rate changes INDEPENDENTLY of priority system
-        // If admin or engine has set a markup%, apply it based on direction of provider rate change
-        const providerRateChanged = prevProviderRate !== null && newProviderRate !== null && prevProviderRate !== newProviderRate;
+        // Use original currency comparison (providerPriceChanged) to avoid false positives from exchange rate fluctuations
         
-        if (providerRateChanged && markupUsed !== null && markupUsed > 0) {
+        if (providerPriceChanged && markupUsed !== null && markupUsed > 0) {
           const rateIncreased = newProviderRate > prevProviderRate;
           
           if (rateIncreased) {
@@ -453,7 +496,9 @@ async function syncProviderServices(provider, options = {}) {
           prevRetailRate,
           newProviderRate,
           newRetailRate: toRate(basePayload.rate),
-          currencyConversion
+          currencyConversion,
+          providerPriceChanged,  // Original currency comparison
+          originalCurrency
         };
       } else {
         // Do NOT auto-insert missing services; we only update existing mapped services
@@ -490,7 +535,7 @@ async function syncProviderServices(provider, options = {}) {
     }
 
     const { item, updateError } = result.value;
-    const { serviceKey, existing, basePayload, prevProviderRate, prevRetailRate, newProviderRate, newRetailRate, currencyConversion } = item;
+    const { serviceKey, existing, basePayload, prevProviderRate, prevRetailRate, newProviderRate, newRetailRate, currencyConversion, providerPriceChanged } = item;
 
     if (updateError) {
       console.error('[SERVICE SYNC] Failed to update service', existing.id, updateError);
@@ -507,17 +552,18 @@ async function syncProviderServices(provider, options = {}) {
     } else {
       updated += 1;
 
-      // If price changed, log it
-      const providerChanged = prevProviderRate !== newProviderRate;
+      // Log price changes - use original currency comparison to avoid false positives from exchange rates
+      // Only log when ACTUAL provider price changed (not just exchange rate fluctuation)
       const retailChanged = prevRetailRate !== newRetailRate;
-      if ((providerChanged || retailChanged) && newProviderRate !== null && newRetailRate !== null) {
+      
+      if ((providerPriceChanged || retailChanged) && newProviderRate !== null && newRetailRate !== null) {
         // Determine which strategy was applied
         let strategyApplied = 'no_change';
-        if (providerChanged && basePayload.markup_percentage !== null) {
+        if (providerPriceChanged && basePayload.markup_percentage !== null) {
           strategyApplied = newProviderRate > prevProviderRate ? 'provider_increase_markup_fixed' : 'provider_decrease_retail_fixed';
-        } else if (!providerChanged && retailChanged) {
+        } else if (!providerPriceChanged && retailChanged) {
           strategyApplied = 'retail_manual_adjustment';
-        } else if (providerChanged && !retailChanged) {
+        } else if (providerPriceChanged && !retailChanged) {
           strategyApplied = 'provider_change_no_retail_adjustment';
         }
         

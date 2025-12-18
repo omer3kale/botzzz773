@@ -31,10 +31,24 @@ class APIClient {
 
         try {
             const response = await fetch(`${this.baseURL}${endpoint}`, config);
-            const data = await response.json();
+            
+            let data;
+            const contentType = response.headers.get('Content-Type') || '';
+            
+            try {
+                if (contentType.includes('application/json')) {
+                    data = await response.json();
+                } else {
+                    const text = await response.text();
+                    data = text.trim().startsWith('{') ? JSON.parse(text) : { error: text || 'Unknown error', success: false };
+                }
+            } catch (parseErr) {
+                const text = await response.text().catch(() => '');
+                data = { error: text || 'Response parse error', success: false };
+            }
 
             if (!response.ok) {
-                throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                throw new Error(data.error || data.message || `HTTP error! status: ${response.status}`);
             }
 
             return data;
@@ -218,10 +232,10 @@ class APIClient {
         });
     }
 
-    async createTicket(subject, category, priority, message) {
+    async createTicket(subject, category, priority, message, orderId) {
         return this.request('/.netlify/functions/tickets', {
             method: 'POST',
-            body: JSON.stringify({ subject, category, priority, message })
+            body: JSON.stringify({ subject, category, priority, message, orderId })
         });
     }
 

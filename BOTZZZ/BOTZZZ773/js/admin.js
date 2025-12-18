@@ -832,3 +832,41 @@ async function adminFetch(url, options = {}) {
     
     return response;
 }
+
+// ===== Admin Tickets Sidebar Badge =====
+function updateAdminTicketBadge(badgeId, count) {
+    const badge = document.getElementById(badgeId);
+    if (!badge) return;
+    if (count > 0) {
+        badge.textContent = count > 99 ? '99+' : String(count);
+        badge.style.display = 'inline-flex';
+        badge.style.alignItems = 'center';
+        badge.style.justifyContent = 'center';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+async function refreshAdminTicketsBadge() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const url = new URL('/.netlify/functions/tickets', window.location.origin);
+        url.searchParams.append('action', 'getUnreadCount');
+        const res = await fetch(url.toString(), {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+            const data = await res.json();
+            const count = Number(data.unreadCount || 0);
+            updateAdminTicketBadge('adminSidebarTicketBadge', count);
+        }
+    } catch (e) {
+        // Silent failure, keep badge hidden
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Initial badge refresh on any admin page load
+    refreshAdminTicketsBadge();
+});

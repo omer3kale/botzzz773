@@ -184,7 +184,10 @@ async function handleSignup({ email, password, username, firstName, lastName }, 
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to create user' })
+        body: JSON.stringify({ 
+          error: 'Failed to create user',
+          details: error.message || error.hint || 'Unknown database error'
+        })
       };
     }
 

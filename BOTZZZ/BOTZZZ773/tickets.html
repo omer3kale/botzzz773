@@ -192,7 +192,7 @@
 
                         <div class="form-group" id="orderIdGroup" style="display: none;">
                             <label for="ticketOrderId">Order ID (Optional)</label>
-                            <input type="text" id="ticketOrderId" placeholder="e.g., 12345">
+                            <input type="text" id="ticketOrderId" placeholder="e.g., 37002343" title="Enter the numeric order ID from your order confirmation">
                         </div>
 
                         <div class="modal-footer">
@@ -271,12 +271,29 @@
                                 renderTickets();
                             });
                         }
+                        // Update notification badges
+                        if (window.checkUnreadTickets) {
+                            window.checkUnreadTickets();
+                        }
                     });
                     console.log('[BOTZZZ773] Tickets page real-time connected');
                 }).catch(function(err) {
                     console.warn('[BOTZZZ773] Tickets page real-time error:', err);
                 });
             }
+            
+            // Initial check for unread tickets
+            if (window.checkUnreadTickets) {
+                window.checkUnreadTickets();
+            }
+            
+            // Fallback: Check unread tickets after 500ms
+            setTimeout(() => {
+                if (window.checkUnreadTickets) {
+                    window.checkUnreadTickets();
+                    console.log('[TICKETS] Fallback unread check triggered');
+                }
+            }, 500);
         });
     </script>
 </body>

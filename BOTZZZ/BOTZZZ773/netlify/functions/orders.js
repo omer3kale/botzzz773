@@ -807,7 +807,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       .select(`
         *,
         user:users(id, email, username),
-  service:services(id, name, category, rate, provider_service_id, provider_id, refill_button_enabled, provider:providers(id, name))
+        service:services(id, public_id, name, category, rate, provider_service_id, provider_id, refill_button_enabled, provider:providers(id, name))
       `)
       .order('created_at', { ascending: false });
     
@@ -1018,6 +1018,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         const userEmail = String(order.user?.email || '').toLowerCase();
         const userName = String(order.user?.username || '').toLowerCase();
         const serviceName = String(order.service?.name || '').toLowerCase();
+        const servicePublicId = String(order.service?.public_id || '').toLowerCase();
         const serviceCategory = String(order.service?.category || '').toLowerCase();
         const providerName = String(order.service?.provider?.name || '').toLowerCase();
         const providerOrderId = String(order.provider_order_id || '').toLowerCase();
@@ -1030,6 +1031,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
                userEmail.includes(searchQuery) ||
                userName.includes(searchQuery) ||
                serviceName.includes(searchQuery) ||
+               servicePublicId.includes(searchQuery) ||
                serviceCategory.includes(searchQuery) ||
                providerName.includes(searchQuery) ||
                providerOrderId.includes(searchQuery) ||
@@ -1597,15 +1599,36 @@ async function handleCreateOrder(user, data, headers) {
         ?? providerResponse.response?.details;
       const nowIso = new Date().toISOString();
 
+      // Derive provider status from response so we don't overwrite a canceled/completed order
+      const rawProviderStatus = providerResponse.response?.status
+        ?? providerResponse.response?.order_status
+        ?? providerResponse.response?.provider_status
+        ?? providerResponse.response?.state;
+      const normalizedProviderStatus = normalizeProviderStatus(rawProviderStatus);
+
       const providerUpdatePayload = {
         provider_order_id: providerOrderId,
         status: 'processing',
-        customer_status: 'processing', // Customer sees processing
+        customer_status: 'processing', // Default
         provider_status: 'processing',
         last_status_sync: nowIso,
         provider_response: providerResponse.response,
         provider_currency: normalizeCurrency(providerCurrencyFromResponse)
       };
+
+      if (normalizedProviderStatus === 'canceled') {
+        providerUpdatePayload.status = 'canceled';
+        providerUpdatePayload.customer_status = 'canceled';
+        providerUpdatePayload.provider_status = 'canceled';
+      } else if (normalizedProviderStatus === 'completed') {
+        providerUpdatePayload.status = 'completed';
+        providerUpdatePayload.customer_status = 'completed';
+        providerUpdatePayload.provider_status = 'completed';
+      } else if (normalizedProviderStatus === 'partial') {
+        providerUpdatePayload.status = 'partial';
+        providerUpdatePayload.customer_status = 'partial';
+        providerUpdatePayload.provider_status = 'partial';
+      }
 
       if (providerChargeFromResponse !== null) {
         providerUpdatePayload.provider_cost = providerChargeFromResponse;
@@ -1640,8 +1663,8 @@ async function handleCreateOrder(user, data, headers) {
       }
 
       order.provider_order_id = providerOrderId;
-      order.status = 'processing';
-      order.provider_status = 'processing';
+      order.status = providerUpdatePayload.status;
+      order.provider_status = providerUpdatePayload.provider_status;
       order.last_status_sync = nowIso;
       if (providerChargeFromResponse !== null) {
         order.provider_cost = providerChargeFromResponse;
@@ -1668,6 +1691,65 @@ async function handleCreateOrder(user, data, headers) {
       // ============= SILENT FAILURE: SAVE ERROR BUT SHOW SUCCESS TO CUSTOMER =============
       console.log(`[ORDER] Implementing silent failure for order ${order.id}`);
       
+      // TRY SALVAGE: if provider may have created order, attempt one status check to avoid duplicate submits
+      try {
+        // Try to resolve order id from error payload
+        const salvagedOrderId = resolveProviderOrderIdFromResponse(providerError.response?.data)
+          || resolveProviderOrderIdFromResponse(providerError.response)
+          || resolveProviderOrderIdFromResponse(unwrapProviderPayload(providerError.response?.data || providerError.response || {}));
+
+        if (salvagedOrderId) {
+          console.log(`[ORDER] Salvage attempt via status check for provider order ${salvagedOrderId}`);
+          const statusPayload = await fetchProviderOrderStatus(service.provider, salvagedOrderId);
+          const normalizedStatus = normalizeProviderStatus(statusPayload?.status || statusPayload?.order_status || statusPayload?.provider_status);
+
+          // If provider accepted the order, treat this as success and skip error logging
+          const statusIso = new Date().toISOString();
+          const updatePayload = {
+            provider_order_id: salvagedOrderId,
+            provider_response: statusPayload,
+            last_status_sync: statusIso,
+            provider_status: normalizedStatus || 'processing',
+            status: 'processing',
+            customer_status: 'processing'
+          };
+
+          if (normalizedStatus === 'canceled') {
+            updatePayload.status = 'canceled';
+            updatePayload.customer_status = 'canceled';
+          } else if (normalizedStatus === 'completed') {
+            updatePayload.status = 'completed';
+            updatePayload.customer_status = 'completed';
+          } else if (normalizedStatus === 'partial') {
+            updatePayload.status = 'partial';
+            updatePayload.customer_status = 'partial';
+          }
+
+          await supabaseAdmin.from('orders').update(updatePayload).eq('id', order.id);
+
+          order.provider_order_id = salvagedOrderId;
+          order.status = updatePayload.status;
+          order.customer_status = updatePayload.customer_status;
+          order.provider_status = updatePayload.provider_status;
+          order.provider_response = statusPayload;
+          order.last_status_sync = statusIso;
+
+          console.log('[ORDER] Salvage successful via status check; skipping failure log');
+          return {
+            statusCode: 201,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              orderId: order.id,
+              providerOrderId: salvagedOrderId,
+              status: updatePayload.status
+            })
+          };
+        }
+      } catch (salvageError) {
+        console.warn('[ORDER] Salvage via status check failed or not applicable:', salvageError?.message || salvageError);
+      }
+
       // Extract error message from provider response (comprehensive extraction)
       let providerErrorMessage = 'Provider request failed';
       try {
@@ -2934,6 +3016,79 @@ async function handleSyncOrderStatuses(user, data, headers) {
   }
 }
 
+// ============= PROVIDER HEALTH TRACKING =============
+async function degradeProviderHealth(providerId) {
+  try {
+    // Get current provider state
+    const { data: provider, error: fetchError } = await supabaseAdmin
+      .from('providers')
+      .select('health_status, consecutive_failures, consecutive_successes')
+      .eq('id', providerId)
+      .single();
+
+    if (fetchError || !provider) {
+      console.warn('[HEALTH] Failed to fetch provider for health check:', fetchError);
+      return;
+    }
+
+    const failures = (provider.consecutive_failures || 0) + 1;
+    const updates = {
+      consecutive_failures: failures,
+      consecutive_successes: 0,
+      last_health_check: new Date().toISOString()
+    };
+
+    // Degrade to 'degraded' after 5 consecutive failures
+    if (failures >= 5 && provider.health_status !== 'degraded') {
+      updates.health_status = 'degraded';
+      console.warn(`[HEALTH] Provider ${providerId} degraded after ${failures} failures`);
+    }
+
+    await supabaseAdmin
+      .from('providers')
+      .update(updates)
+      .eq('id', providerId);
+  } catch (error) {
+    console.error('[HEALTH] Failed to degrade provider health:', error);
+  }
+}
+
+async function restoreProviderHealth(providerId) {
+  try {
+    // Get current provider state
+    const { data: provider, error: fetchError } = await supabaseAdmin
+      .from('providers')
+      .select('health_status, consecutive_failures, consecutive_successes')
+      .eq('id', providerId)
+      .single();
+
+    if (fetchError || !provider) {
+      console.warn('[HEALTH] Failed to fetch provider for health restore:', fetchError);
+      return;
+    }
+
+    const successes = (provider.consecutive_successes || 0) + 1;
+    const updates = {
+      consecutive_successes: successes,
+      consecutive_failures: 0,
+      last_health_check: new Date().toISOString()
+    };
+
+    // Restore to 'active' after 2 consecutive successes (if currently degraded)
+    if (successes >= 2 && provider.health_status === 'degraded') {
+      updates.health_status = 'active';
+      console.log(`[HEALTH] Provider ${providerId} restored to active after ${successes} successes`);
+    }
+
+    await supabaseAdmin
+      .from('providers')
+      .update(updates)
+      .eq('id', providerId);
+  } catch (error) {
+    console.error('[HEALTH] Failed to restore provider health:', error);
+  }
+}
+
 async function fetchProviderOrderStatus(provider, providerOrderId) {
   if (!provider || !provider.api_url || !provider.api_key) {
     throw new Error('Provider credentials missing');
@@ -2966,14 +3121,22 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
     }
 
     // Prefer nested payloads if present (many providers wrap under `data` or `result`)
-    return unwrapProviderPayload(response.data);
+    const result = unwrapProviderPayload(response.data);
+    
+    // Success: restore provider health if degraded
+    if (provider?.id) {
+      try {
+        await restoreProviderHealth(provider.id);
+      } catch (healthError) {
+        console.error('[PROVIDER STATUS] Failed to restore provider health:', healthError);
+      }
+    }
+    
+    return result;
   } catch (error) {
     if (provider?.id) {
       try {
-        await supabaseAdmin
-          .from('providers')
-          .update({ health_status: 'degraded' })
-          .eq('id', provider.id);
+        await degradeProviderHealth(provider.id);
       } catch (providerHealthError) {
         console.error('[PROVIDER STATUS] Failed to update provider health:', providerHealthError);
       }
@@ -3068,12 +3231,29 @@ async function submitOrderToProvider(provider, orderData) {
 
     console.log(`[PROVIDER] Order successfully submitted: ${orderId}`);
     
+    // Success: restore provider health if degraded
+    if (provider?.id) {
+      try {
+        await restoreProviderHealth(provider.id);
+      } catch (healthError) {
+        console.error('[PROVIDER SUBMIT] Failed to restore provider health:', healthError);
+      }
+    }
+    
     return {
       order: orderId,
       response: response.data
     };
 
   } catch (error) {
+    // Failure: degrade provider health
+    if (provider?.id) {
+      try {
+        await degradeProviderHealth(provider.id);
+      } catch (healthError) {
+        console.error('[PROVIDER SUBMIT] Failed to degrade provider health:', healthError);
+      }
+    }
     // Enhanced error logging
     if (error.response) {
       console.error('[PROVIDER] HTTP error:', {
@@ -3652,12 +3832,13 @@ async function handleGetProviderErrors(user, body, headers) {
           link,
           quantity,
           charge,
+          provider_cost,
           status,
           provider_status,
           provider_order_id,
           created_at,
           user:users(id, email, username),
-          service:services(id, name, category, provider_id, provider:providers(id, name, api_url))
+          service:services(id, public_id, name, category, rate, provider_id, provider:providers(id, name, api_url, markup))
         ),
         provider:providers(id, name, api_url, status)
       `)
@@ -3940,6 +4121,144 @@ async function handleResendOrder(user, body, headers) {
         headers,
         body: JSON.stringify({ error: 'Provider API credentials not configured' })
       };
+    }
+
+    // If we already have a provider order id, check status instead of resending to avoid double charges
+    if (order.provider_order_id) {
+      logger.info('Existing provider order detected; performing status check before resend', {
+        orderId,
+        providerOrderId: order.provider_order_id
+      });
+
+      try {
+        const statusPayload = await fetchProviderOrderStatus(provider, order.provider_order_id);
+
+        const providerStatusRaw = statusPayload.status
+          ?? statusPayload.status_text
+          ?? statusPayload.state
+          ?? 'processing';
+        const normalizedStatus = normalizeProviderStatus(providerStatusRaw, statusPayload);
+
+        const providerChargeFromResponse = toNumberOrNull(
+          statusPayload.charge ?? statusPayload.price ?? statusPayload.cost
+        );
+        const startCountFromResponse = toNumberOrNull(
+          statusPayload.start_count ?? statusPayload.startCount ?? statusPayload.start
+        );
+        const remainsFromResponse = toNumberOrNull(
+          statusPayload.remains ?? statusPayload.remain ?? statusPayload.left
+        );
+        const providerCurrencyFromResponse = statusPayload.currency
+          ?? statusPayload.cur
+          ?? statusPayload.price_currency;
+        const providerNotesFromResponse = statusPayload.note
+          ?? statusPayload.description
+          ?? statusPayload.message;
+
+        const updatePayload = {
+          last_status_sync: new Date().toISOString(),
+          provider_status: providerStatusRaw,
+          provider_response: statusPayload
+        };
+
+        if (normalizedStatus) {
+          updatePayload.status = normalizedStatus;
+          updatePayload.customer_status =
+            normalizedStatus === 'processing' ? 'pending' : normalizedStatus;
+        }
+
+        if (providerChargeFromResponse !== null) {
+          updatePayload.provider_cost = providerChargeFromResponse;
+        }
+
+        if (startCountFromResponse !== null) {
+          updatePayload.start_count = startCountFromResponse;
+        }
+
+        if (remainsFromResponse !== null) {
+          updatePayload.remains = remainsFromResponse;
+        }
+
+        if (providerCurrencyFromResponse) {
+          updatePayload.provider_currency = providerCurrencyFromResponse;
+        }
+
+        if (providerNotesFromResponse) {
+          updatePayload.provider_notes = providerNotesFromResponse;
+        }
+
+        const { data: syncedOrder, error: syncError } = await supabaseAdmin
+          .from('orders')
+          .update(updatePayload)
+          .eq('id', orderId)
+          .select()
+          .single();
+
+        if (syncError) {
+          logger.error('Failed to persist provider status during resend guard', {
+            orderId,
+            error: syncError
+          });
+          return {
+            statusCode: 502,
+            headers,
+            body: JSON.stringify({
+              error: 'Existing provider order detected; failed to sync status. Not resending to avoid duplicate charge.',
+              details: syncError.message
+            })
+          };
+        }
+
+        order.status = syncedOrder.status;
+        order.customer_status = syncedOrder.customer_status;
+        order.provider_status = syncedOrder.provider_status;
+        order.provider_response = syncedOrder.provider_response;
+
+        if (!normalizedStatus) {
+          return {
+            statusCode: 502,
+            headers,
+            body: JSON.stringify({
+              error: 'Existing provider order found but status was ambiguous. Not resending to avoid duplicate charge.',
+              providerStatus: providerStatusRaw
+            })
+          };
+        }
+
+        // If provider considers the order anything but failed, stop here to avoid a duplicate submit
+        if (normalizedStatus !== 'failed') {
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              message: 'Existing provider order found; status synced instead of resending to prevent duplicate charge.',
+              order: syncedOrder
+            })
+          };
+        }
+
+        logger.warn('Provider reported failed status; allowing resend after sync', {
+          orderId,
+          providerOrderId: order.provider_order_id,
+          providerStatus: providerStatusRaw,
+          normalizedStatus
+        });
+      } catch (statusError) {
+        logger.warn('Status check failed for existing provider order; blocking resend to avoid duplicate charge', {
+          orderId,
+          providerOrderId: order.provider_order_id,
+          error: statusError.message
+        });
+        return {
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({
+            error: 'Existing provider order detected but status check failed. Not resending to avoid duplicate charge.',
+            details: statusError.message
+          })
+        };
+      }
     }
 
     // Submit to provider with retry logic

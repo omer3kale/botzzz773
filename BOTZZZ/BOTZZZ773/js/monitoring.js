@@ -158,13 +158,32 @@
       this._errorBridgeInstalled = true;
 
       windowObject.addEventListener('error', event => {
-        if (event.error) {
-          console.warn(LOG_PREFIX, 'Window error captured', event.error);
+        if (event) {
+          try {
+            const details = {
+              message: event.message || (event.error && event.error.message) || String(event.error || 'Unknown error'),
+              filename: event.filename || (event.error && event.error.fileName) || null,
+              lineno: event.lineno || (event.error && event.error.lineNumber) || null,
+              colno: event.colno || (event.error && event.error.columnNumber) || null,
+              stack: event.error && event.error.stack ? String(event.error.stack) : null
+            };
+            console.warn(LOG_PREFIX, 'Window error captured', details);
+          } catch (e) {
+            console.warn(LOG_PREFIX, 'Window error captured', event.error || event);
+          }
         }
       });
 
       windowObject.addEventListener('unhandledrejection', event => {
-        console.warn(LOG_PREFIX, 'Unhandled rejection', event.reason);
+        try {
+          const reason = event && event.reason ? event.reason : 'Unknown reason';
+          const info = typeof reason === 'object' && reason
+            ? { message: reason.message || String(reason), stack: reason.stack || null }
+            : { message: String(reason), stack: null };
+          console.warn(LOG_PREFIX, 'Unhandled rejection', info);
+        } catch (e) {
+          console.warn(LOG_PREFIX, 'Unhandled rejection', event && event.reason ? event.reason : event);
+        }
       });
     },
 

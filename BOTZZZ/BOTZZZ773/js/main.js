@@ -1874,22 +1874,53 @@ function updateAuthNavigation() {
         try {
             const userData = JSON.parse(user);
             authNavItem.innerHTML = `
-                <a href="dashboard.html" class="nav-link" style="color: var(--primary-pink);">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 4px;">
-                        <rect x="3" y="3" width="7" height="7"/>
-                        <rect x="14" y="3" width="7" height="7"/>
-                        <rect x="14" y="14" width="7" height="7"/>
-                        <rect x="3" y="14" width="7" height="7"/>
-                    </svg>
-                    ${userData.username || 'Dashboard'}
-                </a>
-                <a href="#" class="nav-link" data-logout-link style="color: var(--text-gray); margin-left: 10px;">Logout</a>
+                <div class="user-menu-dropdown">
+                    <button class="user-menu-btn" style="color: var(--primary-pink); background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                        ${userData.username || 'Menu'}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                    <div class="user-menu-dropdown-content" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
+                        <a href="dashboard.html" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Dashboard</a>
+                        <a href="addfunds.html" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Add Funds</a>
+                        <a href="/tickets" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Tickets</a>
+                        <a href="#" class="dropdown-item logout-link" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; font-size: 14px;">Logout</a>
+                    </div>
+                </div>
             `;
             
+            // Setup dropdown toggle
+            const userMenuBtn = authNavItem.querySelector('.user-menu-btn');
+            const dropdownContent = authNavItem.querySelector('.user-menu-dropdown-content');
+            
+            if (userMenuBtn && dropdownContent) {
+                userMenuBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    dropdownContent.style.display = dropdownContent.style.display === 'none' ? 'block' : 'none';
+                });
+                
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (!authNavItem.contains(e.target)) {
+                        dropdownContent.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Check for unread ticket notifications
+            checkUnreadTickets();
+            
             // Add logout handler
-            const logoutNavLink = authNavItem.querySelector('[data-logout-link]');
-            if (logoutNavLink) {
-                logoutNavLink.addEventListener('click', (e) => {
+            const logoutLink = authNavItem.querySelector('.logout-link');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', (e) => {
                     e.preventDefault();
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
@@ -1906,6 +1937,57 @@ function updateAuthNavigation() {
         // User is not logged in
         authNavItem.innerHTML = '<a href="signin.html" class="nav-link btn-primary" data-auth-popup="signin">Sign In</a>';
         registerAuthPopupLinks();
+    }
+}
+
+// Check for unread ticket notifications
+async function checkUnreadTickets() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+        const url = new URL('/.netlify/functions/tickets', window.location.origin);
+        url.searchParams.append('action', 'getUnreadCount');
+        
+        const response = await fetch(url.toString(), {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const count = data.unreadCount || 0;
+            console.log('[BOTZZZ773] Unread tickets count:', count);
+            
+            // Update sidebar badge only
+            updateTicketBadge('sidebarTicketBadge', count);
+        } else {
+            console.error('Failed to get unread count:', response.status);
+        }
+    } catch (error) {
+        console.error('Error checking unread tickets:', error);
+    }
+}
+
+// Update ticket notification badge
+function updateTicketBadge(badgeId, count) {
+    const badge = document.getElementById(badgeId);
+    console.log(`[UPDATE BADGE] ID: ${badgeId}, Count: ${count}, Element found: ${!!badge}`);
+    
+    if (badge) {
+        if (count > 0) {
+            badge.textContent = count > 99 ? '99+' : count;
+            badge.style.display = 'inline-flex';
+            badge.style.alignItems = 'center';
+            badge.style.justifyContent = 'center';
+            console.log(`[BADGE VISIBLE] ${badgeId}: ${badge.textContent}`);
+        } else {
+            badge.style.display = 'none';
+            console.log(`[BADGE HIDDEN] ${badgeId}`);
+        }
+    } else {
+        console.warn(`[BADGE NOT FOUND] ${badgeId}`);
     }
 }
 

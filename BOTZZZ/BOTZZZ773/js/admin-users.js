@@ -6,7 +6,7 @@ if (typeof window !== 'undefined') {
 
 // Global variable to store fetched users
 let usersData = [];
-const selectedUserIds = new Set();
+let usersSort = { field: 'created', direction: 'desc' };
 
 function getUserById(userId) {
     return usersData.find(user => user.id === userId);
@@ -35,7 +35,7 @@ async function populateUsersTable() {
     
     try {
         // Show loading state
-        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem;">Loading users...</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem;">Loading users...</td></tr>';
         
         // Get auth token
         const token = localStorage.getItem('token');
@@ -58,18 +58,43 @@ async function populateUsersTable() {
 
         const result = await response.json();
         usersData = result.users || [];
-        pruneSelectedUserIds();
-        
         if (usersData.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #888;">No users found</td></tr>';
-            updateSelectedUsersSummary();
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #888;">No users found</td></tr>';
             return;
         }
+
+        const sortedUsers = sortUsers(usersData);
         
         // Render users
-        tbody.innerHTML = usersData.map(user => {
+        tbody.innerHTML = sortedUsers.map(user => {
             const created = new Date(user.created_at).toLocaleString();
-            const lastAuth = user.last_login ? new Date(user.last_login).toLocaleString() : 'Never';
+            const lastLoginRaw = user.last_login || user.last_auth || user.last_login_at;
+            let lastAuth = 'Never';
+            let lastAuthColor = '#94A3B8';
+            
+            if (lastLoginRaw) {
+                const lastLoginDate = new Date(lastLoginRaw);
+                const now = new Date();
+                const diffMs = now - lastLoginDate;
+                const diffMins = Math.floor(diffMs / 60000);
+                const diffHours = Math.floor(diffMs / 3600000);
+                const diffDays = Math.floor(diffMs / 86400000);
+                
+                if (diffMins < 60) {
+                    lastAuth = diffMins < 1 ? 'Just now' : `${diffMins}m ago`;
+                    lastAuthColor = '#10B981';
+                } else if (diffHours < 24) {
+                    lastAuth = `${diffHours}h ago`;
+                    lastAuthColor = '#10B981';
+                } else if (diffDays < 7) {
+                    lastAuth = `${diffDays}d ago`;
+                    lastAuthColor = '#F59E0B';
+                } else {
+                    lastAuth = lastLoginDate.toLocaleDateString();
+                    lastAuthColor = '#94A3B8';
+                }
+            }
+            
             const balance = parseFloat(user.balance || 0);
             const spent = parseFloat(user.spent || 0);
             const profit = parseFloat(user.profit || 0);
@@ -78,9 +103,8 @@ async function populateUsersTable() {
             
             return `
                 <tr data-user-id="${user.id}">
-                    <td><input type="checkbox" class="user-checkbox" data-user-id="${user.id}" aria-label="Select user ${user.id}"></td>
-                    <td>${user.username}</td>
-                    <td>${user.email}</td>
+                    <td class="cell-username">${user.username || ''}</td>
+                    <td class="cell-email">${user.email || ''}</td>
                     <td>$${(balance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
                     <td>$${(spent.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
                     <td>$${(profit.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
@@ -90,7 +114,7 @@ async function populateUsersTable() {
                         </span>
                     </td>
                     <td>${created}</td>
-                    <td>${lastAuth}</td>
+                    <td><span style="color: ${lastAuthColor}; font-weight: 500;">${lastAuth}</span></td>
                     <td>${discount}%</td>
                     <td>
                         <div class="actions-dropdown">
@@ -107,170 +131,55 @@ async function populateUsersTable() {
             `;
         }).join('');
         
-        restoreUserSelectionState();
-        bindUserSelectionEvents();
-        updateSelectedUsersSummary();
-        
         console.log(`✅ Loaded ${usersData.length} users from database`);
         
     } catch (error) {
         console.error('Error fetching users:', error);
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align: center; padding: 2rem; color: #ff4444;">Error loading users: ${error.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: #ff4444;">Error loading users: ${error.message}</td></tr>`;
     }
 }
 
-function pruneSelectedUserIds() {
-    if (selectedUserIds.size === 0) {
-        return;
+// Sorting helpers
+function setUsersSort(field) {
+    if (!usersSort) {
+        usersSort = { field: field, direction: 'desc' };
     }
-    const validIds = new Set(usersData.map(user => user.id));
-    for (const id of Array.from(selectedUserIds)) {
-        if (!validIds.has(id)) {
-            selectedUserIds.delete(id);
-        }
-    }
-}
-
-function bindUserSelectionEvents() {
-    const checkboxes = document.querySelectorAll('.user-checkbox');
-    checkboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', handleUserSelectionChange);
-    });
-}
-
-function handleUserSelectionChange(event) {
-    const checkbox = event?.target;
-    if (!checkbox || !checkbox.dataset.userId) {
-        return;
-    }
-
-    const userId = checkbox.dataset.userId;
-    if (checkbox.checked) {
-        selectedUserIds.add(userId);
+    if (usersSort.field === field) {
+        usersSort.direction = usersSort.direction === 'desc' ? 'asc' : 'desc';
     } else {
-        selectedUserIds.delete(userId);
+        usersSort = { field, direction: 'desc' };
     }
-
-    const row = checkbox.closest('tr');
-    if (row) {
-        row.classList.toggle('is-selected', checkbox.checked);
-    }
-
-    updateSelectedUsersSummary();
+    populateUsersTable();
 }
 
-function restoreUserSelectionState() {
-    const checkboxes = document.querySelectorAll('.user-checkbox');
-    checkboxes.forEach(checkbox => {
-        const userId = checkbox.dataset.userId;
-        const shouldSelect = selectedUserIds.has(userId);
-        checkbox.checked = shouldSelect;
-        const row = checkbox.closest('tr');
-        if (row) {
-            row.classList.toggle('is-selected', shouldSelect);
-        }
+function sortUsers(list) {
+    if (!Array.isArray(list)) return [];
+    const { field, direction } = usersSort || { field: 'created', direction: 'desc' };
+    const dir = direction === 'asc' ? 1 : -1;
+    return [...list].sort((a, b) => {
+        const valA = getSortValue(a, field);
+        const valB = getSortValue(b, field);
+        if (valA < valB) return -1 * dir;
+        if (valA > valB) return 1 * dir;
+        return 0;
     });
 }
 
-function updateSelectedUsersSummary() {
-    const countEl = document.getElementById('selectedUsersCount');
-    const detailEl = document.getElementById('selectedUsersDetail');
-    const cardEl = document.getElementById('selectedUsersCard');
-
-    if (!countEl || !detailEl || !cardEl) {
-        return;
+function getSortValue(user, field) {
+    switch (field) {
+        case 'balance':
+            return Number(user.balance) || 0;
+        case 'spent':
+            return Number(user.spent) || 0;
+        case 'profit':
+            return Number(user.profit) || 0;
+        case 'created':
+            return new Date(user.created_at || 0).getTime();
+        case 'username':
+            return (user.username || '').toLowerCase();
+        default:
+            return 0;
     }
-
-    const count = selectedUserIds.size;
-    countEl.textContent = `${count} selected`;
-
-    if (count === 0) {
-        detailEl.textContent = 'Choose a user in the table to unlock quick actions.';
-    } else {
-        const names = [];
-        selectedUserIds.forEach(id => {
-            const displayName = getUserDisplayName(getUserById(id));
-            if (displayName) {
-                names.push(displayName);
-            }
-        });
-        const preview = names.slice(0, 2).filter(Boolean).join(', ');
-        const overflow = names.length > 2 ? ` +${names.length - 2}` : '';
-        detailEl.textContent = preview ? `${preview}${overflow}` : `${count} selected`;
-    }
-
-    cardEl.classList.toggle('is-active', count > 0);
-    cardEl.setAttribute('aria-pressed', count > 0 ? 'true' : 'false');
-    syncMasterToggleState();
-}
-
-function syncMasterToggleState() {
-    const masterToggle = document.querySelector('th input[type="checkbox"][aria-label="Select all users"]');
-    if (!masterToggle) {
-        return;
-    }
-
-    const checkboxes = Array.from(document.querySelectorAll('.user-checkbox'));
-    if (checkboxes.length === 0) {
-        masterToggle.checked = false;
-        masterToggle.indeterminate = false;
-        return;
-    }
-
-    const selectedCount = checkboxes.filter(cb => cb.checked).length;
-    masterToggle.checked = selectedCount > 0 && selectedCount === checkboxes.length;
-    masterToggle.indeterminate = selectedCount > 0 && selectedCount < checkboxes.length;
-}
-
-function openSelectedUserModal() {
-    if (selectedUserIds.size === 0) {
-        showNotification('Select a user from the table first', 'error');
-        return;
-    }
-    const iterator = selectedUserIds.values();
-    const selectedId = iterator.next().value;
-    if (selectedId) {
-        viewUser(selectedId);
-    }
-}
-
-function openAddUserQuickAction() {
-    addUser();
-}
-
-function attachQuickActionCard(element, handler) {
-    if (!element || typeof handler !== 'function') {
-        return;
-    }
-
-    element.addEventListener('click', handler);
-    element.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            handler();
-        }
-    });
-}
-
-function initializeUsersQuickActions() {
-    attachQuickActionCard(document.getElementById('selectedUsersCard'), openSelectedUserModal);
-    attachQuickActionCard(document.getElementById('addUserCard'), openAddUserQuickAction);
-    updateSelectedUsersSummary();
-}
-
-function toggleAllUsers(masterCheckbox) {
-    if (!masterCheckbox) {
-        return;
-    }
-
-    const checkboxes = document.querySelectorAll('.user-checkbox');
-    const shouldSelectAll = masterCheckbox.checked;
-    masterCheckbox.indeterminate = false;
-
-    checkboxes.forEach(checkbox => {
-        checkbox.checked = shouldSelectAll;
-        checkbox.dispatchEvent(new Event('change', { bubbles: true }));
-    });
 }
 
 // Modal Helper Functions
@@ -963,6 +872,17 @@ function updateCustomRatesList() {
         const serviceName = service ? service.name : `Service #${serviceId}`;
         const cleanId = String(serviceId);
         const cleanDiscount = (window.formatTrimZeros ? window.formatTrimZeros(Number(discount), 5) : Number(discount).toFixed(2).replace(/\.00$/, ''));
+        
+        // Calculate current custom rate based on service rate and discount
+        const serviceRate = service ? parseFloat(service.rate) : 0;
+        const customRate = serviceRate > 0 ? serviceRate * (1 - (Number(discount) / 100)) : 0;
+        const formattedOriginalRate = serviceRate > 0 
+            ? (window.formatTrimZeros ? window.formatTrimZeros(serviceRate, 5) : serviceRate.toFixed(5).replace(/\.?0+$/, ''))
+            : '0';
+        const formattedCustomRate = customRate > 0 
+            ? (window.formatTrimZeros ? window.formatTrimZeros(customRate, 5) : customRate.toFixed(5).replace(/\.?0+$/, ''))
+            : '0';
+        
         return `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: white; border-radius: 6px; margin-bottom: 8px; border: 1px solid #E2E8F0;">
                 <div>
@@ -970,7 +890,12 @@ function updateCustomRatesList() {
                     <span style="color: #64748B; margin-left: 8px;">${serviceName}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="color: #059669; font-weight: 600;">${cleanDiscount}% discount</span>
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="color: #94A3B8; text-decoration: line-through; font-size: 13px;">$${formattedOriginalRate}</span>
+                        <span style="color: #64748B;">→</span>
+                        <span style="color: #0EA5E9; font-weight: 600; font-size: 14px;">$${formattedCustomRate}</span>
+                        <span style="color: #059669; font-weight: 600; font-size: 12px;">(${cleanDiscount}% off)</span>
+                    </div>
                     <button 
                         type="button" 
                         onclick="removeCustomRate('${cleanId}')"
@@ -1081,7 +1006,6 @@ async function saveCustomRates(userId) {
 
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    initializeUsersQuickActions();
     populateUsersTable();
     handleSearch('userSearch', 'usersTable');
 });
