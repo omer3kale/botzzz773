@@ -77,6 +77,10 @@
 [functions.order-status-sync]
   schedule = "*/10 * * * *"
 
+# Provider balance sync - runs every 3 minutes to check balances and send alerts
+[functions.scheduled-provider-sync]
+  schedule = "*/3 * * * *"
+
 # Provider service sync - hourly to refresh prices with markup preserved
 [functions.sync-service-catalog]
   schedule = "0 */3 * * *"

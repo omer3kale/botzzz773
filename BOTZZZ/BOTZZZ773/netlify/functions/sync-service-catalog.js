@@ -3,8 +3,12 @@ const nodemailer = require('nodemailer');
 const { supabaseAdmin } = require('./utils/supabase');
 const { getPricingEngine } = require('./utils/pricing-engine');
 const { convertToUSD } = require('./utils/currency-converter');
+const { createLogger, serializeError } = require('./utils/logger');
+const { logPaymentNotification } = require('./notification-logger');
 const fs = require('fs');
 const path = require('path');
+
+const logger = createLogger('service-catalog-sync');
 
 function normalizeServiceStatus(rawStatus) {
   if (rawStatus === undefined || rawStatus === null) {
@@ -656,44 +660,187 @@ exports.handler = async (event = {}) => {
   const headers = { 'Content-Type': 'application/json' };
   const runAt = event.headers?.['x-netlify-schedule-run-at'] || new Date().toISOString();
   const targetProviderId = event.queryStringParameters?.providerId;
-  const alertsEnabled = String(process.env.ALERT_EMAIL_ENABLED || '').toLowerCase() === 'true';
-  const alertRecipientsRaw = process.env.ALERT_EMAIL_RECIPIENTS || '';
-  const alertRecipients = alertRecipientsRaw.split(',').map(s => s.trim()).filter(Boolean);
-  const SMTP_HOST = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
-  const SMTP_USER = process.env.SMTP_USER || '';
-  const SMTP_PASS = process.env.SMTP_PASS || '';
-  const SMTP_FROM = process.env.ALERT_EMAIL_FROM || (SMTP_USER ? `BOTZZZ773 Alerts <${SMTP_USER}>` : 'BOTZZZ773 Alerts <alerts@botzzz773.local>');
 
-  const transporter = nodemailer.createTransport({
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_PORT === 465,
-    auth: SMTP_USER && SMTP_PASS ? { user: SMTP_USER, pass: SMTP_PASS } : undefined
-  });
+  async function loadNotificationSettings() {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('settings')
+        .select('value')
+        .eq('key', 'notification')
+        .single();
+      
+      if (error || !data) {
+        return { priceAlertEnabled: false };
+      }
+      
+      const notification = typeof data.value === 'string' 
+        ? JSON.parse(data.value) 
+        : data.value;
+      
+      return {
+        priceAlertEnabled: notification?.priceChangeAlertEnabled !== false,
+        smtpHost: notification?.smtpHost || process.env.SMTP_HOST,
+        smtpPort: Number(notification?.smtpPort || process.env.SMTP_PORT || 587),
+        smtpUser: notification?.smtpUser || notification?.smtpUsername || process.env.SMTP_USER,
+        smtpPass: notification?.smtpPass || notification?.smtpPassword || process.env.SMTP_PASS,
+        smtpFromAddress: notification?.smtpFromAddress || notification?.smtpFrom || process.env.SMTP_FROM || 'noreply@botzzz773.com'
+      };
+    } catch (err) {
+      console.warn('[PRICE ALERT] Failed to load notification settings', err);
+      return { priceAlertEnabled: false };
+    }
+  }
 
-  async function sendEmail(subject, html, text) {
-    if (!alertsEnabled) return { sent: false, reason: 'alerts disabled' };
-    const recipients = alertRecipients.length ? alertRecipients : (SMTP_USER ? [SMTP_USER] : []);
-    if (!recipients.length) return { sent: false, reason: 'no recipients' };
+  async function loadAdminEmail() {
+    try {
+      const { data, error } = await supabaseAdmin
+        .from('settings')
+        .select('value')
+        .eq('key', 'general')
+        .single();
+      
+      if (error || !data) {
+        return process.env.ADMIN_EMAIL || 'admin@botzzz773.com';
+      }
+      
+      const general = typeof data.value === 'string' 
+        ? JSON.parse(data.value) 
+        : data.value;
+      
+      return general?.adminEmail || process.env.ADMIN_EMAIL || 'admin@botzzz773.com';
+    } catch (err) {
+      return process.env.ADMIN_EMAIL || 'admin@botzzz773.com';
+    }
+  }
+
+  async function sendPriceChangeAlert(allChanges, smtpSettings, adminEmail) {
+    if (!allChanges || allChanges.length === 0 || !smtpSettings.priceAlertEnabled) {
+      return { sent: false, reason: 'No changes or alerts disabled' };
+    }
 
     try {
-      const info = await transporter.sendMail({
-        from: SMTP_FROM,
-        to: recipients,
-        subject,
-        html,
-        text: text || html.replace(/<[^>]+>/g, ' ')
+      const { smtpHost, smtpPort, smtpUser, smtpPass, smtpFromAddress } = smtpSettings;
+      
+      if (!smtpHost) {
+        console.warn('[PRICE ALERT] SMTP host not configured');
+        return { sent: false, reason: 'SMTP not configured' };
+      }
+
+      const isLocalhost = smtpHost.toLowerCase().includes('localhost') || smtpHost === '127.0.0.1';
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpPort === 465,
+        auth: isLocalhost ? false : (smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined),
+        connectionTimeout: 5000,
+        socketTimeout: 5000
       });
-      return { sent: true, id: info.messageId };
-    } catch (e) {
-      console.warn('[ALERT EMAIL] send failed', e && e.message ? e.message : e);
-      return { sent: false, error: e?.message };
+
+      // Build table rows for price changes
+      const tableRows = allChanges
+        .slice(0, 50)
+        .map(change => `
+          <tr style="background: ${change._index % 2 === 0 ? '#1a1a1a' : '#0a0a0a'}; border-bottom: 1px solid #2a2a2a;">
+            <td style="padding: 12px 15px; color: #E0E0E0; font-size: 13px; border-right: 1px solid #2a2a2a;">${change.providerName || 'N/A'}</td>
+            <td style="padding: 12px 15px; color: #E0E0E0; font-size: 13px; border-right: 1px solid #2a2a2a;">${change.serviceName || change.service_id}</td>
+            <td style="padding: 12px 15px; color: #B0B0B0; font-size: 13px; border-right: 1px solid #2a2a2a;">$${parseFloat(change.old_provider_rate || 0).toFixed(4)}</td>
+            <td style="padding: 12px 15px; color: #FF69B4; font-size: 13px; font-weight: 600; border-right: 1px solid #2a2a2a;">$${parseFloat(change.new_provider_rate || 0).toFixed(4)}</td>
+            <td style="padding: 12px 15px; color: #B0B0B0; font-size: 13px; border-right: 1px solid #2a2a2a;">$${parseFloat(change.old_retail_rate || 0).toFixed(4)}</td>
+            <td style="padding: 12px 15px; color: #FF69B4; font-size: 13px; font-weight: 600; border-right: 1px solid #2a2a2a;">$${parseFloat(change.new_retail_rate || 0).toFixed(4)}</td>
+            <td style="padding: 12px 15px; color: #FFD700; font-size: 13px;">+${change.markup_used || 0}%</td>
+          </tr>
+        `)
+        .map((row, idx) => row.replace('_index % 2', idx + ' % 2'))
+        .join('');
+
+      const emailSubject = `🔔 Price Changes Detected - ${allChanges.length} Service(s)`;
+
+      const emailBody = `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #0a0a0a; padding: 0; margin: 0;">
+  <!-- Top Accent -->
+  <div style="background: linear-gradient(90deg, #FF1494 0%, #FF69B4 50%, #FF1494 100%); height: 3px;"></div>
+  
+  <div style="background: #0a0a0a; padding: 30px 20px; color: #E0E0E0; max-width: 800px; margin: 0 auto;">
+    
+    <!-- Header with Gradient -->
+    <div style="background: linear-gradient(135deg, #FF1494 0%, #FF69B4 100%); padding: 30px; border-radius: 8px 8px 0 0; text-align: center;">
+      <h1 style="margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800;">💰 PRICE CHANGES DETECTED</h1>
+      <p style="margin: 8px 0 0 0; color: #F0F0F0; font-size: 14px; font-weight: 500;">Service Catalog Sync Report</p>
+    </div>
+    
+    <!-- Summary -->
+    <div style="background: #1a1a1a; padding: 20px; border-bottom: 1px solid #333;">
+      <p style="margin: 0 0 8px 0; color: #FF1494; font-size: 13px; font-weight: 700;">⚡ SUMMARY</p>
+      <p style="margin: 0; color: #B0B0B0; font-size: 13px; line-height: 1.6;">
+        <strong style="color: #E0E0E0;">${allChanges.length}</strong> service(s) have price changes. Review changes below and update your listings accordingly.
+      </p>
+    </div>
+    
+    <!-- Changes Table -->
+    <table style="width: 100%; border-collapse: collapse; background: #0a0a0a; margin: 20px 0;">
+      <thead>
+        <tr style="background: #FF1494; color: #FFFFFF;">
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">PROVIDER</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">SERVICE</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">OLD COST</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">NEW COST</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">OLD PRICE</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">NEW PRICE</th>
+          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700;">MARGIN</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tableRows}
+      </tbody>
+    </table>
+    
+    ${allChanges.length > 50 ? `<p style="color: #FF69B4; font-size: 13px; margin: 15px 0;">… and ${allChanges.length - 50} more changes</p>` : ''}
+    
+    <!-- Action Steps -->
+    <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, rgba(255, 20, 148, 0.1) 0%, rgba(255, 105, 180, 0.05) 100%); border: 1px solid #FF1494; border-radius: 6px;">
+      <h4 style="margin: 0 0 12px 0; color: #FF1494; font-size: 14px; font-weight: 700;">NEXT STEPS:</h4>
+      <ul style="margin: 0; padding-left: 20px; color: #B0B0B0; font-size: 13px; line-height: 1.8;">
+        <li style="margin-bottom: 8px;">Review all price changes in the table above</li>
+        <li style="margin-bottom: 8px;">Update your service prices if needed</li>
+        <li style="margin-bottom: 0;">Ensure profit margins are maintained</li>
+      </ul>
+    </div>
+    
+    <!-- Footer -->
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #333; text-align: center; font-size: 11px; color: #666;">
+      <p style="margin: 0 0 8px 0;">
+        <strong style="color: #FF1494;">BOTZZZ773</strong> | Automated Service Sync
+      </p>
+      <p style="margin: 0;">
+        Generated: ${runAt}
+      </p>
+    </div>
+  </div>
+  
+  <!-- Bottom Accent -->
+  <div style="background: linear-gradient(90deg, #FF1494 0%, #FF69B4 50%, #FF1494 100%); height: 3px;"></div>
+</div>
+      `.trim();
+
+      const result = await transporter.sendMail({
+        from: smtpFromAddress,
+        to: adminEmail,
+        subject: emailSubject,
+        html: emailBody
+      });
+
+      console.log('[PRICE ALERT] Email sent', { messageId: result.messageId, changeCount: allChanges.length });
+      return { sent: true, messageId: result.messageId, changeCount: allChanges.length };
+    } catch (err) {
+      console.warn('[PRICE ALERT] Failed to send email', err?.message || err);
+      return { sent: false, error: err?.message };
     }
   }
 
   try {
     const pricingEngine = await getPricingEngine();
+    const smtpSettings = await loadNotificationSettings();
+    
     let query = supabaseAdmin
       .from('providers')
       .select('id, name, api_url, api_key, status, markup')
@@ -713,11 +860,12 @@ exports.handler = async (event = {}) => {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ runAt, providersProcessed: 0, results: [] })
+        body: JSON.stringify({ runAt, providersProcessed: 0, results: [], priceChangeAlert: { sent: false, reason: 'No providers' } })
       };
     }
 
     const results = [];
+    const allChanges = [];
 
     for (const provider of providers) {
       try {
@@ -728,44 +876,31 @@ exports.handler = async (event = {}) => {
           success: true,
           ...summary
         });
-        if (alertsEnabled && Array.isArray(summary.changes) && summary.changes.length > 0) {
-          const rowsHtml = summary.changes.slice(0, 50).map((c) => `
-            <tr>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.service_id}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.provider_service_id || ''}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.old_provider_rate}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.new_provider_rate}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.old_retail_rate}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.new_retail_rate}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.markup_used ?? ''}</td>
-              <td style="padding:6px 8px;border-bottom:1px solid #eee;">${c.strategy_applied || ''}</td>
-            </tr>
-          `).join('');
-
-          const html = `
-            <div>
-              <h3>Fiyat Değişiklikleri Tespit Edildi · ${provider.name}</h3>
-              <p>Çalıştırma zamanı: ${runAt}</p>
-              <p>Toplam değişiklik: <strong>${summary.changes.length}</strong></p>
-              <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;max-width:900px;">
-                <thead>
-                  <tr style="text-align:left;background:#f6f7f9;">
-                    <th style="padding:6px 8px;">Service ID</th>
-                    <th style="padding:6px 8px;">Provider SID</th>
-                    <th style="padding:6px 8px;">Old Prov</th>
-                    <th style="padding:6px 8px;">New Prov</th>
-                    <th style="padding:6px 8px;">Old Retail</th>
-                    <th style="padding:6px 8px;">New Retail</th>
-                    <th style="padding:6px 8px;">Markup%</th>
-                    <th style="padding:6px 8px;">Strategy</th>
-                  </tr>
-                </thead>
-                <tbody>${rowsHtml}</tbody>
-              </table>
-              ${summary.changes.length > 50 ? `<p>… ve ${summary.changes.length - 50} daha</p>` : ''}
-            </div>`;
-          const subject = `[BOTZZZ773] ${provider.name} – ${summary.changes.length} fiyat değişimi`;
-          await sendEmail(subject, html);
+        
+        // Enrich changes with provider and service names
+        if (Array.isArray(summary.changes) && summary.changes.length > 0) {
+          // Load service names for enrichment
+          const serviceIds = [...new Set(summary.changes.map(c => c.service_id))];
+          let servicesMap = new Map();
+          
+          if (serviceIds.length > 0) {
+            const { data: services } = await supabaseAdmin
+              .from('services')
+              .select('id, name, public_id')
+              .in('id', serviceIds);
+            
+            (services || []).forEach(s => servicesMap.set(s.id, s));
+          }
+          
+          // Add enriched changes to global list
+          summary.changes.forEach(change => {
+            const service = servicesMap.get(change.service_id);
+            allChanges.push({
+              ...change,
+              providerName: provider.name,
+              serviceName: service?.name || change.service_id
+            });
+          });
         }
       } catch (syncError) {
         console.error('[SERVICE SYNC] Provider sync failed', provider.id, syncError);
@@ -778,10 +913,23 @@ exports.handler = async (event = {}) => {
       }
     }
 
+    // Send bulk price change alert
+    let priceChangeAlert = { sent: false, reason: 'No price changes' };
+    if (allChanges.length > 0) {
+      const adminEmail = await loadAdminEmail();
+      priceChangeAlert = await sendPriceChangeAlert(allChanges, smtpSettings, adminEmail);
+    }
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ runAt, providersProcessed: providers.length, results })
+      body: JSON.stringify({ 
+        runAt, 
+        providersProcessed: providers.length, 
+        totalPriceChanges: allChanges.length,
+        priceChangeAlert,
+        results 
+      })
     };
   } catch (error) {
     console.error('[SERVICE SYNC] Scheduled sync failed:', error);

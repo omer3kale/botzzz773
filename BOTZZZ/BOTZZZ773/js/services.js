@@ -631,6 +631,7 @@ function buildSubcategorySectionHtml({ parentSlug, slug, icon, title, services }
                         <div class="service-col">Service Name</div>
                         <div class="service-col">Rate (per 1000)</div>
                         <div class="service-col">Min/Max</div>
+                        <div class="service-col">Description</div>
                         <div class="service-col">Action</div>
                     </div>
                     ${rowsHtml}
@@ -653,6 +654,7 @@ function buildCategorySectionHtml({ slug, icon, title, services, isParent = fals
                         <div class="service-col">Service Name</div>
                         <div class="service-col">Rate (per 1000)</div>
                         <div class="service-col">Min/Max</div>
+                        <div class="service-col">Description</div>
                         <div class="service-col">Action</div>
                     </div>
                     ${rowsHtml}
@@ -707,7 +709,7 @@ function buildServiceRowMarkup(service) {
         ? Infinity
         : (Number.isFinite(Number(maxRaw)) ? Number(maxRaw) : 10000);
     const serviceHeading = Number.isFinite(publicIdValue)
-        ? `#${publicIdValue} · ${escapeHtml(service.name)}`
+        ? `${publicIdValue} · ${escapeHtml(service.name)}`
         : escapeHtml(service.name);
     const avgTimeBadge = service.average_time
         ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
@@ -715,7 +717,7 @@ function buildServiceRowMarkup(service) {
     const currencyBadge = `<span class="service-meta-tag service-meta-tag--muted" title="Billing currency">${currency}</span>`;
     const capabilityBadges = renderSupportBadges(service);
     const metaRows = [];
-    const primaryTags = [currencyBadge];
+    const primaryTags = [];
     if (avgTimeBadge) {
         primaryTags.unshift(avgTimeBadge);
     }
@@ -729,11 +731,11 @@ function buildServiceRowMarkup(service) {
         <div class="service-row" data-service-id="${service.id}">
             <div class="service-col">
                 <strong>${serviceHeading}</strong>
-                <span class="service-details">${escapeHtml(service.description || 'No description available')}</span>
                 ${serviceMetaMarkup}
             </div>
-            <div class="service-col price">${discountMarkup}${pricePerK}<span class="price-note">per 1K</span></div>
+            <div class="service-col price">${discountMarkup}${pricePerK}</div>
             <div class="service-col">${formatNumber(min)} / ${formatNumber(max)}</div>
+            <div class="service-col">${service.description ? escapeHtml(service.description) : ''}</div>
             <div class="service-col">
                 <button class="btn btn-primary btn-sm" data-service-key="${escapeHtml(service.__clientKey)}" onclick="showServiceDescription(this.dataset.serviceKey)">Details</button>
             </div>
@@ -864,10 +866,10 @@ function formatCurrencyValue(amount, currency = 'USD', fractionDigits) {
 }
 
 const SERVICE_CAPABILITY_FIELDS = [
-    { key: 'refill_supported', label: 'Refill' },
-    { key: 'cancel_supported', label: 'Cancel' },
-    { key: 'dripfeed_supported', label: 'Dripfeed' },
-    { key: 'subscription_supported', label: 'Subscription' }
+    { key: 'refill', label: 'Refill' },
+    { key: 'cancel', label: 'Cancel' },
+    { key: 'dripfeed', label: 'Dripfeed' },
+    { key: 'subscription', label: 'Subscription' }
 ];
 
 function renderSupportBadges(service, options = {}) {
@@ -1247,6 +1249,8 @@ categoryLoadingStyle.textContent = `
     }
 
     .services-filter-context {
+        position: relative;
+        z-index: 10;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -1256,12 +1260,14 @@ categoryLoadingStyle.textContent = `
         padding: 16px;
         border: 1px solid #e2e8f0;
         border-radius: 12px;
-        background: #1e0613;
+        background: var(--bg-darker);
     }
 
     .services-filter-label {
         font-weight: 600;
         color: #ffffff;
+        position: relative;
+        z-index: 10;
     }
 `;
 document.head.appendChild(categoryLoadingStyle);
@@ -1726,6 +1732,7 @@ async function displayFilteredServices(services, options = {}) {
                         <div class="service-col">Service Name</div>
                         <div class="service-col">Rate (per 1000)</div>
                         <div class="service-col">Min/Max</div>
+                        <div class="service-col">Description</div>
                         <div class="service-col">Action</div>
                     </div>
                     ${rowsHtml}

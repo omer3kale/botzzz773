@@ -511,9 +511,9 @@ async function handleGetServices(event, user, headers) {
           max_quantity,
           description,
           refill_supported,
-          refill_button_enabled,
           cancel_supported,
           dripfeed_supported,
+          subscription_supported,
           customer_portal_slot,
           average_time,
           status,
@@ -604,10 +604,11 @@ async function handleGetServices(event, user, headers) {
             min_quantity: service.min_quantity,
             max_quantity: service.max_quantity,
             description: service.description,
-            refill_supported: service.refill_supported,
-            refill_button_enabled: service.refill_button_enabled,
-            cancel_supported: service.cancel_supported,
-            dripfeed_supported: service.dripfeed_supported,
+            refill: service.refill_supported,
+            cancel: service.cancel_supported,
+            dripfeed: service.dripfeed_supported,
+            subscription: service.subscription_supported,
+            refill_button_enabled: service.refill_supported, // Backward compatibility
             customer_portal_slot: service.customer_portal_slot,
             average_time: service.average_time,
             provider: service.provider ? {
@@ -911,8 +912,7 @@ async function handleCreateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes,
-      refill_button_enabled
+      customerPortalNotes
     } = data;
 
     if (!name || !category) {
@@ -989,8 +989,7 @@ async function handleCreateService(user, data, headers) {
         admin_visibility_notes: adminVisibilityNotesValue,
         customer_portal_enabled: customerPortalEnabledFlag,
         customer_portal_slot: customerPortalSlotValue,
-        customer_portal_notes: customerPortalNotesValue,
-        refill_button_enabled: toBooleanFlag(refill_button_enabled)
+        customer_portal_notes: customerPortalNotesValue
       })
       .select()
       .single();
@@ -1079,8 +1078,7 @@ async function handleUpdateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes,
-      refill_button_enabled
+      customerPortalNotes
     } = data;
 
     if (!serviceId) {
@@ -1175,10 +1173,6 @@ async function handleUpdateService(user, data, headers) {
     if (hasCustomerPortalNotesField) {
       const portalNoteValue = customer_portal_notes ?? customerPortalNotes;
       updates.customer_portal_notes = portalNoteValue === undefined ? null : portalNoteValue;
-    }
-
-    if (refill_button_enabled !== undefined) {
-      updates.refill_button_enabled = toBooleanFlag(refill_button_enabled);
     }
 
     const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||

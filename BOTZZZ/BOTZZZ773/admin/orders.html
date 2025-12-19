@@ -52,9 +52,29 @@
                 <i class="fas fa-search"></i>
                 <input type="text" id="orderSearch" placeholder="Search: order, provider ID, user, service ID, service name...">
             </div>
-            <div class="admin-notifications">
-                <i class="fas fa-bell"></i>
-                <span class="notification-badge">10</span>
+            <div class="admin-notifications-wrapper">
+                <button class="admin-notifications" id="notificationBell" onclick="toggleNotificationMenu(event)">
+                    <i class="fas fa-bell"></i>
+                    <span class="notification-badge" id="notificationBadge">0</span>
+                </button>
+                <div class="notification-dropdown-menu" id="notificationDropdown">
+                    <div class="notification-dropdown-header">
+                        <h4>Notifications</h4>
+                        <button class="notification-close" onclick="closeNotificationMenu()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="notification-dropdown-content" id="notificationContent">
+                        <div class="notification-empty">
+                            <i class="fas fa-inbox"></i>
+                            <p>No notifications</p>
+                        </div>
+                    </div>
+                    <div class="notification-dropdown-footer">
+                        <button class="btn-text" onclick="markAllNotificationsAsRead()">Mark all as read</button>
+                        <button class="btn-text danger" onclick="clearAllNotifications()">Clear all</button>
+                    </div>
+                </div>
             </div>
             <div class="admin-user-menu">
                 <button class="admin-user-button" onclick="toggleUserMenu()">
@@ -225,7 +245,6 @@
                                 <th>Status</th>
                                 <th>Remains</th>
                                 <th onclick="sortTable('created')">Created <i class="fas fa-sort"></i></th>
-                                <th>Mode</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -439,6 +458,9 @@
         })();
     </script>
     
+    <!-- Notifications Management -->
+    <script src="../js/admin-notifications.js"></script>
+
     <!-- PWA Registration -->
     <script src="/js/pwa.js?v=20251128"></script>
 

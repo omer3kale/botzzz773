@@ -28,6 +28,7 @@ const { withRateLimit } = require('./utils/rate-limit');
 const jwt = require('jsonwebtoken');
 const { getStripeClient, isStripeConfigured } = require('./utils/stripe-client');
 const { createLogger, serializeError } = require('./utils/logger');
+const { logPaymentNotification } = require('./notification-logger');
 const axios = require('axios');
 const { buildGatewayOrderId, formatUsd } = require('./utils/payment-gateway-helpers');
 
@@ -322,9 +323,7 @@ async function handleCreateCheckout(user, data, headers) {
           currency: 'USD',
           order_id: orderId,
           description: `Account top-up for ${user.email}`,
-          callback_url: `${process.env.SITE_URL}/.netlify/functions/crypto-payments`,
-          success_url: `${process.env.SITE_URL}/payment-success.html`,
-          cancel_url: `${process.env.SITE_URL}/payment-failed.html`
+          callback_url: `${process.env.SITE_URL}/.netlify/functions/crypto-payments`
         };
 
         const response = await axios.post('https://api.cryptomus.com/v1/invoices', payload, {
@@ -699,6 +698,24 @@ async function creditUserBalance(payment, activityDetails = {}) {
         ...activityDetails
       }
     });
+
+  // Log payment notification for admin
+  try {
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('username, email')
+      .eq('id', payment.user_id)
+      .single();
+    
+    if (user) {
+      await logPaymentNotification(payment, user.username || user.email);
+    }
+  } catch (err) {
+    logger.warn('Could not log payment notification', {
+      paymentId: payment.id,
+      error: serializeError(err)
+    });
+  }
 }
 
 async function handleAdminAddPayment(user, data, headers) {

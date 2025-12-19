@@ -333,6 +333,8 @@ async function handleAction(data, headers) {
       return await createProvider(params, headers);
     case 'fetch-service-details':
       return await fetchServiceDetails(params, headers);
+    case 'toggle_low_balance_alert':
+      return await toggleLowBalanceAlert(params, headers);
     default:
       console.error('[ERROR] Invalid action received:', action, 'Normalized:', normalizedAction, 'Full data:', JSON.stringify(data));
       return {

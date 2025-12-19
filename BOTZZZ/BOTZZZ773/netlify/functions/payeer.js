@@ -148,8 +148,6 @@ function generatePayeerUrl(orderId, amount, userEmail) {
     m_curr: 'USD',
     m_desc: Buffer.from(description).toString('base64'),
     m_sign: '',
-    success_url: `${SITE_URL}/payment-success.html`,
-    fail_url: `${SITE_URL}/payment-failed.html`,
     status_url: `${SITE_URL}/api/payeer?action=webhook`
   };
 

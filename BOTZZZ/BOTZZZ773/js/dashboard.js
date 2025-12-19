@@ -2000,7 +2000,7 @@
             const refunded = isOrderRefunded(order);
             
             // Check if refill button should be shown
-            const refillButtonEnabled = order.service?.refill_button_enabled === true || order.service?.refill_button_enabled === 1;
+            const refillButtonEnabled = order.service?.refill_supported === true || order.service?.refill_supported === 1;
             let refillButtonCell = '';
             
             if (refillButtonEnabled && order.status === 'completed' && order.completed_at) {

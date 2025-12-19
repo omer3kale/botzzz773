@@ -311,12 +311,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (data.success && data.paymentUrl) {
-            if (isPopupMode) {
-                window.location.href = data.paymentUrl;
-            } else {
-                window.open(data.paymentUrl, '_blank', 'width=600,height=800');
-                showMessage('Heleket payment window opened in a new tab.', 'success');
-            }
+            window.location.href = data.paymentUrl;
             loadUserBalance({ reason: 'heleket-payment-created' });
             notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
         } else {
@@ -351,13 +346,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (data.success) {
-            // Open Cryptomus payment page in new window
-            if (isPopupMode) {
-                window.location.href = data.paymentUrl;
-            } else {
-                window.open(data.paymentUrl, '_blank', 'width=600,height=800');
-                showMessage('Payment window opened. Complete your payment there.', 'success');
-            }
+            // Open Cryptomus payment page in same window
+            window.location.href = data.paymentUrl;
             loadUserBalance({ reason: 'payment-created' });
             notifyOpener({ type: 'ADD_FUNDS_ORDER_CREATED', orderId: data.orderId, amount });
         } else {

@@ -4,9 +4,9 @@
 $API_BASE_URL = "http://localhost:8888/.netlify/functions/v2"
 $API_KEY = "sk_be2b83b5836ab8c56e413093f7e8b20c975fffa88478ea1ec6876d1b215751ae"
 
-Write-Host "`n=== 1. Test Service: 9074 ===" -ForegroundColor Cyan
+Write-Host "`n=== 1. Test Service: 9079 ===" -ForegroundColor Cyan
 
-$testServiceId = "9074"
+$testServiceId = "9079"
 $testQuantity = 50
 
 Write-Host "Service ID: $testServiceId" -ForegroundColor Yellow
@@ -29,59 +29,87 @@ try {
     exit 1
 }
 
-Write-Host "`n=== 2. Test Siparisi Olustur ===" -ForegroundColor Cyan
+Write-Host "`n=== 2. Toplu Siparis Olustur ===" -ForegroundColor Cyan
 Write-Host "Bu test provider'da bakiye yetersizligi simule eder" -ForegroundColor Yellow
 
-$randomId = Get-Random -Minimum 1000 -Maximum 9999
-$testLink = "https://instagram.com/testuser_random_$randomId"
+$bulkOrderCount = 5
+$orderResults = @()
 
-$orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
+Write-Host "Toplam $bulkOrderCount siparis olusturulacak" -ForegroundColor Yellow
+Write-Host "Service ID: $testServiceId, Quantity: $testQuantity" -ForegroundColor Gray
 
-Write-Host "Service ID: $testServiceId" -ForegroundColor Gray
-Write-Host "Link: $testLink" -ForegroundColor Gray
-Write-Host "Quantity: $testQuantity" -ForegroundColor Gray
-
-try {
-    $orderResponse = Invoke-RestMethod -Uri $API_BASE_URL -Method POST -Body $orderBody -ContentType "application/x-www-form-urlencoded"
+for ($i = 1; $i -le $bulkOrderCount; $i++) {
+    Write-Host "`n--- Siparis #$i/$bulkOrderCount ---" -ForegroundColor Cyan
     
-    if ($orderResponse.error) {
-        Write-Host "Siparis hatasi: $($orderResponse.error)" -ForegroundColor Red
+    $randomId = Get-Random -Minimum 100000 -Maximum 999999
+    $testLink = "https://instagram.com/testuser_random_$randomId"
+    
+    $orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
+    
+    Write-Host "Link: $testLink" -ForegroundColor Gray
+    
+    try {
+        $orderResponse = Invoke-RestMethod -Uri $API_BASE_URL -Method POST -Body $orderBody -ContentType "application/x-www-form-urlencoded"
         
-        if ($orderResponse.error -like "*Not enough balance*") {
-            Write-Host "Sizin bakiyeniz yetersiz. Once balance yukleyin." -ForegroundColor Yellow
-        } elseif ($orderResponse.error -like "*duplicate*") {
-            Write-Host "Bu link icin zaten aktif siparis var." -ForegroundColor Yellow
+        if ($orderResponse.error) {
+            Write-Host "Hata: $($orderResponse.error)" -ForegroundColor Red
+            $orderResults += [PSCustomObject]@{
+                OrderNumber = $i
+                Link = $testLink
+                OrderId = "N/A"
+                Status = "HATA"
+                Error = $orderResponse.error
+            }
+        } else {
+            $orderId = $orderResponse.order
+            Write-Host "Siparis olusturuldu: Order #$orderId" -ForegroundColor Green
+            
+            # Kisa bekle ve durumu kontrol et
+            Start-Sleep -Milliseconds 1000
+            
+            $statusBody = "key=$API_KEY&action=status&order=$orderId"
+            $statusResponse = Invoke-RestMethod -Uri $API_BASE_URL -Method POST -Body $statusBody -ContentType "application/x-www-form-urlencoded"
+            
+            $statusColor = "Yellow"
+            if ($statusResponse.status -eq "Completed") { $statusColor = "Green" }
+            elseif ($statusResponse.status -eq "Processing") { $statusColor = "Cyan" }
+            elseif ($statusResponse.status -eq "Failed") { $statusColor = "Red" }
+            
+            Write-Host "Status: $($statusResponse.status)" -ForegroundColor $statusColor
+            
+            $orderResults += [PSCustomObject]@{
+                OrderNumber = $i
+                Link = $testLink
+                OrderId = $orderId
+                Status = $statusResponse.status
+                Charge = if ($statusResponse.charge) { "`$$($statusResponse.charge)" } else { "N/A" }
+            }
         }
-    } else {
-        $orderId = $orderResponse.order
-        Write-Host "Siparis olusturuldu: Order #$orderId" -ForegroundColor Green
         
-        Write-Host "`n=== 4. Siparis Durumu Kontrol ===" -ForegroundColor Cyan
-        Start-Sleep -Seconds 2
+        Start-Sleep -Milliseconds 500
         
-        $statusBody = "key=$API_KEY&action=status&order=$orderId"
-        $statusResponse = Invoke-RestMethod -Uri $API_BASE_URL -Method POST -Body $statusBody -ContentType "application/x-www-form-urlencoded"
-        
-        $statusColor = "Yellow"
-        if ($statusResponse.status -eq "Completed") { $statusColor = "Green" }
-        elseif ($statusResponse.status -eq "Processing") { $statusColor = "Cyan" }
-        
-        Write-Host "Status: $($statusResponse.status)" -ForegroundColor $statusColor
-        
-        if ($statusResponse.charge) {
-            Write-Host "Charge: `$$($statusResponse.charge)" -ForegroundColor Gray
+    } catch {
+        Write-Host "Siparis hatasi: $($_.Exception.Message)" -ForegroundColor Red
+        $orderResults += [PSCustomObject]@{
+            OrderNumber = $i
+            Link = $testLink
+            OrderId = "N/A"
+            Status = "HATA"
+            Error = $_.Exception.Message
         }
-        
-        Write-Host "`n=== Test Sonuclari ===" -ForegroundColor Cyan
-        Write-Host "1. Reseller API ile siparis verdi" -ForegroundColor Green
-        Write-Host "2. Sizin API'niz siparisi aldi" -ForegroundColor Green
-        Write-Host "3. Provider'a iletildi (veya iletim sirasinda hata)" -ForegroundColor Yellow
-        Write-Host "4. Admin panelde siparisi kontrol edin (Order #$orderId)" -ForegroundColor Yellow
-        Write-Host "   - Provider bakiye yoksa: Admin'de Failed, User'da Pending gorunmeli" -ForegroundColor Yellow
     }
-} catch {
-    Write-Host "Siparis hatasi: $($_.Exception.Message)" -ForegroundColor Red
 }
+
+Write-Host "`n=== Toplu Siparis Sonuclari ===" -ForegroundColor Cyan
+Write-Host "Toplam siparis: $bulkOrderCount" -ForegroundColor White
+$orderResults | Format-Table -AutoSize
+
+Write-Host "`n=== Onemli Notlar ===" -ForegroundColor Yellow
+Write-Host "1. Toplu siparis tamamlandi" -ForegroundColor Green
+Write-Host "2. Her siparis farkli link ile olusturuldu" -ForegroundColor Green
+Write-Host "3. Admin panelde siparisleri kontrol edin" -ForegroundColor Yellow
+Write-Host "4. Provider bakiye yoksa: Failed durumunda gorunmeli" -ForegroundColor Yellow
+Write-Host "5. 3 dakika sonra alert email gelmeli" -ForegroundColor Yellow
 
 Write-Host "`n=== Test Tamamlandi ===" -ForegroundColor Cyan
 Write-Host "Admin paneli kontrol edin: http://localhost:8888/admin/orders.html" -ForegroundColor White

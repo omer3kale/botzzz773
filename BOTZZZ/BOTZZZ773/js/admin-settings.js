@@ -1,11 +1,10 @@
+﻿/* eslint-disable */
+/* global showNotification, createModal, closeModal */
 // Admin Settings Management with Full Panel Implementation
 // Note: createModal() and closeModal() are now in admin.js (shared across all pages)
-window.initializeAdminPopupSurface?.('Admin settings window');
-
 let settingsProvidersCache = [];
 let settingsProvidersLoading = false;
 let lastSettingsProvidersRefreshAt = null;
-
 const SETTINGS_SECTION_CONFIG = {
     general: {
         formId: 'generalSettingsForm',
@@ -56,7 +55,6 @@ const SETTINGS_SECTION_CONFIG = {
         storageKey: 'integrations'
     }
 };
-
 const SETTINGS_UI_SECTION_MAP = {
     general: 'general',
     payments: 'payment',
@@ -67,10 +65,8 @@ const SETTINGS_UI_SECTION_MAP = {
     modules: 'modules',
     integrations: 'integrations'
 };
-
 let adminSettingsCache = null;
 let adminSettingsPromise = null;
-
 function attachSettingsQuickActionCard(element, handler) {
     if (!element || typeof handler !== 'function') {
         return;
@@ -83,26 +79,21 @@ function attachSettingsQuickActionCard(element, handler) {
         }
     });
 }
-
 function setSettingsRefreshStatus(message) {
     const statusEl = document.getElementById('settingsRefreshStatus');
     if (statusEl) {
         statusEl.textContent = message;
     }
 }
-
 function updateSettingsProvidersSummary() {
     const countEl = document.getElementById('settingsProvidersCount');
     const detailEl = document.getElementById('settingsProvidersDetail');
     const cardEl = document.getElementById('settingsProvidersCard');
-
     if (!countEl || !detailEl || !cardEl) {
         return;
     }
-
     const total = settingsProvidersCache.length;
     const active = settingsProvidersCache.filter(provider => (provider.status || '').toLowerCase() === 'active').length;
-
     if (total === 0) {
         countEl.textContent = 'No providers';
         detailEl.textContent = 'Connect an SMM provider to start syncing services.';
@@ -117,20 +108,16 @@ function updateSettingsProvidersSummary() {
             detailEl.textContent = `${paused} provider${paused === 1 ? '' : 's'} paused. Review status before syncing.`;
         }
     }
-
     cardEl.classList.toggle('is-active', total > 0);
     cardEl.setAttribute('aria-pressed', total > 0 ? 'true' : 'false');
 }
-
 function updateSettingsModulesSummary() {
     const primaryEl = document.getElementById('settingsModulesStatus');
     const detailEl = document.getElementById('settingsModulesDetail');
     const cardEl = document.getElementById('settingsModulesCard');
-
     if (!primaryEl || !detailEl || !cardEl) {
         return;
     }
-
     const toggles = document.querySelectorAll('#modules-section input[type="checkbox"]');
     if (toggles.length === 0) {
         primaryEl.textContent = 'Feature controls';
@@ -139,7 +126,6 @@ function updateSettingsModulesSummary() {
         cardEl.setAttribute('aria-pressed', 'false');
         return;
     }
-
     const enabled = Array.from(toggles).filter(toggle => toggle.checked).length;
     const total = toggles.length;
     primaryEl.textContent = `${enabled} of ${total} features on`;
@@ -149,31 +135,26 @@ function updateSettingsModulesSummary() {
     cardEl.classList.add('is-active');
     cardEl.setAttribute('aria-pressed', 'true');
 }
-
 function scrollToSettingsSection(sectionId) {
     const section = document.getElementById(sectionId);
     if (section) {
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 }
-
 function openSettingsProvidersPanel() {
     showSettingsSection('providers');
     updateSettingsProvidersSummary();
     scrollToSettingsSection('providers-section');
 }
-
 function openAddProviderQuickAction() {
     openSettingsProvidersPanel();
     addProvider();
 }
-
 function openSettingsModulesPanel() {
     showSettingsSection('modules');
     updateSettingsModulesSummary();
     scrollToSettingsSection('modules-section');
 }
-
 function triggerSettingsProvidersRefresh() {
     if (settingsProvidersLoading) {
         showNotification('Providers are already refreshing. Please wait...', 'info');
@@ -181,7 +162,6 @@ function triggerSettingsProvidersRefresh() {
     }
     loadProviders();
 }
-
 function initializeSettingsQuickActions() {
     attachSettingsQuickActionCard(document.getElementById('settingsProvidersCard'), openSettingsProvidersPanel);
     attachSettingsQuickActionCard(document.getElementById('settingsAddProviderCard'), openAddProviderQuickAction);
@@ -193,46 +173,38 @@ function initializeSettingsQuickActions() {
         setSettingsRefreshStatus('Sync latest updates');
     }
 }
-
 // Show settings section
 function showSettingsSection(section, navEvent) {
     if (navEvent) {
         navEvent.preventDefault();
     }
-
     const navItems = document.querySelectorAll('.settings-nav-item');
     navItems.forEach(item => item.classList.remove('active'));
-
     const targetNav = navEvent?.currentTarget || document.querySelector(`.settings-nav-item[data-section="${section}"]`);
     if (targetNav) {
         targetNav.classList.add('active');
     }
-
     document.querySelectorAll('.settings-section').forEach(sec => {
         sec.style.display = 'none';
     });
-
     const sectionElement = document.getElementById(`${section}-section`);
     if (sectionElement) {
         sectionElement.style.display = 'block';
     } else {
         loadSettingsSection(section);
     }
-
     if (section === 'modules') {
         updateSettingsModulesSummary();
     }
     if (section === 'providers') {
         updateSettingsProvidersSummary();
     }
-
     if (typeof applyStoredSettingsToSection === 'function') {
         applyStoredSettingsToSection(section);
     }
 }
-
 // Load settings section dynamically
-function loadSettingsSection(section) {
+async function loadSettingsSection(section) {
     const container = document.querySelector('.settings-content');
     const sections = {
         general: generateGeneralSettings(),
@@ -245,12 +217,10 @@ function loadSettingsSection(section) {
         signup: generateSignupSettings(),
         ticket: generateTicketSettings()
     };
-    
     if (sections[section]) {
         // Hide providers section
         const providersSection = document.getElementById('providers-section');
         if (providersSection) providersSection.style.display = 'none';
-        
         // Add new section if it doesn't exist
         let sectionEl = document.getElementById(`${section}-section`);
         if (!sectionEl) {
@@ -261,34 +231,43 @@ function loadSettingsSection(section) {
             container.appendChild(sectionEl);
         }
         sectionEl.style.display = 'block';
+        
+        // Attach form submit handler
+        const config = SETTINGS_SECTION_CONFIG[section];
+        if (config) {
+            const form = document.getElementById(config.formId);
+            if (form) {
+                form.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    await submitSettingsSection(section);
+                });
+            }
+        }
+        
         if (section === 'modules') {
             updateSettingsModulesSummary();
         }
         if (typeof applyStoredSettingsToSection === 'function') {
-            applyStoredSettingsToSection(section);
+            await applyStoredSettingsToSection(section);
         }
     }
 }
-
 function isRadioNodeList(element) {
     if (typeof RadioNodeList !== 'undefined' && element instanceof RadioNodeList) {
         return true;
     }
     return Boolean(element && typeof element.length === 'number' && typeof element.item === 'function');
 }
-
 function serializeForm(form) {
     const data = {};
     Array.from(form?.elements || []).forEach(field => {
         if (!field.name || field.disabled) {
             return;
         }
-
         if (field.type === 'checkbox') {
             data[field.name] = field.checked;
             return;
         }
-
         if (field.type === 'radio') {
             if (field.checked) {
                 data[field.name] = field.value;
@@ -297,39 +276,32 @@ function serializeForm(form) {
             }
             return;
         }
-
         data[field.name] = field.value;
     });
     return data;
 }
-
 function populateFormValues(form, values = {}) {
     if (!form) {
         return;
     }
-
     Object.entries(values).forEach(([name, value]) => {
         const field = form.elements[name];
         if (!field) {
             return;
         }
-
         if (isRadioNodeList(field)) {
             Array.from(field).forEach(radio => {
                 radio.checked = radio.value === String(value);
             });
             return;
         }
-
         if (field.type === 'checkbox') {
             field.checked = Boolean(value);
             return;
         }
-
         field.value = value ?? '';
     });
 }
-
 function updateSettingsCache(storageKey, values) {
     if (!storageKey) {
         return;
@@ -339,12 +311,10 @@ function updateSettingsCache(storageKey, values) {
     }
     adminSettingsCache[storageKey] = values;
 }
-
 async function getStoredSettings(forceRefresh = false) {
     if (adminSettingsCache && !forceRefresh) {
         return adminSettingsCache;
     }
-
     if (!adminSettingsPromise || forceRefresh) {
         adminSettingsPromise = fetchSettingsFromServer()
             .then(settings => {
@@ -356,24 +326,20 @@ async function getStoredSettings(forceRefresh = false) {
                 throw error;
             });
     }
-
     return adminSettingsPromise;
 }
-
 async function fetchSettingsFromServer() {
     const token = localStorage.getItem('token');
     if (!token) {
         console.warn('[WARN] No auth token found while fetching settings');
         return {};
     }
-
     try {
         const response = await fetch('/.netlify/functions/settings', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
-
         if (!response.ok) {
             let errorMessage = 'Failed to load settings';
             try {
@@ -384,7 +350,6 @@ async function fetchSettingsFromServer() {
             }
             throw new Error(errorMessage);
         }
-
         const data = await response.json();
         return data.settings || {};
     } catch (error) {
@@ -395,18 +360,15 @@ async function fetchSettingsFromServer() {
         return {};
     }
 }
-
 async function applyStoredSettingsToSection(section) {
     const configKey = SETTINGS_UI_SECTION_MAP[section];
     if (!configKey) {
         return;
     }
-
     const config = SETTINGS_SECTION_CONFIG[configKey];
     if (!config) {
         return;
     }
-
     try {
         const settings = await getStoredSettings();
         const values = settings?.[config.storageKey];
@@ -419,22 +381,18 @@ async function applyStoredSettingsToSection(section) {
         console.warn(`[WARN] Failed to hydrate ${section} settings:`, error);
     }
 }
-
 async function submitSettingsSection(configKey) {
     const config = SETTINGS_SECTION_CONFIG[configKey];
     if (!config) {
         console.warn(`[WARN] No settings config found for ${configKey}`);
         return;
     }
-
     const form = document.getElementById(config.formId);
     if (!form) {
         showNotification('Settings form not found', 'error');
         return;
     }
-
     const settings = serializeForm(form);
-
     try {
         await sendSettingsUpdate(config, settings);
         showNotification(config.successMessage, 'success');
@@ -443,13 +401,11 @@ async function submitSettingsSection(configKey) {
         showNotification(error.message || 'Failed to save settings', 'error');
     }
 }
-
 async function sendSettingsUpdate(config, settings) {
     const token = localStorage.getItem('token');
     if (!token) {
         throw new Error('Please login to save settings');
     }
-
     const response = await fetch('/.netlify/functions/settings', {
         method: 'POST',
         headers: {
@@ -461,22 +417,18 @@ async function sendSettingsUpdate(config, settings) {
             settings
         })
     });
-
     let data = {};
     try {
         data = await response.json();
     } catch (error) {
         console.warn('[WARN] Non-JSON response while saving settings');
     }
-
     if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to save settings');
     }
-
     updateSettingsCache(config.storageKey, settings);
     return data;
 }
-
 // Generate General Settings HTML
 function generateGeneralSettings() {
     return `
@@ -506,7 +458,6 @@ function generateGeneralSettings() {
                     <input type="email" name="supportEmail" value="support@smmPanel.com">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-palette"></i> Appearance</h3>
                 <div class="form-group">
@@ -528,7 +479,6 @@ function generateGeneralSettings() {
                     </label>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-users"></i> User Settings</h3>
                 <div class="form-group">
@@ -554,7 +504,6 @@ function generateGeneralSettings() {
                     </label>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-cog"></i> System Settings</h3>
                 <div class="form-group">
@@ -589,7 +538,6 @@ function generateGeneralSettings() {
         </form>
     `;
 }
-
 // Generate Payment Settings HTML
 function generatePaymentSettings() {
     return `
@@ -617,7 +565,6 @@ function generatePaymentSettings() {
                     <input type="password" name="stripeSecret" placeholder="sk_live_...">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fab fa-paypal"></i> PayPal</h3>
                 <div class="form-group">
@@ -642,7 +589,6 @@ function generatePaymentSettings() {
                     </select>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fab fa-bitcoin"></i> Cryptocurrency</h3>
                 <div class="form-group">
@@ -664,7 +610,6 @@ function generatePaymentSettings() {
                     <input type="text" name="usdtAddress" placeholder="T...">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-university"></i> Bank Transfer</h3>
                 <div class="form-group">
@@ -689,17 +634,17 @@ function generatePaymentSettings() {
         </form>
     `;
 }
-
 // Generate Module Settings HTML
 function generateModuleSettings() {
     return `
-        <div class="settings-header">
-            <h2>Modules & Features</h2>
-            <button class="btn-primary" onclick="saveModuleSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <form id="modulesSettingsForm" class="settings-form-grid">
+        <form id="modulesSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Modules & Features</h2>
+                <button type="button" class="btn-primary" onclick="saveModuleSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-toggle-on"></i> Core Modules</h3>
                 <div class="module-list">
@@ -745,7 +690,6 @@ function generateModuleSettings() {
                     </div>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-plug"></i> Optional Features</h3>
                 <div class="module-list">
@@ -790,20 +734,38 @@ function generateModuleSettings() {
                     </div>
                 </div>
             </div>
+            </div>
         </form>
     `;
 }
-
 // Generate Integration Settings HTML
 function generateIntegrationSettings() {
     return `
-        <div class="settings-header">
-            <h2>Third-Party Integrations</h2>
-            <button class="btn-primary" onclick="saveIntegrationSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <form id="integrationsSettingsForm" class="settings-form-grid">
+        <form id="integrationsSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Third-Party Integrations</h2>
+                <button type="button" class="btn-primary" onclick="saveIntegrationSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
+            <div class="settings-card">
+                <h3><i class="fas fa-comments"></i> Contact Links</h3>
+                <div class="form-group">
+                    <label>WhatsApp Link</label>
+                    <input type="url" name="whatsappLink" placeholder="https://wa.me/1234567890">
+                </div>
+                <div class="form-group">
+                    <label>Telegram Link</label>
+                    <input type="url" name="telegramLink" placeholder="https://t.me/yourusername">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="showContactButtons" checked>
+                        Show Contact Buttons on All Pages
+                    </label>
+                </div>
+            </div>
             <div class="settings-card">
                 <h3><i class="fab fa-google"></i> Analytics Tracking</h3>
                 <div class="form-group">
@@ -835,7 +797,6 @@ function generateIntegrationSettings() {
                     </label>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fab fa-facebook"></i> Facebook Pixel</h3>
                 <div class="form-group">
@@ -849,7 +810,6 @@ function generateIntegrationSettings() {
                     <input type="text" name="fbPixelId" placeholder="XXXXXXXXXXXXXXX">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-comments"></i> Live Chat</h3>
                 <div class="form-group">
@@ -866,7 +826,6 @@ function generateIntegrationSettings() {
                     <textarea name="chatCode" rows="4" placeholder="Paste chat widget code"></textarea>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-bug"></i> Error Tracking (Sentry)</h3>
                 <div class="form-group">
@@ -898,7 +857,6 @@ function generateIntegrationSettings() {
                     <input type="number" name="sentryReplaysOnErrorSampleRate" step="0.1" min="0" max="1" placeholder="1.0">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-video"></i> Session Replay (LogRocket)</h3>
                 <div class="form-group">
@@ -922,7 +880,6 @@ function generateIntegrationSettings() {
                     </label>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-heartbeat"></i> Uptime Monitoring</h3>
                 <div class="form-group">
@@ -958,7 +915,6 @@ function generateIntegrationSettings() {
                     </div>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fab fa-telegram"></i> Telegram</h3>
                 <div class="form-group">
@@ -976,20 +932,21 @@ function generateIntegrationSettings() {
                     <input type="text" name="telegramChatId" placeholder="123456789">
                 </div>
             </div>
+            </div>
         </form>
     `;
 }
-
 // Generate Notification Settings HTML
 function generateNotificationSettings() {
     return `
-        <div class="settings-header">
-            <h2>Notification Settings</h2>
-            <button class="btn-primary" onclick="saveNotificationSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <div class="settings-form-grid">
+        <form id="notificationSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Notification Settings</h2>
+                <button type="button" class="btn-primary" onclick="saveNotificationSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-envelope"></i> Email Notifications</h3>
                 <div class="notification-list">
@@ -1023,9 +980,15 @@ function generateNotificationSettings() {
                             New Support Ticket
                         </label>
                     </div>
+                    <div class="notification-item">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" name="providerLowBalanceAlertEnabled" checked>
+                            Provider Low Balance Alert
+                            <input type="number" name="providerLowBalanceThreshold" value="0.5" step="0.01" min="0" style="width: 80px; padding: 4px 8px; font-size: 12px;" placeholder="USD">
+                        </label>
+                    </div>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-bell"></i> Admin Notifications</h3>
                 <div class="notification-list">
@@ -1043,13 +1006,18 @@ function generateNotificationSettings() {
                     </div>
                     <div class="notification-item">
                         <label>
+                            <input type="checkbox" name="priceChangeAlertEnabled" checked>
+                            Service Price Change Alert
+                        </label>
+                    </div>
+                    <div class="notification-item">
+                        <label>
                             <input type="checkbox" name="adminHighRefund">
                             High Refund Rate Warning
                         </label>
                     </div>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-server"></i> SMTP Settings</h3>
                 <div class="form-group">
@@ -1062,31 +1030,37 @@ function generateNotificationSettings() {
                 </div>
                 <div class="form-group">
                     <label>SMTP Username</label>
-                    <input type="text" name="smtpUsername" placeholder="your@email.com">
+                    <input type="text" name="smtpUser" placeholder="your@email.com">
                 </div>
                 <div class="form-group">
                     <label>SMTP Password</label>
-                    <input type="password" name="smtpPassword">
+                    <input type="password" name="smtpPass">
                 </div>
                 <div class="form-group">
                     <label>From Email</label>
-                    <input type="email" name="smtpFrom" placeholder="noreply@yoursite.com">
+                    <div style="display: flex; gap: 8px; align-items: flex-end;">
+                        <input type="email" name="smtpFrom" placeholder="noreply@yoursite.com" style="flex: 1;">
+                        <button type="button" class="btn-secondary" onclick="testNotificationEmail()" style="white-space: nowrap;">
+                            <i class="fas fa-envelope"></i> Test Send
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+            </div>
+        </form>
     `;
 }
-
 // Generate Bonus Settings HTML
 function generateBonusSettings() {
     return `
-        <div class="settings-header">
-            <h2>Bonus & Rewards</h2>
-            <button class="btn-primary" onclick="saveBonusSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <div class="settings-form-grid">
+        <form id="bonusSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Bonus & Rewards</h2>
+                <button type="button" class="btn-primary" onclick="saveBonusSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-user-plus"></i> Signup Bonus</h3>
                 <div class="form-group">
@@ -1104,7 +1078,6 @@ function generateBonusSettings() {
                     <input type="number" name="signupBonusMinDeposit" value="10.00" step="0.01">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-users"></i> Referral Program</h3>
                 <div class="form-group">
@@ -1130,7 +1103,6 @@ function generateBonusSettings() {
                     </select>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-crown"></i> Loyalty Tiers</h3>
                 <div class="form-group">
@@ -1158,19 +1130,20 @@ function generateBonusSettings() {
                 </div>
             </div>
         </div>
+        </form>
     `;
 }
-
 // Generate Signup Settings HTML
 function generateSignupSettings() {
     return `
-        <div class="settings-header">
-            <h2>Signup Form Settings</h2>
-            <button class="btn-primary" onclick="saveSignupSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <div class="settings-form-grid">
+        <form id="signupSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Signup Form Settings</h2>
+                <button type="button" class="btn-primary" onclick="saveSignupSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-user-plus"></i> Registration</h3>
                 <div class="form-group">
@@ -1200,7 +1173,6 @@ function generateSignupSettings() {
                     <input type="password" name="recaptchaSecretKey">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-shield-alt"></i> Password Policy</h3>
                 <div class="form-group">
@@ -1226,7 +1198,6 @@ function generateSignupSettings() {
                     </label>
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-file-alt"></i> Terms & Conditions</h3>
                 <div class="form-group">
@@ -1245,19 +1216,20 @@ function generateSignupSettings() {
                 </div>
             </div>
         </div>
+        </form>
     `;
 }
-
 // Generate Ticket Settings HTML
 function generateTicketSettings() {
     return `
-        <div class="settings-header">
-            <h2>Ticket Form Settings</h2>
-            <button class="btn-primary" onclick="saveTicketSettings()">
-                <i class="fas fa-save"></i> Save Changes
-            </button>
-        </div>
-        <div class="settings-form-grid">
+        <form id="ticketSettingsForm" class="settings-form">
+            <div class="settings-header">
+                <h2>Ticket Form Settings</h2>
+                <button type="button" class="btn-primary" onclick="saveTicketSettings()">
+                    <i class="fas fa-save"></i> Save Changes
+                </button>
+            </div>
+            <div class="settings-form-grid">
             <div class="settings-card">
                 <h3><i class="fas fa-ticket-alt"></i> Ticket System</h3>
                 <div class="form-group">
@@ -1281,7 +1253,6 @@ function generateTicketSettings() {
                     <input type="number" name="autoCloseDays" value="7" min="1">
                 </div>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-tags"></i> Ticket Categories</h3>
                 <div class="category-list">
@@ -1306,7 +1277,6 @@ function generateTicketSettings() {
                     <i class="fas fa-plus"></i> Add Category
                 </button>
             </div>
-
             <div class="settings-card">
                 <h3><i class="fas fa-bolt"></i> Priority Levels</h3>
                 <div class="priority-list">
@@ -1331,45 +1301,35 @@ function generateTicketSettings() {
         </div>
     `;
 }
-
 // Save Functions
 async function saveGeneralSettings() {
     return submitSettingsSection('general');
 }
-
 async function savePaymentSettings() {
     return submitSettingsSection('payment');
 }
-
 async function saveNotificationSettings() {
     return submitSettingsSection('notification');
 }
-
 async function saveBonusSettings() {
     return submitSettingsSection('bonus');
 }
-
 async function saveSignupSettings() {
     return submitSettingsSection('signup');
 }
-
 async function saveTicketSettings() {
     return submitSettingsSection('ticket');
 }
-
 async function saveModuleSettings() {
     return submitSettingsSection('modules');
 }
-
 async function saveIntegrationSettings() {
     return submitSettingsSection('integrations');
 }
-
 function toggleModule(module, enabled) {
     showNotification(`${module} module ${enabled ? 'enabled' : 'disabled'}`, 'success');
     updateSettingsModulesSummary();
 }
-
 function addTicketCategory() {
     const content = `
         <form id="addCategoryForm" class="admin-form">
@@ -1379,21 +1339,17 @@ function addTicketCategory() {
             </div>
         </form>
     `;
-    
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="submit" form="addCategoryForm" class="btn-primary">Add Category</button>
     `;
-    
     createModal('Add Ticket Category', content, actions);
-    
     document.getElementById('addCategoryForm').addEventListener('submit', (e) => {
         e.preventDefault();
         showNotification('Category added successfully!', 'success');
         closeModal();
     });
 }
-
 // Provider Management Functions
 function addProvider() {
     const content = `
@@ -1425,22 +1381,18 @@ function addProvider() {
             </div>
         </form>
     `;
-    
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="submit" form="addProviderForm" class="btn-primary">
             <i class="fas fa-plus"></i> Add Provider
         </button>
     `;
-    
     createModal('Add New Provider', content, actions);
 }
-
 function submitAddProvider(event) {
     event.preventDefault();
     const formData = new FormData(event.target);
     const providerData = Object.fromEntries(formData);
-    
     // Show loading state
     const submitBtn = document.querySelector('button[form="addProviderForm"]');
     const originalBtnHTML = submitBtn ? submitBtn.innerHTML : '';
@@ -1448,7 +1400,6 @@ function submitAddProvider(event) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
     }
-    
     console.log('[DEBUG] Creating provider:', {
         name: providerData.providerName,
         apiUrl: providerData.apiUrl,
@@ -1456,7 +1407,6 @@ function submitAddProvider(event) {
         markup: parseFloat(providerData.markup) || 15,
         status: (providerData.status || 'Active').toLowerCase()
     });
-    
     // Call backend API to add provider
     fetch('/.netlify/functions/providers', {
         method: 'POST',
@@ -1483,7 +1433,6 @@ function submitAddProvider(event) {
     })
     .then(({ status, ok, data }) => {
         console.log('[DEBUG] Provider creation response:', { status, ok, data });
-        
         if (data.success) {
             showNotification(`Provider "${providerData.providerName}" added successfully!`, 'success');
             closeModal();
@@ -1511,12 +1460,10 @@ function submitAddProvider(event) {
         }
     });
 }
-
 // Load providers from backend
 async function loadProviders() {
     const grid = document.getElementById('providersGrid');
     if (!grid) return;
-
     settingsProvidersLoading = true;
     const refreshCard = document.getElementById('settingsRefreshCard');
     if (refreshCard) {
@@ -1524,10 +1471,8 @@ async function loadProviders() {
         refreshCard.setAttribute('aria-pressed', 'true');
     }
     setSettingsRefreshStatus('Refreshing...');
-
     // Show loading state
     grid.innerHTML = '<div class="loading" style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #888;"></i><p style="margin-top: 1rem; color: #888;">Loading providers...</p></div>';
-
     try {
         const response = await fetch('/.netlify/functions/providers', {
             headers: {
@@ -1535,9 +1480,7 @@ async function loadProviders() {
                 'Content-Type': 'application/json'
             }
         });
-
         const data = await response.json();
-
         if (data.success && data.providers) {
             settingsProvidersCache = Array.isArray(data.providers) ? data.providers : [];
             displayProviders(settingsProvidersCache);
@@ -1579,15 +1522,12 @@ async function loadProviders() {
         }
     }
 }
-
 // Display providers in the grid
 function displayProviders(providers) {
     const providersGrid = document.getElementById('providersGrid');
-    
     if (!providersGrid) return;
     settingsProvidersCache = Array.isArray(providers) ? providers : [];
     updateSettingsProvidersSummary();
-    
     if (settingsProvidersCache.length === 0) {
         providersGrid.innerHTML = `
             <div class="empty-state" style="text-align: center; padding: 40px;">
@@ -1598,49 +1538,41 @@ function displayProviders(providers) {
         `;
         return;
     }
-    
-    providersGrid.innerHTML = settingsProvidersCache.map(provider => `
-        <div class="provider-card">
-            <div class="provider-header">
-                <div class="provider-info">
-                    <h3>${escapeHtml(provider.name)}</h3>
+    providersGrid.innerHTML = `
+        <div class="providers-list">
+            ${settingsProvidersCache.map(provider => `
+                <div class="provider-list-item">
+                    <div class="provider-name">
+                        <i class="fas fa-plug"></i>
+                        <span>${escapeHtml(provider.name)}</span>
+                    </div>
                     <span class="status-badge ${provider.status === 'active' ? 'completed' : 'pending'}">${provider.status}</span>
+                    <div class="provider-balance">
+                        <i class="fas fa-wallet"></i>
+                        <span>$${(provider.balance || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="provider-actions-row">
+                        <button class="btn-icon" onclick="toggleProviderAlerts('${provider.id}', ${!provider.low_balance_alerts_enabled})" title="Toggle Balance Alerts" style="color: ${provider.low_balance_alerts_enabled ? '#25D366' : '#888'}; background-color: ${provider.low_balance_alerts_enabled ? 'rgba(37, 211, 102, 0.1)' : 'transparent'};">
+                            <i class="fas fa-bell"></i>
+                        </button>
+                        <button class="btn-secondary btn-sm" onclick="testProvider('${provider.id}')" title="Test API Connection">
+                            <i class="fas fa-check-circle"></i> Test
+                        </button>
+                        <button class="btn-primary btn-sm" onclick="syncProvider('${provider.id}')" title="Sync Services from Provider">
+                            <i class="fas fa-sync"></i> Sync
+                        </button>
+                        <button class="btn-icon" onclick="editProvider('${provider.id}')" title="Edit Provider">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn-icon btn-danger" onclick="deleteProvider('${provider.id}')" title="Delete Provider">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="provider-actions">
-                    <button class="btn-icon" onclick="editProvider('${provider.id}')" title="Edit">
-                        <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="btn-icon" onclick="deleteProvider('${provider.id}')" title="Delete">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="provider-details">
-                <div class="provider-detail-item">
-                    <span class="detail-label">API URL:</span>
-                    <span class="detail-value">${escapeHtml(provider.api_url)}</span>
-                </div>
-                <div class="provider-detail-item">
-                    <span class="detail-label">API Key:</span>
-                    <span class="detail-value">••••••${provider.api_key ? provider.api_key.slice(-4) : '••••'}</span>
-                </div>
-                <div class="provider-detail-item">
-                    <span class="detail-label">Markup:</span>
-                    <span class="detail-value">${provider.markup}%</span>
-                </div>
-            </div>
-            <div class="provider-footer">
-                <button class="btn-secondary btn-sm" onclick="syncProvider('${provider.id}')">
-                    <i class="fas fa-sync"></i> Sync Provider
-                </button>
-                <button class="btn-secondary btn-sm" onclick="testProvider('${provider.id}')">
-                    <i class="fas fa-check-circle"></i> Test Connection
-                </button>
-            </div>
+            `).join('')}
         </div>
-    `).join('');
+    `;
 }
-
 // Helper function to escape HTML
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -1648,9 +1580,37 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Toggle provider balance alerts
+async function toggleProviderAlerts(providerId, enabled) {
+    try {
+        const response = await fetch('/.netlify/functions/toggle-provider-alerts', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                providerId,
+                enabled
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            // Reload providers to show updated state
+            await loadProviders();
+        } else {
+            alert(`Error: ${result.error || 'Failed to toggle alerts'}`);
+        }
+    } catch (error) {
+        console.error('Toggle provider alerts error:', error);
+        alert('Error toggling provider alerts: ' + error.message);
+    }
+}
+
 async function editProvider(providerId) {
     console.log('[DEBUG] Editing provider:', providerId);
-    
     // Show loading modal first
     createModal('Edit Provider', `
         <div style="text-align: center; padding: 40px;">
@@ -1658,7 +1618,6 @@ async function editProvider(providerId) {
             <p>Loading provider data...</p>
         </div>
     `);
-    
     try {
         // Fetch the current provider data
         const response = await fetch('/.netlify/functions/providers', {
@@ -1667,20 +1626,15 @@ async function editProvider(providerId) {
                 'Content-Type': 'application/json'
             }
         });
-        
         const data = await response.json();
-        
         if (!data.success || !data.providers) {
             throw new Error('Failed to load provider data');
         }
-        
         // Find the specific provider
         const provider = data.providers.find(p => p.id === providerId);
-        
         if (!provider) {
             throw new Error('Provider not found');
         }
-        
         // Now show the edit form with actual data
         const content = `
             <form id="editProviderForm" onsubmit="submitEditProvider(event, '${providerId}')" class="admin-form">
@@ -1712,16 +1666,13 @@ async function editProvider(providerId) {
                 </div>
             </form>
         `;
-        
         const actions = `
             <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
             <button type="submit" form="editProviderForm" class="btn-primary">
                 <i class="fas fa-save"></i> Save Changes
             </button>
         `;
-        
         createModal(`Edit Provider: ${escapeHtml(provider.name)}`, content, actions);
-        
     } catch (error) {
         console.error('Error loading provider:', error);
         const content = `
@@ -1734,21 +1685,17 @@ async function editProvider(providerId) {
         createModal('Error', content);
     }
 }
-
 function submitEditProvider(event, providerId) {
     event.preventDefault();
     console.log('[DEBUG] Submitting edit for provider:', providerId);
-    
     const formData = new FormData(event.target);
     const providerData = Object.fromEntries(formData);
-    
     // Disable submit button
     const submitBtn = event.target.querySelector('button[type="submit"]');
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
     }
-    
     const payload = {
         providerId: providerId,
         name: providerData.providerName,
@@ -1757,9 +1704,7 @@ function submitEditProvider(event, providerId) {
         markup: parseFloat(providerData.markup) || 0,
         status: providerData.status
     };
-    
     console.log('[DEBUG] Update payload:', payload);
-    
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'PUT',
         headers: {
@@ -1792,7 +1737,6 @@ function submitEditProvider(event, providerId) {
         }
     });
 }
-
 function deleteProvider(providerId) {
     const content = `
         <div class="confirmation-message danger">
@@ -1803,20 +1747,16 @@ function deleteProvider(providerId) {
             </p>
         </div>
     `;
-    
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
         <button type="button" class="btn-danger" onclick="confirmDeleteProvider(${providerId})">
             <i class="fas fa-trash"></i> Delete Provider
         </button>
     `;
-    
     createModal('Delete Provider', content, actions);
 }
-
 function confirmDeleteProvider(providerId) {
     console.log('[DEBUG] Deleting provider:', providerId);
-    
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'DELETE',
         headers: {
@@ -1844,10 +1784,8 @@ function confirmDeleteProvider(providerId) {
         showNotification(error.message || 'Failed to delete provider', 'error');
     });
 }
-
 async function syncProvider(providerId) {
     console.log('[DEBUG] Syncing provider:', providerId);
-    
     const content = `
         <div style="text-align: center; padding: 20px;">
             <i class="fas fa-sync fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
@@ -1858,12 +1796,9 @@ async function syncProvider(providerId) {
             <p id="syncStatus" style="color: #888; margin-top: 12px;">Connecting to provider API...</p>
         </div>
     `;
-    
     createModal('Syncing Services', content, '', false); // No close button during sync
-    
     try {
         const token = localStorage.getItem('token');
-        
         // Update progress
         const updateProgress = (percent, status) => {
             const progressBar = document.getElementById('syncProgress');
@@ -1871,9 +1806,7 @@ async function syncProvider(providerId) {
             if (progressBar) progressBar.style.width = percent + '%';
             if (statusText) statusText.textContent = status;
         };
-        
         updateProgress(50, 'Fetching services from provider...');
-        
         const response = await fetch('/.netlify/functions/providers', {
             method: 'POST',
             headers: {
@@ -1885,9 +1818,7 @@ async function syncProvider(providerId) {
                 providerId: providerId
             })
         });
-        
         updateProgress(80, 'Processing services...');
-        
         let data;
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -1901,17 +1832,13 @@ async function syncProvider(providerId) {
                 throw new Error('Invalid response from server');
             }
         }
-        
         console.log('[DEBUG] Sync response:', data);
-        
         if (data.success) {
             updateProgress(100, 'Sync completed!');
-            
             const message = `Successfully synced services!\n` +
                 `Added: ${data.added || 0}\n` +
                 `Updated: ${data.updated || 0}\n` +
                 `Total: ${data.total || 0}`;
-            
             setTimeout(() => {
                 closeModal();
                 showNotification(message, 'success');
@@ -1930,17 +1857,14 @@ async function syncProvider(providerId) {
         if (statusText) {
             statusText.innerHTML = `<span style="color: #ef4444;">❌ ${error.message}</span>`;
         }
-        
         setTimeout(() => {
             closeModal();
             showNotification('Sync failed: ' + error.message, 'error');
         }, 2000);
     }
 }
-
 async function testProvider(providerId) {
     console.log('[DEBUG] Testing provider:', providerId);
-    
     const content = `
         <div style="text-align: center; padding: 20px;">
             <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
@@ -1948,12 +1872,9 @@ async function testProvider(providerId) {
             <p id="testStatus" style="color: #888; margin-top: 12px;">Connecting to API...</p>
         </div>
     `;
-    
     createModal('Testing Connection', content, '', false);
-    
     try {
         const token = localStorage.getItem('token');
-        
         const response = await fetch('/.netlify/functions/providers', {
             method: 'POST',
             headers: {
@@ -1965,7 +1886,6 @@ async function testProvider(providerId) {
                 providerId: providerId
             })
         });
-        
         let data;
         const contentType = response.headers.get('content-type');
         if (contentType && contentType.includes('application/json')) {
@@ -1979,11 +1899,8 @@ async function testProvider(providerId) {
                 throw new Error('Invalid response from server');
             }
         }
-        
         console.log('[DEBUG] Test response:', data);
-        
         closeModal();
-        
         if (data.success) {
             const resultContent = `
                 <div style="text-align: center; padding: 20px;">
@@ -2011,11 +1928,9 @@ async function testProvider(providerId) {
                     </div>
                 </div>
             `;
-            
             const actions = `
                 <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
             `;
-            
             createModal('Connection Test Result', resultContent, actions);
         } else {
             throw new Error(data.error || 'Connection test failed');
@@ -2023,7 +1938,6 @@ async function testProvider(providerId) {
     } catch (error) {
         console.error('[ERROR] Test provider failed:', error);
         closeModal();
-        
         const errorContent = `
             <div style="text-align: center; padding: 20px;">
                 <i class="fas fa-times-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 20px;"></i>
@@ -2034,15 +1948,12 @@ async function testProvider(providerId) {
                 <p style="color: #888; margin-top: 12px; font-size: 14px;">Please check your API credentials and try again.</p>
             </div>
         `;
-        
         const actions = `
             <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
         `;
-        
         createModal('Connection Test Result', errorContent, actions);
     }
 }
-
 // Initialize on load
 document.addEventListener('DOMContentLoaded', async () => {
     initializeSettingsQuickActions();
@@ -2051,7 +1962,179 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (error) {
         console.warn('[WARN] Settings preload failed:', error);
     }
-    showSettingsSection('providers');
+    showSettingsSection('general');
     loadProviders();
 });
-
+// Refresh all provider balances sequentially
+async function refreshProviderBalances() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showNotification('Please sign in first.', 'warning');
+            return;
+        }
+        if (!settingsProvidersCache || settingsProvidersCache.length === 0) {
+            await loadProviders();
+        }
+        const providers = Array.isArray(settingsProvidersCache) ? settingsProvidersCache.slice() : [];
+        if (providers.length === 0) {
+            showNotification('No providers to refresh.', 'warning');
+            return;
+        }
+        const content = `
+            <div style="padding: 20px; text-align: center;">
+                <i class="fas fa-sync fa-spin" style="font-size: 36px; color: #FF1494; margin-bottom: 12px;"></i>
+                <p id="refreshBalanceStatus" style="margin: 6px 0; color: #ccc;">Starting...</p>
+                <p id="refreshBalanceSummary" style="margin: 6px 0; color: #888; font-size: 14px;">0 completed</p>
+            </div>
+        `;
+        createModal('Refreshing provider balances', content, '', false);
+        let successCount = 0, failCount = 0;
+        const statusEl = () => document.getElementById('refreshBalanceStatus');
+        const summaryEl = () => document.getElementById('refreshBalanceSummary');
+        for (const provider of providers) {
+            const statusNode = statusEl();
+            if (statusNode) {
+                statusNode.textContent = `Querying balance for ${provider.name}...`;
+            }
+            try {
+                const response = await fetch('/.netlify/functions/providers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ action: 'test', providerId: provider.id })
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    throw new Error(data.error || 'Balance refresh failed');
+                }
+                successCount += 1;
+            } catch (error) {
+                console.error('[BALANCE REFRESH]', provider.name, error);
+                failCount += 1;
+            }
+            const summaryNode = summaryEl();
+            if (summaryNode) {
+                summaryNode.textContent = `Completed: ${successCount + failCount}/${providers.length}  Success: ${successCount}  Failed: ${failCount}`;
+            }
+        }
+        const statusNode = statusEl();
+        if (statusNode) {
+            statusNode.textContent = 'Done';
+        }
+        setTimeout(() => {
+            closeModal();
+            loadProviders();
+            if (failCount > 0) {
+                showNotification(`Balance refresh completed. Success: ${successCount}, Failed: ${failCount}`, 'warning');
+            } else {
+                showNotification('All provider balances refreshed successfully.', 'success');
+            }
+        }, 800);
+    } catch (error) {
+        console.error('[BALANCE REFRESH]', error);
+        closeModal();
+        showNotification('Error refreshing balances: ' + error.message, 'error');
+    }
+}
+// Toggle low balance alerts for a provider
+async function toggleProviderAlert(providerId, currentlyEnabled) {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showNotification('Please sign in first.', 'warning');
+            return;
+        }
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'toggle_low_balance_alert',
+                provider_id: providerId,
+                alert_enabled: !currentlyEnabled
+            })
+        });
+        const data = await response.json();
+        if (data && data.success) {
+            const idx = settingsProvidersCache.findIndex(p => p.id === providerId);
+            if (idx !== -1) {
+                settingsProvidersCache[idx].alert_on_low_balance = !currentlyEnabled;
+            }
+            displayProviders(settingsProvidersCache);
+            showNotification('Low balance alerts toggled for provider.', 'success');
+        } else {
+            showNotification(data?.error || 'Failed to toggle alerts.', 'error');
+        }
+    } catch (error) {
+        console.error('[toggleProviderAlert] Error:', error);
+        showNotification(error.message || 'Error toggling alerts.', 'error');
+    }
+}
+// Test notification email
+async function testNotificationEmail() {
+    const form = document.getElementById('notificationSettingsForm');
+    if (!form) {
+        showNotification('Settings form not found', 'error');
+        return;
+    }
+    
+    const smtpHost = form.querySelector('input[name="smtpHost"]')?.value;
+    const smtpPort = form.querySelector('input[name="smtpPort"]')?.value;
+    const smtpUser = form.querySelector('input[name="smtpUser"]')?.value;
+    const smtpPass = form.querySelector('input[name="smtpPass"]')?.value;
+    const smtpFromAddress = form.querySelector('input[name="smtpFrom"]')?.value;
+    
+    if (!smtpHost || !smtpPort || !smtpUser || !smtpPass || !smtpFromAddress) {
+        showNotification('Please fill all SMTP fields first', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/.netlify/functions/notifications', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                action: 'send-test-email',
+                smtpHost,
+                smtpPort: parseInt(smtpPort),
+                smtpUser,
+                smtpPass,
+                smtpFromAddress
+            })
+        });
+        
+        const responseText = await response.text();
+        console.log('[testNotificationEmail] Response:', responseText);
+        
+        if (!response.ok) {
+            showNotification(`Server error: ${response.status}`, 'error');
+            return;
+        }
+        
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            console.error('[testNotificationEmail] JSON parse error:', e);
+            showNotification('Invalid server response', 'error');
+            return;
+        }
+        
+        if (data.success) {
+            showNotification('Test email sent successfully!', 'success');
+        } else {
+            showNotification(data.error || 'Failed to send test email', 'error');
+        }
+    } catch (error) {
+        console.error('[testNotificationEmail] Error:', error);
+        showNotification('Error sending test email: ' + error.message, 'error');
+    }
+}

@@ -27,7 +27,7 @@
     <!-- Supabase Real-Time -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script src="js/supabase-client.js"></script>
-</head>
+<link rel="stylesheet" href="css/floating-contact.css"></head>
 <body>
     <!-- Navigation -->
     <nav class="navbar">
@@ -126,7 +126,11 @@
                             <div class="payment-method-grid" id="paymentMethodGrid">
                                 <button type="button" class="payment-method-card selected" data-payment-method-card data-method="heleket" aria-pressed="true">
                                     <div class="method-header">
-                                        <div class="method-icon neon-gradient">⚡</div>
+                                        <div class="method-icon neon-gradient">
+                                            <svg viewBox="0 0 80 80" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+                                                <path d="M4.99998 55L30 67.5L21.25 56.25L31.25 28.75H46.25L56.25 57.5L46.25 67.5L35 78.75L73.75 60L52.5 0L46.25 16.25H32.5L25 0L4.99998 55Z" fill="#F21818"/>
+                                            </svg>
+                                        </div>
                                         <div class="method-meta">
                                             <span class="method-title">Heleket Pay</span>
                                             <span class="method-caption">Direct crypto acquiring</span>
@@ -141,7 +145,11 @@
 
                                 <button type="button" class="payment-method-card" data-payment-method-card data-method="cryptomus" aria-pressed="false">
                                     <div class="method-header">
-                                        <div class="method-icon purple-gradient">◇</div>
+                                        <div class="method-icon purple-gradient">
+                                            <svg viewBox="0 0 80 80" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">
+                                                <path xmlns="http://www.w3.org/2000/svg" d="M72.4692 18.9079L42.0769 1.36181C40.7077 0.569501 39 0.569501 37.6231 1.36181L7.23077 18.9079C5.85385 19.7002 5 21.1772 5 22.7695V57.8618C5 59.4465 5.85385 60.9233 7.23077 61.7233L37.6231 79.2699C38.3 79.6622 39.0692 79.8622 39.8539 79.8622C40.6385 79.8622 41.4077 79.6545 42.0846 79.2699L72.4769 61.7233C73.8539 60.931 74.7077 59.4542 74.7077 57.8618V22.7695C74.7077 21.1849 73.8539 19.7079 72.4769 18.9079H72.4692ZM40.5385 38.1387C40.1154 38.3849 39.5846 38.3849 39.1615 38.1387L9.61539 21.0848L39.1615 4.03104C39.5769 3.79258 40.1231 3.79258 40.5385 4.03104L70.0846 21.0848L40.5385 38.1387ZM37.6231 40.8002C37.8385 40.9233 38.0692 41.031 38.3154 41.1156V76.1002L8.76923 59.0541C8.34615 58.8079 8.07692 58.3542 8.07692 57.8618V23.7464L37.6231 40.8002Z" fill="black"/>
+                                            </svg>
+                                        </div>
                                         <div class="method-meta">
                                             <span class="method-title">Cryptomus</span>
                                             <span class="method-caption">Global crypto gateway</span>
@@ -154,7 +162,6 @@
                                     </ul>
                                 </button>
                             </div>
-                            <p class="form-hint" id="paymentMethodHint">Heleket invoices open in a secure window and auto credit once paid.</p>
                         </div>
 
                         <!-- Order Summary -->
@@ -321,7 +328,7 @@
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2025 BOTZZZ773. All rights reserved.</p>
+                <p>&copy; 2023-2025 BOTZZZ773. All rights reserved.</p>
             </div>
         </div>
     </footer>
@@ -360,5 +367,5 @@
             }
         });
     </script>
-</body>
+<script src="/js/floating-contact.js"></script></body>
 </html>

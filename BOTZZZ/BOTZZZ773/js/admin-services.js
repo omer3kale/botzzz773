@@ -494,6 +494,7 @@ function toNumeric(value) {
 }
 
 function formatRatePerThousand(value, currency = 'USD') {
+    // Return only the currency + value without "per 1k" text
     const numeric = toNumeric(value);
     if (numeric === null) {
         return '—';
@@ -1093,10 +1094,28 @@ async function addService() {
                         <h4>Refill Options</h4>
                         <div class="form-group">
                             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" name="refill_button_enabled" style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Enable Refill Button</span>
+                                <input type="checkbox" name="refill_supported" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Refill</span>
                             </label>
-                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Allow users to refill this service directly from their order history</small>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="cancel_supported" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Cancel</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="dripfeed_supported" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Dripfeed</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="subscription_supported" style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Subscription</span>
+                            </label>
+                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Check which features are available for this service</small>
                         </div>
                     </div>
                 </div>
@@ -1170,7 +1189,10 @@ async function submitAddService(event) {
     const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
     const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
     const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
-    const refillButtonEnabledFlag = toBooleanInput(serviceData.refill_button_enabled);
+    const refillSupportedFlag = toBooleanInput(serviceData.refill_supported);
+    const cancelSupportedFlag = toBooleanInput(serviceData.cancel_supported);
+    const dripfeedSupportedFlag = toBooleanInput(serviceData.dripfeed_supported);
+    const subscriptionSupportedFlag = toBooleanInput(serviceData.subscription_supported);
 
     const submitBtn = document.querySelector('button[form="addServiceForm"]');
     if (submitBtn) {
@@ -1195,7 +1217,10 @@ async function submitAddService(event) {
             description: serviceData.description || '',
             status: (serviceData.status || 'active').toLowerCase(),
             providerId: serviceData.provider || null,
-            refill_button_enabled: refillButtonEnabledFlag,
+            refill_supported: refillSupportedFlag,
+            cancel_supported: cancelSupportedFlag,
+            dripfeed_supported: dripfeedSupportedFlag,
+            subscription_supported: subscriptionSupportedFlag,
             providerServiceId: serviceData.providerServiceId || null,
             adminApproved: customerPortalEnabledFlag,
             customerPortalEnabled: customerPortalEnabledFlag,
@@ -1429,10 +1454,28 @@ async function editService(serviceId) {
                         <h4>Refill Options</h4>
                         <div class="form-group">
                             <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" name="refill_button_enabled" ${service.refill_button_enabled ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
-                                <span>Enable Refill Button</span>
+                                <input type="checkbox" name="refill_supported" ${service.refill_supported ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Refill</span>
                             </label>
-                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Allow users to refill this service directly from their order history</small>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="cancel_supported" ${service.cancel_supported ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Cancel</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="dripfeed_supported" ${service.dripfeed_supported ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Dripfeed</span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" name="subscription_supported" ${service.subscription_supported ? 'checked' : ''} style="width: 18px; height: 18px; cursor: pointer;">
+                                <span>Subscription</span>
+                            </label>
+                            <small style="color: #94a3b8; display: block; margin-top: 8px;">Check which features are available for this service</small>
                         </div>
                     </div>
                 </div>
@@ -2123,7 +2166,6 @@ async function submitEditService(event, serviceId) {
     const serviceData = Object.fromEntries(formData);
     
     console.debug('[DEBUG] editServiceForm serviceData:', serviceData);
-    console.debug('[DEBUG] refill_button_enabled from form:', serviceData.refill_button_enabled);
 
     const retailRateValue = parseNumberInput(serviceData.rate);
     const providerRateValue = parseNumberInput(serviceData.providerRate);
@@ -2135,7 +2177,10 @@ async function submitEditService(event, serviceId) {
     const customerPortalEnabledFlag = toBooleanInput(serviceData.customerPortalEnabled);
     const customerPortalSlotValue = normalizePortalSlotInput(serviceData.customerPortalSlot);
     const customerPortalNotesValue = (serviceData.customerPortalNotes || '').trim();
-    const refillButtonEnabledFlag = toBooleanInput(serviceData.refill_button_enabled);
+    const refillSupportedFlag = toBooleanInput(serviceData.refill_supported);
+    const cancelSupportedFlag = toBooleanInput(serviceData.cancel_supported);
+    const dripfeedSupportedFlag = toBooleanInput(serviceData.dripfeed_supported);
+    const subscriptionSupportedFlag = toBooleanInput(serviceData.subscription_supported);
     const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
     const payload = {
         serviceId: numericServiceId,
@@ -2151,7 +2196,10 @@ async function submitEditService(event, serviceId) {
         customerPortalEnabled: customerPortalEnabledFlag,
         customerPortalSlot: customerPortalSlotValue,
         customerPortalNotes: customerPortalNotesValue || null,
-        refill_button_enabled: refillButtonEnabledFlag
+        refill_supported: refillSupportedFlag,
+        cancel_supported: cancelSupportedFlag,
+        dripfeed_supported: dripfeedSupportedFlag,
+        subscription_supported: subscriptionSupportedFlag
     };
 
     if (retailRateValue !== null) {
@@ -2672,14 +2720,13 @@ async function loadServices() {
                                 <i class="${icon}"></i>
                                 ${escapeHtml(service.name)}
                             </div>
-                            ${serviceMetaMarkup}
                         </td>
                         <td>${escapeHtml(categoryLabel)}</td>
                         <td>${providerName}</td>
                         <td>
                             <div class="cell-stack cell-stack-right">
-                                <span class="cell-secondary">Retail: ${retailRateDisplay}</span>
                                 <span class="cell-primary cell-highlight">Provider: ${providerRateDisplay}</span>
+                                <span class="cell-primary cell-retail">Retail: ${retailRateDisplay}</span>
                                 <span class="cell-secondary">Markup: ${markupDisplay}</span>
                             </div>
                         </td>

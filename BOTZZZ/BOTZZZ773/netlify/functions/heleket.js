@@ -183,8 +183,8 @@ async function handleCreatePayment(event, data, headers) {
     amount: formatAmount(amount),
     currency: 'USD',
     order_id: orderId,
-    url_return: `${SITE_URL}/addfunds.html`,
-    url_success: `${SITE_URL}/payment-success.html`,
+    url_return: `https://www.botzzz773.pro/addfunds`,
+    url_success: `https://www.botzzz773.pro/addfunds`,
     url_callback: `${SITE_URL}/.netlify/functions/heleket?action=webhook`,
     is_payment_multiple: false,
     lifetime: 3600
@@ -236,6 +236,7 @@ async function handleCreatePayment(event, data, headers) {
 }
 
 async function handleWebhook(body, headers) {
+    console.log('[HELEKET WEBHOOK] Received webhook');
   if (!HELEKET_API_KEY) {
     console.error('[HELEKET] Missing API key for webhook verification');
     return respond(headers, 500, { error: 'Webhook verification not configured' });

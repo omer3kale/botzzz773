@@ -807,7 +807,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       .select(`
         *,
         user:users(id, email, username),
-        service:services(id, public_id, name, category, rate, provider_service_id, provider_id, refill_button_enabled, provider:providers(id, name))
+        service:services(id, public_id, name, category, rate, provider_service_id, provider_id, refill_supported, cancel_supported, dripfeed_supported, subscription_supported, provider:providers(id, name))
       `)
       .order('created_at', { ascending: false });
     

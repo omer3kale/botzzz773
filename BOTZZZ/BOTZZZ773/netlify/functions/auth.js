@@ -4,6 +4,7 @@ const { withRateLimit } = require('./utils/rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { createLogger, serializeError } = require('./utils/logger');
+const { logNewUserNotification } = require('./notification-logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const SALT_ROUNDS = 10;
@@ -193,6 +194,16 @@ async function handleSignup({ email, password, username, firstName, lastName }, 
 
     // Create token
     const token = createToken(newUser);
+
+    // Log new user notification for admin
+    try {
+      await logNewUserNotification(newUser);
+    } catch (err) {
+      logger.warn('Could not log new user notification', {
+        userId: newUser.id,
+        error: serializeError(err)
+      });
+    }
 
     // Remove password hash from response
     delete newUser.password_hash;
@@ -741,6 +752,17 @@ async function handleGoogleSignIn(data, headers) {
       }
 
       console.log('[DEBUG] New user created:', newUser.id);
+      
+      // Log new user notification for admin
+      try {
+        await logNewUserNotification(newUser);
+      } catch (err) {
+        logger.warn('Could not log new user notification', {
+          userId: newUser.id,
+          error: serializeError(err)
+        });
+      }
+      
       user = newUser;
     }
 

@@ -144,7 +144,8 @@ async function handleCreatePayment(event, data, headers) {
       amount: amount.toString(),
       currency: 'USD',
       order_id: orderId,
-      url_return: `${SITE_URL}/payment-success.html`,
+      url_return: `https://www.botzzz773.pro/addfunds`,
+      url_success: `https://www.botzzz773.pro/addfunds`,
       url_callback: `${SITE_URL}/.netlify/functions/cryptomus`,
       is_payment_multiple: false,
       lifetime: 3600 // 1 hour
@@ -195,6 +196,7 @@ async function handleCreatePayment(event, data, headers) {
 }
 
 async function handleWebhook(event, headers) {
+    console.log('[CRYPTOMUS WEBHOOK] Received webhook');
   try {
     // Parse Cryptomus webhook data
     const body = JSON.parse(event.body || '{}');

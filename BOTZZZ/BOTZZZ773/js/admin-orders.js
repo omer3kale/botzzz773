@@ -613,20 +613,21 @@ function buildFailureMeta(order = {}) {
 function getStatusColor(statusKey) {
     switch (statusKey) {
         case 'completed':
-            return '#22c55e';
+            return '#22c55e';  // Yeşil
         case 'pending':
-            return '#eab308';
+            return '#eab308';  // Sarı
         case 'processing':
+            return '#a855f7';  // Mor
         case 'in-progress':
         case 'refilling':
-            return '#3b82f6';
+            return '#3b82f6';  // Mavi
         case 'partial':
-            return '#f97316';
+            return '#f97316';  // Turuncu
         case 'canceled':
         case 'cancelled':
         case 'fail':
         case 'failed':
-            return '#ef4444';
+            return '#ef4444';  // Kırmızı
         default:
             return '#94a3b8';
     }
@@ -639,9 +640,10 @@ function getOrderStatusChipClass(statusKey) {
         case 'pending':
             return 'order-status-chip--pending';
         case 'processing':
+            return 'order-status-chip--processing';  // Mor
         case 'in-progress':
         case 'refilling':
-            return 'order-status-chip--processing';
+            return 'order-status-chip--in-progress';  // Mavi (yeni class)
         case 'partial':
             return 'order-status-chip--partial';
         case 'canceled':
@@ -670,23 +672,25 @@ function buildOrderStatusChip(label, value, statusKey) {
 function buildOrderStatusChipRow({
     orderStatusLabel,
     orderStatusKey,
+    customerStatusLabel,
+    customerStatusKey,
     providerStatusLabel,
     providerStatusKey,
-    lastSyncLabel,
-    modeLabel
+    lastSyncLabel
 } = {}) {
     const chips = [];
 
-    if (orderStatusLabel) {
-        chips.push(buildOrderStatusChip('Customer', orderStatusLabel, orderStatusKey));
-    }
-
+    // Sırası: Provider → Admin → Customer
     if (providerStatusLabel) {
         chips.push(buildOrderStatusChip('Provider', providerStatusLabel, providerStatusKey));
     }
 
-    if (modeLabel) {
-        chips.push(`<span class="order-status-chip order-status-chip--muted">${escapeHtml(modeLabel)}</span>`);
+    if (orderStatusLabel) {
+        chips.push(buildOrderStatusChip('Admin', orderStatusLabel, orderStatusKey));
+    }
+
+    if (customerStatusLabel) {
+        chips.push(buildOrderStatusChip('Customer', customerStatusLabel, customerStatusKey));
     }
 
     const filtered = chips.filter(Boolean);
@@ -2923,12 +2927,16 @@ async function loadOrders({ skipSync = false } = {}) {
                 
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const statusSummary = resolveOrderStatusSummary(order);
-                // Admin panel: "CUSTOMER" shows customer_status (what customers see - always pending for failed orders)
-                // Admin panel: "PROVIDER" shows provider_status (actual failure reason)
-                const orderStatusKey = statusSummary.customer?.key || 'unknown';
-                const orderStatusLabel = statusSummary.customer?.label || 'Unknown';
+                // Status gösterimi: Provider → Admin → Customer
+                const adminStatusKey = statusSummary.admin?.key || 'unknown';
+                const adminStatusLabel = statusSummary.admin?.label || 'Unknown';
+                const customerStatusKey = statusSummary.customer?.key || 'unknown';
+                const customerStatusLabel = statusSummary.customer?.label || 'Unknown';
                 const providerStatusKey = statusSummary.provider?.key || null;
                 const providerStatusLabel = statusSummary.provider?.label || null;
+                // Table'daki status badge için admin status'unu göster
+                const orderStatusKey = adminStatusKey;
+                const orderStatusLabel = adminStatusLabel;
                 const lastSync = order.last_status_sync ? new Date(order.last_status_sync).getTime() : null;
                 if (lastSync && lastSync > mostRecentSync) {
                     mostRecentSync = lastSync;
@@ -2996,7 +3004,9 @@ async function loadOrders({ skipSync = false } = {}) {
                 const customerCharge = (order.status === 'canceled' || order.status === 'cancelled')
                     ? chargeValue
                     : ((chargeValue !== null && chargeValue !== 0) ? chargeValue : originalChargeValue);
-                const providerCost = toNumberOrNull(order.provider_cost);
+                const providerCost = (order.status === 'canceled' || order.status === 'cancelled')
+                    ? 0
+                    : toNumberOrNull(order.provider_cost);
                 const profitValue = (customerCharge !== null && providerCost !== null && providerCurrency === defaultCurrency)
                     ? Number((customerCharge - providerCost).toFixed(5))
                     : null;
@@ -3023,12 +3033,13 @@ async function loadOrders({ skipSync = false } = {}) {
 
                 const lastSyncLabel = formatRelativeTime(statusSummary.lastSync);
                 const statusChipsMarkup = buildOrderStatusChipRow({
-                    orderStatusLabel,
-                    orderStatusKey,
+                    orderStatusLabel: adminStatusLabel,
+                    orderStatusKey: adminStatusKey,
+                    customerStatusLabel,
+                    customerStatusKey,
                     providerStatusLabel,
                     providerStatusKey: providerStatusKey || undefined,
-                    lastSyncLabel,
-                    modeLabel: statusSummary.mode ? `${statusSummary.mode} Mode` : null
+                    lastSyncLabel
                 });
                 // Remove duplicate provider ID display - already shown in Order IDs column
                 const ariaLabelId = orderIdString ? `Select order #${orderIdString}` : 'Select order';
@@ -3049,7 +3060,12 @@ async function loadOrders({ skipSync = false } = {}) {
                                 ${internalOrderMarkup}
                             </div>
                         </td>
-                        <td>${escapeHtml(orderUser?.username || orderUser?.email || 'Unknown')}</td>
+                        <td>
+                            <div class="cell-stack">
+                                <span>${escapeHtml(orderUser?.username || orderUser?.email || 'Unknown')}</span>
+                                ${statusSummary.mode && statusSummary.mode !== 'auto' ? `<span class="mode-badge">${escapeHtml(statusSummary.mode.toUpperCase())}</span>` : ''}
+                            </div>
+                        </td>
                         <td>
                             <div class="cell-stack">
                                 <span class="cell-primary cell-highlight">IN: ${formatCurrency(customerCharge, 5)}</span>
@@ -3063,7 +3079,6 @@ async function loadOrders({ skipSync = false } = {}) {
                         <td><span class="service-label">#${escapeHtml(orderService?.public_id || '?')} · ${escapeHtml(orderService?.name || 'Unknown Service')}</span></td>
                         <td>
                             <div class="cell-stack">
-                                <span class="status-badge ${orderStatusKey}">${escapeHtml(orderStatusLabel)}</span>
                                 ${isFailedOrder && errorReason ? `
                                     <div class="error-reason" onclick="showOrderErrorDetails('${orderIdString}')" title="Click for full error details">
                                         ${errorProviderName ? `<span class="error-provider"><i class="fas fa-server"></i> ${escapeHtml(errorProviderName)}</span>` : ''}
@@ -3080,7 +3095,6 @@ async function loadOrders({ skipSync = false } = {}) {
                         </td>
                         <td>${escapeHtml(String(remains))}</td>
                         <td>${escapeHtml(createdDate)}</td>
-                        <td>${escapeHtml(order.mode || 'Auto')}</td>
                         <td>
                             <div class="actions-dropdown">
                                 <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
