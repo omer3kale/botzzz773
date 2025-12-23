@@ -77,12 +77,29 @@ function verifyPayeerWebhookSignature(payload, secretKey) {
 }
 
 function normalizeCryptoStatus(status) {
-  return (status || 'unknown').toString().trim().toLowerCase();
+  const normalized = (status || 'unknown').toString().trim().toLowerCase();
+  // Cryptomus status codes mapping
+  const statusMap = {
+    'check': 'pending',
+    'confirm_check': 'pending', // Payment received, confirming
+    'paid': 'paid',
+    'paid_over': 'paid_over',
+    'fail': 'failed',
+    'wrong_amount': 'failed',
+    'cancel': 'cancelled',
+    'system_fail': 'failed',
+    'refund_process': 'refund_process',
+    'refund_fail': 'refund_fail',
+    'refund_paid': 'refunded'
+  };
+  return statusMap[normalized] || normalized;
 }
 
 function isFinalCryptoStatus(status) {
-  const finalStatuses = ['finished', 'confirmed', 'failed', 'expired', 'refunded', 'completed'];
-  return finalStatuses.includes(normalizeCryptoStatus(status));
+  const normalized = normalizeCryptoStatus(status);
+  // Final statuses from Cryptomus: paid, paid_over, fail, wrong_amount, cancel, refund_paid
+  const finalStatuses = ['paid', 'paid_over', 'failed', 'cancelled', 'refunded', 'refund_fail'];
+  return finalStatuses.includes(normalized);
 }
 
 function calculateProcessingFee(amount, feePercent = 0) {

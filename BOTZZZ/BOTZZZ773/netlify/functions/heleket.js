@@ -142,8 +142,14 @@ exports.handler = async (event) => {
   const action = queryAction || parsedBody.action;
 
   try {
+    // Webhook detection: eğer action yoksa ama webhook fields varsa
+    if (!action && (parsedBody.uuid || parsedBody.order_id || parsedBody.status || parsedBody.sign)) {
+      console.log('[HELEKET] Detected as webhook - routing to handleWebhook');
+      return await handleWebhook(parsedBody, headers, rawBody);
+    }
+
     if (action === 'webhook') {
-      return await handleWebhook(parsedBody, headers);
+      return await handleWebhook(parsedBody, headers, rawBody);
     }
 
     switch (action) {
@@ -235,15 +241,14 @@ async function handleCreatePayment(event, data, headers) {
   });
 }
 
-async function handleWebhook(body, headers) {
-    console.log('[HELEKET WEBHOOK] Received webhook');
+async function handleWebhook(body, headers, rawBody = '') {
   if (!HELEKET_API_KEY) {
     console.error('[HELEKET] Missing API key for webhook verification');
     return respond(headers, 500, { error: 'Webhook verification not configured' });
   }
 
   const payload = { ...body };
-  const incomingSign = payload.sign;
+  let incomingSign = payload.sign;
   delete payload.sign;
 
   if (!incomingSign) {
@@ -251,14 +256,31 @@ async function handleWebhook(body, headers) {
     return respond(headers, 400, { error: 'Missing signature' });
   }
 
-  const computedSign = generateHeleketSignature(payload);
+  // Verify signature using raw body if available, otherwise compute from parsed payload
+  let computedSign;
+  if (rawBody) {
+    // Use raw body for signature verification (preserves key order)
+    const rawPayload = JSON.parse(rawBody);
+    delete rawPayload.sign;
+    let jsonString = JSON.stringify(rawPayload);
+    // CRITICAL: Heleket documentation requires escaping forward slashes in JSON
+    jsonString = jsonString.replace(/\//g, "\\/");
+    const base64Payload = Buffer.from(jsonString, 'utf8').toString('base64');
+    computedSign = crypto.createHash('md5').update(base64Payload + HELEKET_API_KEY, 'utf8').digest('hex');
+  } else {
+    // Fallback to parsed payload
+    computedSign = generateHeleketSignature(payload);
+  }
+
   if (
     computedSign.length !== incomingSign.length ||
     !crypto.timingSafeEqual(Buffer.from(computedSign), Buffer.from(incomingSign))
   ) {
-    console.warn('[HELEKET] Webhook signature mismatch');
+    console.error('[HELEKET WEBHOOK] Signature mismatch');
     return respond(headers, 400, { error: 'Invalid signature' });
   }
+
+  console.log('[HELEKET WEBHOOK] Signature verified successfully');
 
   const orderId = payload.order_id;
   if (!orderId) {
@@ -276,12 +298,16 @@ async function handleWebhook(body, headers) {
   // Eğer payment kaydı yoksa ve ödeme başarılıysa, kayıt oluştur
   if (!payment && HELEKET_SUCCESS_STATUSES.has(normalizedStatus)) {
     // User ID'yi order_id'den veya payload'dan al
-    const userId = payload.additional_data || orderId.split('-')[1]; // HELEKT-userId-timestamp formatından
+    // Format: HELEKT-{timestamp}-{userId} (from buildGatewayOrderId)
+    const parts = orderId.split('-');
+    let userId = payload.additional_data || (parts.length >= 3 ? parts[2] : null);
     
     if (!userId) {
-      console.error('[HELEKET] Cannot determine user_id from webhook');
+      console.error('[HELEKET] Cannot determine user_id from webhook. Order ID:', orderId, 'Parts:', parts);
       return respond(headers, 400, { error: 'Invalid order data' });
     }
+
+    console.log('[HELEKET WEBHOOK] Creating new payment record. Order parts:', parts, 'User ID:', userId);
 
     // Payment kaydı oluştur (completed olarak)
     const { data: newPayment, error: insertError } = await supabaseAdmin
@@ -310,12 +336,20 @@ async function handleWebhook(body, headers) {
       return respond(headers, 500, { error: 'Database error' });
     }
 
+    console.log('[HELEKET WEBHOOK] Payment insert result. Error: null, Payment:', newPayment);
+
     // Bakiye ekle
-    await creditUserBalance(newPayment, {
+    const balanceUpdated = await creditUserBalance(newPayment, {
       uuid: payload.uuid,
       status: normalizedStatus,
       txid: payload.txid || null
     });
+
+    if (balanceUpdated) {
+      console.log('[HELEKET WEBHOOK] Balance updated');
+    }
+
+    console.log('[HELEKET WEBHOOK] Activity logged');
 
     return respond(headers, 200, { success: true });
   }
@@ -342,16 +376,19 @@ async function handleWebhook(body, headers) {
   };
 
   if (HELEKET_SUCCESS_STATUSES.has(normalizedStatus) && payment.status !== 'completed') {
+    console.log('[HELEKET WEBHOOK] Payment successful, updating to completed. User ID:', userId);
     await supabaseAdmin
       .from('payments')
       .update({ status: 'completed', details: detailPatch })
       .eq('transaction_id', orderId);
 
+    console.log('[HELEKET WEBHOOK] Crediting user balance. Amount:', payment.amount, 'User ID:', userId);
     await creditUserBalance(payment, {
       uuid: payload.uuid,
       status: normalizedStatus,
       txid: payload.txid || null
     });
+    console.log('[HELEKET WEBHOOK] Balance credited successfully');
   } else if (HELEKET_FAILURE_STATUSES.has(normalizedStatus)) {
     await supabaseAdmin
       .from('payments')
