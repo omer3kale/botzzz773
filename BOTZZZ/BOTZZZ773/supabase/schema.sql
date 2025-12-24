@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS orders (
     provider_cost DECIMAL(10, 4),
     provider_status VARCHAR(50),
     last_status_sync TIMESTAMP WITH TIME ZONE,
+    alerted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

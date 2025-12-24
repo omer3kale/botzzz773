@@ -328,80 +328,85 @@
     emit('fetchguard:ready', { config: guardConfig });
 })(typeof window !== 'undefined' ? window : undefined);
 
-(function() {
-    'use strict';
-
-    console.log('[ADMIN-AUTH] Checking admin authentication...');
-    
-    // Check authentication
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    
-    console.log('[ADMIN-AUTH] Authentication check in progress...');
-    console.log('[ADMIN-AUTH] User data found:', !!userStr);
-    
-    // No token or user - redirect to admin login
-    if (!token || !userStr) {
-        console.warn('[ADMIN-AUTH] Admin access denied: No authentication token');
-        window.location.href = '/admin/signin.html';
-        return;
-    }
-
-    // Parse user data
-    let user;
-    try {
-        user = JSON.parse(userStr);
-        console.log('[ADMIN-AUTH] User authenticated successfully');
-    } catch (error) {
-        console.error('[ADMIN-AUTH] Admin access denied: Invalid user data', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/admin/signin.html';
-        return;
-    }
-
-    // Check if user has admin role
-    if (user.role !== 'admin') {
-        console.warn('[ADMIN-AUTH] Admin access denied: User is not an admin', user);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/admin/signin.html';
-        return;
-    }
-
-    // Verify token is still valid by checking if it's expired
-    // JWT tokens have expiration, but we can do a basic check
-    try {
-        const tokenParts = token.split('.');
-        if (tokenParts.length !== 3) {
-            throw new Error('Invalid token format');
-        }
-        
-        // Decode payload (middle part)
-        const payload = JSON.parse(atob(tokenParts[1]));
-        console.log('[ADMIN-AUTH] Token payload exp:', payload.exp, 'current:', Math.floor(Date.now() / 1000));
-        
-        // Check expiration
-        if (payload.exp && payload.exp * 1000 < Date.now()) {
-            console.warn('[ADMIN-AUTH] Admin access denied: Token expired');
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            window.location.href = '/admin/signin.html';
-            return;
-        }
-    } catch (error) {
-        console.error('[ADMIN-AUTH] Admin access denied: Token validation failed', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        window.location.href = '/admin/signin.html';
-        return;
-    }
-
-    console.log('✅ [ADMIN-AUTH] Admin authentication verified:', user.username);
-
-    // Add logout handler when DOM is ready
+// Admin authentication check - moved to DOMContentLoaded to ensure localStorage is properly synced
+if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', function() {
-        // Find logout button and add handler
+        (function() {
+            'use strict';
+
+            console.log('[ADMIN-AUTH] Checking admin authentication...');
+            
+            // Check authentication
+            const token = localStorage.getItem('token');
+            const userStr = localStorage.getItem('user');
+            
+            console.log('[ADMIN-AUTH] Authentication check in progress...');
+            console.log('[ADMIN-AUTH] Token found:', !!token);
+            console.log('[ADMIN-AUTH] User data found:', !!userStr);
+            
+            // No token or user - redirect to admin login
+            if (!token || !userStr) {
+                console.warn('[ADMIN-AUTH] Admin access denied: No authentication token');
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/admin/signin.html';
+                return;
+            }
+
+            // Parse user data
+            let user;
+            try {
+                user = JSON.parse(userStr);
+                console.log('[ADMIN-AUTH] User authenticated successfully:', user.email);
+            } catch (error) {
+                console.error('[ADMIN-AUTH] Admin access denied: Invalid user data', error);
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/admin/signin.html';
+                return;
+            }
+
+            // Check if user has admin role
+            if (user.role !== 'admin') {
+                console.warn('[ADMIN-AUTH] Admin access denied: User is not an admin', user);
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/admin/signin.html';
+                return;
+            }
+
+            // Verify token is still valid by checking if it's expired
+            // JWT tokens have expiration, but we can do a basic check
+            try {
+                const tokenParts = token.split('.');
+                if (tokenParts.length !== 3) {
+                    throw new Error('Invalid token format');
+                }
+                
+                // Decode payload (middle part)
+                const payload = JSON.parse(atob(tokenParts[1]));
+                console.log('[ADMIN-AUTH] Token payload exp:', payload.exp, 'current:', Math.floor(Date.now() / 1000));
+                
+                // Check expiration
+                if (payload.exp && payload.exp * 1000 < Date.now()) {
+                    console.warn('[ADMIN-AUTH] Admin access denied: Token expired');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/admin/signin.html';
+                    return;
+                }
+            } catch (error) {
+                console.error('[ADMIN-AUTH] Admin access denied: Token validation failed', error);
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/admin/signin.html';
+                return;
+            }
+
+            console.log('✅ [ADMIN-AUTH] Admin authentication verified:', user.username);
+        })();
+
+        // Add logout handler
         const logoutBtn = document.querySelector('[onclick*="logout"]');
         if (logoutBtn) {
             logoutBtn.addEventListener('click', function(e) {
@@ -413,5 +418,5 @@
                 }
             });
         }
-    });
-})();
+    }, { once: true });
+}

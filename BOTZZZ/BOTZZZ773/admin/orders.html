@@ -104,6 +104,11 @@
 
     <!-- Admin Sidebar -->
     <aside class="admin-sidebar" id="adminSidebar">
+        <div class="admin-sidebar-header">
+            <button class="sidebar-close-btn" onclick="toggleSidebar()" title="Close sidebar">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
         <nav class="admin-nav">
             <a href="index.html" class="admin-nav-item">
                 <i class="fas fa-chart-line"></i>
@@ -144,6 +149,9 @@
             </a>
         </nav>
     </aside>
+
+    <!-- Sidebar Overlay (Mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
     <!-- Main Content -->
     <section class="admin-main" role="main">

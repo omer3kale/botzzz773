@@ -130,12 +130,58 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// Toggle Sidebar
+// Toggle Sidebar - Mobile & Desktop Compatible
 function toggleSidebar() {
     const sidebar = document.getElementById('adminSidebar');
-    sidebar.classList.toggle('collapsed');
-    document.body.classList.toggle('sidebar-collapsed');
+    const overlay = document.getElementById('sidebarOverlay');
+    
+    // Mobile (< 768px) - toggle .active class
+    if (window.innerWidth < 768) {
+        sidebar.classList.toggle('active');
+        if (overlay) {
+            overlay.classList.toggle('active');
+        }
+    } else {
+        // Desktop (>= 768px) - toggle .collapsed class
+        sidebar.classList.toggle('collapsed');
+        document.body.classList.toggle('sidebar-collapsed');
+    }
 }
+
+// Mobile - Sidebar menu linkine tıklanınca kapanması
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.innerWidth < 768) {
+        const navItems = document.querySelectorAll('.admin-nav-item');
+        navItems.forEach(item => {
+            item.addEventListener('click', function() {
+                const sidebar = document.getElementById('adminSidebar');
+                const overlay = document.getElementById('sidebarOverlay');
+                if (sidebar && sidebar.classList.contains('active')) {
+                    sidebar.classList.remove('active');
+                    if (overlay) {
+                        overlay.classList.remove('active');
+                    }
+                }
+            });
+        });
+    }
+
+    // Window resize event - mode değişirse durum sıfırla
+    window.addEventListener('resize', function() {
+        const sidebar = document.getElementById('adminSidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        
+        if (window.innerWidth >= 768) {
+            // Desktop mode'a geçince sidebar state'ini sıfırla
+            if (sidebar && sidebar.classList.contains('active')) {
+                sidebar.classList.remove('active');
+            }
+            if (overlay && overlay.classList.contains('active')) {
+                overlay.classList.remove('active');
+            }
+        }
+    });
+});
 
 const adminNetworkNotice = (() => {
     let bannerEl = null;

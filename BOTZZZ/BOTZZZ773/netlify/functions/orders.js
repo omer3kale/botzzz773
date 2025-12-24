@@ -1624,10 +1624,12 @@ async function handleCreateOrder(user, data, headers) {
         providerUpdatePayload.status = 'completed';
         providerUpdatePayload.customer_status = 'completed';
         providerUpdatePayload.provider_status = 'completed';
+        providerUpdatePayload.alerted_at = null;  // Clear alert flag when order completes
       } else if (normalizedProviderStatus === 'partial') {
         providerUpdatePayload.status = 'partial';
         providerUpdatePayload.customer_status = 'partial';
         providerUpdatePayload.provider_status = 'partial';
+        providerUpdatePayload.alerted_at = null;  // Clear alert flag when order changes from failed
       }
 
       if (providerChargeFromResponse !== null) {
@@ -1720,9 +1722,11 @@ async function handleCreateOrder(user, data, headers) {
           } else if (normalizedStatus === 'completed') {
             updatePayload.status = 'completed';
             updatePayload.customer_status = 'completed';
+            updatePayload.alerted_at = null;  // Clear alert flag
           } else if (normalizedStatus === 'partial') {
             updatePayload.status = 'partial';
             updatePayload.customer_status = 'partial';
+            updatePayload.alerted_at = null;  // Clear alert flag
           }
 
           await supabaseAdmin.from('orders').update(updatePayload).eq('id', order.id);

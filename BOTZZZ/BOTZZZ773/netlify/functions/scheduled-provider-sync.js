@@ -238,6 +238,28 @@ async function sendFailedOrdersAlert(failedOrders) {
       messageId: result.messageId
     });
     
+    // Mark orders as alerted to prevent duplicate alerts
+    const orderIds = failedOrders.map(o => o.id);
+    if (orderIds.length > 0) {
+      try {
+        const { error: updateError } = await supabaseAdmin
+          .from('orders')
+          .update({ alerted_at: new Date().toISOString() })
+          .in('id', orderIds);
+        
+        if (updateError) {
+          logger.warn('Failed to mark orders as alerted', {
+            error: serializeError(updateError),
+            ordersCount: orderIds.length
+          });
+        } else {
+          logger.info('Marked orders as alerted', { ordersCount: orderIds.length });
+        }
+      } catch (err) {
+        logger.warn('Error updating alerted_at timestamps', { error: serializeError(err) });
+      }
+    }
+    
     // Log notifications for each failed order
     for (const order of failedOrders) {
       try {
@@ -691,9 +713,10 @@ exports.handler = async (event = {}) => {
       const last3hours = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
       const { data: failedOrders, error: failedError } = await supabaseAdmin
         .from('orders')
-        .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at')
+        .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, alerted_at')
         .in('status', ['failed', 'error'])
         .gt('created_at', last3hours)
+        .is('alerted_at', null)  // Only orders that haven't been alerted yet
         .order('created_at', { ascending: false })
         .limit(10);
 
