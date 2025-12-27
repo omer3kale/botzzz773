@@ -604,7 +604,7 @@ async function viewTicket(ticketId) {
                                 <span style="color: ${msg.is_admin ? '#FF1494' : '#10b981'}; font-size: 13px;">${escapeHtml(msg.sender_name || (msg.is_admin ? 'Admin' : 'User'))}</span>
                                 <span style="font-size: 11px; color: #6b7280;">${new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
-                            <p style="margin: 0; color: #d1d5db; font-size: 13px; line-height: 1.5;">${escapeHtml(msg.message)}</p>
+                            <p style="margin: 0; color: #d1d5db; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;">${escapeHtml(msg.message)}</p>
                         </div>
                     `).join('') : '<div style="color: #6b7280; text-align: center; padding: 20px; font-size: 13px;">No messages yet</div>'}
                 </div>

@@ -4,13 +4,14 @@
 $API_BASE_URL = "http://localhost:8888/.netlify/functions/v2"
 $API_KEY = "sk_be2b83b5836ab8c56e413093f7e8b20c975fffa88478ea1ec6876d1b215751ae"
 
-Write-Host "`n=== 1. Test Service: 9079 ===" -ForegroundColor Cyan
+Write-Host "`n=== 1. Test Service: 9074 ===" -ForegroundColor Cyan
 
-$testServiceId = "9079"
+$testServiceId = "9074"
 $testQuantity = 50
 
 Write-Host "Service ID: $testServiceId" -ForegroundColor Yellow
 Write-Host "Quantity: $testQuantity" -ForegroundColor Yellow
+Write-Host "Link Type: YouTube" -ForegroundColor Yellow
 
 Write-Host "`n=== 2. Bakiye Kontrol ===" -ForegroundColor Cyan
 $balanceBody = "key=$API_KEY&action=balance"
@@ -29,10 +30,10 @@ try {
     exit 1
 }
 
-Write-Host "`n=== 2. Toplu Siparis Olustur ===" -ForegroundColor Cyan
+Write-Host "`n=== 2. Siparis Olustur ===" -ForegroundColor Cyan
 Write-Host "Bu test provider'da bakiye yetersizligi simule eder" -ForegroundColor Yellow
 
-$bulkOrderCount = 5
+$bulkOrderCount = 1
 $orderResults = @()
 
 Write-Host "Toplam $bulkOrderCount siparis olusturulacak" -ForegroundColor Yellow
@@ -42,7 +43,7 @@ for ($i = 1; $i -le $bulkOrderCount; $i++) {
     Write-Host "`n--- Siparis #$i/$bulkOrderCount ---" -ForegroundColor Cyan
     
     $randomId = Get-Random -Minimum 100000 -Maximum 999999
-    $testLink = "https://instagram.com/testuser_random_$randomId"
+    $testLink = "https://www.youtube.com/watch?v=dQw4w9WgXcQ_$randomId"
     
     $orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
     

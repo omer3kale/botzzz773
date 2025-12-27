@@ -865,6 +865,7 @@ body.popup-mode .admin-main {
     z-index: 900;
     display: flex;
     flex-direction: column;
+    touch-action: pan-y;
 }
 
 .admin-sidebar-header {
@@ -3697,29 +3698,98 @@ tr[data-status="error"]:hover {
    2. MOBİL CİHAZ YAMASI (Sadece 768px Altı Ekranlarda Çalışır)
    Burası masaüstü görünümünü KESİNLİKLE etkilemez.
    ================================================================= */
+/* =================================================================
+   MOBİL CİHAZ OPTIMIZASYONU (768px Altı Ekranlarda)
+   ================================================================= */
 @media (max-width: 768px) {
     
-    /* Yan Menüyü (Sidebar) Gizle ve Ekrana Taşırma */
+    /* HTML/Body Overflow Kontrol */
+    html, body {
+        overflow-x: hidden !important;
+        width: 100% !important;
+        position: relative;
+    }
+
+    /* Sidebar Mobile Mod */
     .admin-sidebar {
-        transform: translateX(-100%);
-        width: 260px;
-        position: fixed;
-        z-index: 9999;
-        transition: transform 0.3s ease;
-        box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 280px !important;
+        height: 100vh !important;
+        z-index: 9999 !important;
+        transform: translateX(-100%) !important;
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 5px 0 15px rgba(0, 0, 0, 0.5) !important;
+        touch-action: pan-y !important;
+        will-change: transform;
     }
 
-    /* JavaScript ile .active class eklenince menü açılır */
+    /* Sidebar Open Durumu */
     .admin-sidebar.active {
-        transform: translateX(0);
+        transform: translateX(0) !important;
     }
 
-    /* Ana İçeriği Ekrana Sığdır */
+    /* Sidebar Header Mobilde Göster */
+    .admin-sidebar-header {
+        display: flex !important;
+    }
+
+    /* Close Button Mobilde Göster */
+    .sidebar-close-btn {
+        display: block !important;
+    }
+
+    /* Overlay Kurulum */
+    .sidebar-overlay {
+        display: none;
+        position: fixed !important;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 9998;
+        backdrop-filter: blur(2px);
+        touch-action: none;
+    }
+
+    .sidebar-overlay.active {
+        display: block !important;
+    }
+
+    /* Main Content Mobilde */
     .admin-main {
         margin-left: 0 !important;
         width: 100% !important;
+        max-width: 100vw !important;
         padding: 16px !important;
-        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+        position: relative;
+        z-index: 100;
+    }
+
+    /* Hamburger Button Mobilde */
+    .sidebar-toggle {
+        display: flex !important;
+        background: none;
+        border: none;
+        color: var(--admin-light-text);
+        font-size: 1.25rem;
+        cursor: pointer;
+        padding: 8px 12px;
+        transition: all 0.2s ease;
+        z-index: 950;
+        touch-action: manipulation;
+    }
+
+    .sidebar-toggle:active {
+        transform: scale(0.95);
+    }
+
+    /* Arama Mobilde Gizle */
+    .admin-search {
+        display: none !important;
     }
 
     /* Tabloları Yatayda Kaydırılabilir Yap */
@@ -3728,14 +3798,117 @@ tr[data-status="error"]:hover {
         overflow-x: auto !important;
         -webkit-overflow-scrolling: touch;
         margin-bottom: 20px;
-    }
-    
-    /* Tablonun Çok Sıkışmasını Engelle */
-    .admin-table {
-        min-width: 800px; /* Tabloyu geniş tutar, kullanıcı kaydırarak görür */
+        display: block !important;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        position: relative;
     }
 
-    /* Grid Yapılarını Tek Sütuna İndir (Alt Alta Dizilim) */
+    /* Scroll Indicator - Mobilede sağa kaydırılabilir olduğunu göster */
+    .table-container::after {
+        content: '→';
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--admin-primary);
+        font-size: 18px;
+        pointer-events: none;
+        animation: slideRight 2s ease-in-out infinite;
+        opacity: 0.7;
+    }
+
+    @keyframes slideRight {
+        0%, 100% {
+            transform: translateY(-50%) translateX(0);
+        }
+        50% {
+            transform: translateY(-50%) translateX(4px);
+        }
+    }
+
+    /* Tüm Tablo Sütunlarını Göster - Kaydırma ile */
+    .admin-table {
+        min-width: 100% !important;
+        width: auto !important;
+        border-collapse: collapse;
+    }
+
+    /* Sağ Tarafta Fade Effect (Kaydırılabilir olduğunu göster) */
+    .table-container::before {
+        content: '';
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 40px;
+        background: linear-gradient(to left, rgba(5, 6, 10, 0.8), transparent);
+        pointer-events: none;
+        z-index: 5;
+    }
+
+    /* Tablo Başlığı */
+    .admin-table thead {
+        position: sticky;
+        top: 0;
+        background: var(--admin-dark-bg);
+        z-index: 10;
+    }
+
+    /* Tablo Hücreleri Mobilde */
+    .admin-table th,
+    .admin-table td {
+        padding: 12px 16px !important;
+        white-space: nowrap;
+        text-align: left;
+        border: 1px solid var(--admin-border);
+    }
+
+    .admin-table th {
+        font-weight: 600;
+        color: var(--admin-light-text);
+        background: var(--admin-darker-bg);
+    }
+
+    .admin-table td {
+        color: var(--admin-gray-text);
+    }
+
+    /* Tablo Satırları Hover */
+    .admin-table tbody tr:hover {
+        background: var(--admin-hover);
+    }
+
+    /* Action Buttons Mobilde Daha Tıklanabilir */
+    .admin-table .action-btn,
+    .admin-table .btn-sm {
+        padding: 8px 12px !important;
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Scrollbar Styling */
+    .table-container::-webkit-scrollbar {
+        height: 6px;
+    }
+
+    .table-container::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .table-container::-webkit-scrollbar-thumb {
+        background: rgba(255, 20, 148, 0.3);
+        border-radius: 3px;
+    }
+
+    .table-container::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 20, 148, 0.5);
+    }
+
+    /* Grid Yapıları Tek Sütuna İndir */
     .users-layout,
     .services-layout,
     .orders-layout,
@@ -3752,163 +3925,7 @@ tr[data-status="error"]:hover {
         gap: 20px !important;
     }
 
-    /* Kartların Mobildeki Genişliği */
-    .users-quick-card,
-    .services-quick-card,
-    .orders-quick-card,
-    .settings-quick-card,
-    .chart-card,
-    .table-card {
-        width: 100% !important;
-    }
-
-    /* Header (Üst Menü) Düzenlemeleri */
-    .admin-header {
-        padding: 0 16px !important;
-    }
-
-    .admin-search {
-        display: none !important; /* Mobilde arama çubuğunu gizle (yer kaplamasın) */
-    }
-
-    /* Menü Açma Butonunu (Hamburger) Görünür Yap */
-    .sidebar-toggle {
-        display: flex !important;
-    }
-
-    /* Modal (Popup) Pencereleri Ekrana Sığdır */
-    .modal-container {
-        width: 95% !important;
-        margin: 10px auto !important;
-        max-height: 85vh !important;
-        
-    }
-}
-
-/* =================================================================
-   MOBİL İÇİN KESİN ÇÖZÜM (Sadece 768px Altı Ekranlarda Çalışır)
-   Bu kod masaüstü tasarımını etkilemez.
-   ================================================================= */
-@media (max-width: 768px) {
-    
-    /* 1. Sayfa Taşmalarını ve Kaymaları Engelle */
-    html, body {
-        overflow-x: hidden !important; /* Sağa sola oynamayı kapat */
-        width: 100% !important;
-        position: relative;
-    }
-
-    /* 2. Ana İçeriği Ekrana Tam Sığdır */
-    .admin-main {
-        margin-left: 0 !important;
-        width: 100% !important;
-        max-width: 100vw !important;
-        padding: 16px !important;
-        box-sizing: border-box !important; /* Padding yüzünden taşmayı engelle */
-    }
-
-    /* 3. Yan Menü (Sidebar) Ayarları - "Boşluk Oluşma" Sorunu Çözümü */
-    .admin-sidebar {
-        position: fixed !important; /* Sayfayı itmemesi için fixed yapıldı */
-        top: 0;
-        left: 0;
-        width: 280px !important; /* Biraz daha geniş ve rahat */
-        height: 100vh !important; /* Tüm yüksekliği kapla */
-        z-index: 9999 !important; /* Her şeyin üstünde dursun */
-        background-color: var(--admin-dark-bg) !important;
-        transform: translateX(-100%); /* Varsayılan olarak gizle */
-        transition: transform 0.3s ease-in-out; /* Yumuşak açılış */
-        box-shadow: 5px 0 15px rgba(0,0,0,0.5); /* Derinlik kat */
-        overflow-y: auto; /* Menü çok uzunsa scroll olsun */
-        display: flex !important;
-        flex-direction: column !important;
-    }
-
-    /* Sidebar header'ı mobilde göster */
-    .admin-sidebar-header {
-        display: flex !important;
-    }
-
-    /* Close button'u mobilde göster */
-    .sidebar-close-btn {
-        display: block !important;
-    }
-
-    /* Menü Açılınca Devreye Giren Kod (JS ile .active eklenince) */
-    .admin-sidebar.active {
-        transform: translateX(0) !important; /* Menüyü ekrana getir */
-    }
-
-    /* 4. Menü Açılınca Arka Planı Karart (Overlay) */
-    /* Menü açılınca içeriğin karışmasını engeller */
-    .sidebar-overlay {
-        display: none;
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7); /* Yarı saydam siyah */
-        z-index: 9998; /* Menünün bir tık altında */
-        backdrop-filter: blur(3px); /* Arkayı hafif bulanıklaştır */
-    }
-
-    .sidebar-overlay.active {
-        display: block !important;
-    }
-
-    /* 5. Üst Menü (Header) Düzenlemesi */
-    .admin-header {
-        padding: 0 16px !important;
-        width: 100% !important;
-        justify-content: space-between;
-    }
-
-    /* Arama kutusunu mobilde gizle (yer kaplamasın) */
-    .admin-search {
-        display: none !important; 
-    }
-
-    /* Hamburger Menü Butonunu Göster */
-    .sidebar-toggle {
-        display: flex !important;
-        z-index: 100;
-    }
-
-    /* 6. Tabloları Yatay Kaydırılabilir Yap (Sayfayı Patlatmasın) */
-    .table-container {
-        width: 100% !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch; /* iPhone'da akıcı kaydırma */
-        margin-bottom: 20px;
-        display: block;
-    }
-    
-    .admin-table {
-        min-width: 800px; /* Tabloyu sıkıştırma, geniş kalsın, kullanıcı kaydırsın */
-    }
-
-    /* 7. Kartları ve Gridleri Alt Alta Diz */
-    .users-layout,
-    .services-layout,
-    .orders-layout,
-    .payments-layout,
-    .tickets-layout,
-    .settings-layout,
-    .settings-container,
-    .stats-grid,
-    .charts-grid,
-    .providers-grid,
-    .filter-bar,
-    .admin-page-header {
-        display: flex !important;
-        flex-direction: column !important;
-        width: 100% !important;
-        gap: 16px !important;
-        grid-template-columns: 1fr !important; /* Grid yapısını iptal et */
-    }
-
-    /* Kartların Genişliğini Fulle */
+    /* Kartlar Tam Genişlik */
     .users-quick-card,
     .services-quick-card,
     .orders-quick-card,
@@ -3917,7 +3934,326 @@ tr[data-status="error"]:hover {
     .table-card,
     .stat-card {
         width: 100% !important;
-        min-width: 0 !important;
+    }
+
+    /* ========================================
+       1. FORM INPUT ALANLARINI OPTIMIZE ET
+       ======================================== */
+
+    /* Form Group Mobilde */
+    .form-group {
+        margin-bottom: 18px !important;
+    }
+
+    /* Input, Textarea, Select - Touch-friendly */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="url"],
+    input[type="date"],
+    input[type="time"],
+    textarea,
+    select {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important; /* 16px: Zoom engelle */
+        border-radius: 8px !important;
+    }
+
+    /* Label Styling */
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    /* Modal Form Alanları */
+    .modal-body .form-group input,
+    .modal-body .form-group textarea,
+    .modal-body .form-group select {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
+    }
+
+    /* ========================================
+       2. MODALS/DIALOGS OPTIMIZE
+       ======================================== */
+
+    /* Modal Container */
+    .modal-container {
+        width: 95% !important;
+        margin: 10px auto !important;
+        max-height: 85vh !important;
+    }
+
+    /* Modal Content - Full width, dismissible */
+    .modal-content {
+        width: 100% !important;
+        max-height: 90vh !important;
+        border-radius: 12px !important;
+        overflow-y: auto;
+    }
+
+    /* Modal Header */
+    .modal-header {
+        padding: 16px !important;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    /* Modal Close Button - Daha büyük */
+    .modal-close,
+    .btn-close {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        font-size: 20px !important;
+        padding: 0 !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Modal Body */
+    .modal-body {
+        padding: 16px !important;
+        overflow-y: auto;
+    }
+
+    /* Modal Footer Buttons */
+    .modal-footer {
+        padding: 16px !important;
+        gap: 12px !important;
+    }
+
+    .modal-footer .btn {
+        flex: 1;
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 14px !important;
+    }
+
+    /* ========================================
+       3. DROPDOWN MENUS OPTIMIZE
+       ======================================== */
+
+    /* Notification Dropdown */
+    .notification-dropdown-menu {
+        position: fixed !important;
+        top: 80px !important;
+        right: 16px !important;
+        left: 16px !important;
+        width: auto !important;
+        max-width: calc(100vw - 32px) !important;
+        min-width: auto !important;
+        max-height: 60vh !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* Notification Dropdown Content */
+    .notification-dropdown-content {
+        max-height: 50vh;
+        overflow-y: auto;
+    }
+
+    /* User Dropdown Menu */
+    .user-dropdown-menu {
+        position: fixed !important;
+        top: 80px !important;
+        right: 16px !important;
+        width: auto !important;
+        max-width: calc(100vw - 32px) !important;
+        min-width: auto !important;
+        border-radius: 8px !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+    }
+
+    /* Dropdown Items - Touch-friendly */
+    .dropdown-item,
+    .user-dropdown-item,
+    .notification-item {
+        padding: 14px 16px !important;
+        min-height: 44px !important;
+        display: flex;
+        align-items: center;
+        font-size: 14px !important;
+    }
+
+    .dropdown-item:active,
+    .user-dropdown-item:active {
+        background: var(--admin-hover) !important;
+    }
+
+    /* ========================================
+       4. STAT CARDS RESPONSIVE
+       ======================================== */
+
+    .stats-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 12px !important;
+    }
+
+    .stat-card {
+        padding: 14px !important;
+    }
+
+    .stat-icon {
+        width: 36px !important;
+        height: 36px !important;
+        font-size: 16px !important;
+    }
+
+    .stat-value {
+        font-size: 16px !important;
+    }
+
+    .stat-label {
+        font-size: 11px !important;
+    }
+
+    .stat-change {
+        font-size: 10px !important;
+    }
+
+    /* ========================================
+       5. FILTER BARS - COLLAPSE/EXPAND
+       ======================================== */
+
+    .filter-bar {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }
+
+    .filter-group {
+        flex: 1;
+        min-width: 100px;
+    }
+
+    .filter-group select,
+    .filter-group input {
+        width: 100% !important;
+        min-height: 40px !important;
+    }
+
+    /* Filter Button */
+    .btn-filter {
+        min-height: 40px !important;
+        padding: 8px 12px !important;
+        white-space: nowrap;
+    }
+
+    /* ========================================
+       6. CHARTS RESPONSIVE
+       ======================================== */
+
+    .charts-grid {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 20px !important;
+    }
+
+    .chart-card {
+        width: 100% !important;
+        min-height: 250px !important;
+    }
+
+    .chart-container {
+        max-height: 300px;
+        position: relative;
+    }
+
+    /* ========================================
+       7. CLOSE BUTTONS OPTIMIZE
+       ======================================== */
+
+    /* Tüm Close Buttons */
+    .btn-close,
+    .close-btn,
+    [class*="close"] button {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        padding: 0 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    /* ========================================
+       8. BREADCRUMBS MOBILDE GİZLE
+       ======================================== */
+
+    .breadcrumb,
+    nav.breadcrumb-nav {
+        display: none !important;
+    }
+
+    /* ========================================
+       9. TAB NAVIGATION RESPONSIVE
+       ======================================== */
+
+    .nav-tabs,
+    .tab-navigation {
+        display: flex !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        gap: 0 !important;
+        border-bottom: 1px solid var(--admin-border);
+    }
+
+    .nav-tabs .nav-link,
+    .tab-navigation button {
+        padding: 12px 16px !important;
+        min-height: 44px !important;
+        white-space: nowrap;
+        font-size: 14px !important;
+        flex-shrink: 0;
+    }
+
+    .nav-tabs .nav-link.active {
+        border-bottom: 2px solid var(--admin-primary) !important;
+        color: var(--admin-primary) !important;
+    }
+
+    /* ========================================
+       10. ACTION BUTTONS TOUCH-FRIENDLY
+       ======================================== */
+
+    .btn,
+    button[class*="btn"] {
+        min-height: 44px !important;
+        padding: 10px 16px !important;
+        font-size: 14px !important;
+        touch-action: manipulation;
+    }
+
+    .btn-sm,
+    button[class*="btn-sm"] {
+        min-height: 40px !important;
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
+
+    .btn-icon {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        padding: 0 !important;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Modals Mobilde */
+    .modal-container {
+        width: 95% !important;
+        margin: 10px auto !important;
+        max-height: 85vh !important;
     }
 }
 
@@ -4385,6 +4721,26 @@ tr[data-status="error"]:hover {
         min-width: 700px;
     }
 
+    /* Tablo Container 480px Altında */
+    .table-container {
+        margin: 0 -12px !important;
+        width: calc(100% + 24px) !important;
+        padding: 0 12px !important;
+        border-radius: 0 !important;
+    }
+
+    /* Scroll Indicator'ı Gizle (480px'te yer sorunu) */
+    .table-container::after {
+        display: none !important;
+    }
+
+    /* Tablo Hücreleri Daha Kompakt */
+    .admin-table th,
+    .admin-table td {
+        padding: 10px 12px !important;
+        font-size: 12px !important;
+    }
+
     /* Modal - Daha küçük ekranda ekranı tam kaplasın */
     .modal-content {
         width: calc(100% - 20px) !important;
@@ -4437,6 +4793,44 @@ tr[data-status="error"]:hover {
     select,
     textarea {
         font-size: 16px; /* iOS'ta zoom etmesini engelle */
+        min-height: 44px !important;
+        padding: 12px 14px !important;
+    }
+
+    /* Form Group Extra Spacing */
+    .form-group {
+        margin-bottom: 16px !important;
+    }
+
+    /* Modal Form Alanları Extra Kompakt */
+    .modal-body .form-group {
+        margin-bottom: 14px !important;
+    }
+
+    .modal-body .form-group input,
+    .modal-body .form-group textarea,
+    .modal-body .form-group select {
+        min-height: 44px !important;
+        padding: 12px 14px !important;
+        font-size: 16px !important;
+    }
+
+    /* Buttons Extra Touch-friendly */
+    .btn {
+        min-height: 44px !important;
+        padding: 12px 16px !important;
+        font-size: 14px !important;
+    }
+
+    .btn-sm {
+        min-height: 40px !important;
+        padding: 10px 14px !important;
+    }
+
+    /* Modal Footer Buttons */
+    .modal-footer .btn {
+        flex: 1;
+        font-size: 14px !important;
     }
 
     /* ========================================

@@ -158,14 +158,40 @@ async function handleGet(user, headers) {
         };
       }
 
-      // Fetch all orders to calculate spending and profit per user
-      const { data: orders, error: ordersErr } = await supabaseAdmin
-        .from('orders')
-        .select('user_id, charge, provider_cost');
+      // Fetch all orders in batches (Supabase has 1000 record limit per request)
+      let allOrders = [];
+      let offset = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const { data: batchOrders, error: ordersErr } = await supabaseAdmin
+          .from('orders')
+          .select('user_id, charge, provider_cost')
+          .neq('status', 'canceled') // Exclude only canceled orders
+          .range(offset, offset + 999); // Fetch 1000 records at a time
+        
+        if (ordersErr) {
+          console.error('[PROFIT] Orders batch fetch error:', ordersErr);
+          break;
+        }
+        
+        if (!batchOrders || batchOrders.length === 0) {
+          hasMore = false;
+          break;
+        }
+        
+        allOrders = allOrders.concat(batchOrders);
+        
+        if (batchOrders.length < 1000) {
+          hasMore = false; // Less than 1000 means we've reached the end
+        }
+        
+        offset += 1000;
+      }
 
       const spendMap = new Map();
-      if (!ordersErr && Array.isArray(orders)) {
-        orders.forEach(order => {
+      if (Array.isArray(allOrders)) {
+        allOrders.forEach(order => {
           const charge = parseFloat(order.charge || 0);
           const providerCost = parseFloat(order.provider_cost || 0);
           

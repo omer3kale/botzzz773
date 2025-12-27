@@ -2531,6 +2531,10 @@ function submitAddOrder(event) {
     
     console.log('Creating order:', orderData);
     showNotification('Order created successfully!', 'success');
+    
+    // Dispatch event to notify other panels (e.g., users panel) to refresh profit
+    window.dispatchEvent(new CustomEvent('orderCreated', { detail: orderData }));
+    
     closeModal();
 }
 

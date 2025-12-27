@@ -52,6 +52,73 @@ async function loadAlertSettings() {
   }
 }
 
+// Load Telegram settings
+async function loadTelegramSettings() {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('settings')
+      .select('key, value')
+      .eq('key', 'integrations');
+    
+    if (error || !data || !data[0]) {
+      logger.warn('[TELEGRAM] Settings not found');
+      return null;
+    }
+    
+    const integrations = typeof data[0].value === 'string' ? JSON.parse(data[0].value) : data[0].value;
+    const token = integrations?.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = integrations?.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+    
+    if (!token || !chatId) {
+      logger.warn('[TELEGRAM] Token or Chat ID not configured');
+      return null;
+    }
+    
+    return { token, chatId };
+  } catch (err) {
+    logger.warn('[TELEGRAM] Error loading settings', { error: serializeError(err) });
+    return null;
+  }
+}
+
+// Send Telegram message
+async function sendTelegramAlert(message) {
+  const telegramSettings = await loadTelegramSettings();
+  if (!telegramSettings) {
+    logger.warn('[TELEGRAM] Skipping - settings not configured');
+    return false;
+  }
+  
+  try {
+    const url = `https://api.telegram.org/bot${telegramSettings.token}/sendMessage`;
+    const response = await axios.post(url, {
+      chat_id: telegramSettings.chatId,
+      text: message,
+      parse_mode: 'HTML'
+    }, {
+      timeout: 10000
+    });
+    
+    if (response.data.ok) {
+      logger.info('[TELEGRAM] ✅ Message sent', {
+        messageId: response.data.result?.message_id,
+        chatId: telegramSettings.chatId
+      });
+      return true;
+    } else {
+      logger.warn('[TELEGRAM] ❌ API error', {
+        error: response.data.description
+      });
+      return false;
+    }
+  } catch (err) {
+    logger.error('[TELEGRAM] Exception', {
+      error: err.message
+    });
+    return false;
+  }
+}
+
 async function sendFailedOrdersAlert(failedOrders) {
   if (!failedOrders || failedOrders.length === 0) {
     return;
@@ -60,7 +127,49 @@ async function sendFailedOrdersAlert(failedOrders) {
   try {
     const nodemailer = require('nodemailer');
     
-    // Load SMTP settings
+    // STEP 1: Mark orders as alerted FIRST (before sending email)
+    const orderIds = failedOrders.map(o => o.id);
+    if (orderIds.length > 0) {
+      try {
+        const alertTimestamp = new Date().toISOString();
+        logger.info('[DEDUP] Marking orders as alerted', {
+          count: orderIds.length,
+          timestamp: alertTimestamp,
+          orderIds: orderIds.slice(0, 3) // Log first 3 for debugging
+        });
+        
+        const { data: updateData, error: updateError } = await supabaseAdmin
+          .from('orders')
+          .update({ alerted_at: alertTimestamp })
+          .in('id', orderIds)
+          .select('id, alerted_at');
+        
+        if (updateError) {
+          logger.error('[DEDUP] ❌ FAILED TO MARK ORDERS - UPDATE ERROR', {
+            error: updateError.message,
+            code: updateError.code,
+            status: updateError.status,
+            hint: updateError.hint,
+            ordersCount: orderIds.length
+          });
+          return; // Don't send email if marking failed
+        } else {
+          logger.info('[DEDUP] ✅ Successfully marked orders', {
+            updated: updateData?.length || 0,
+            sample: updateData?.slice(0, 2).map(o => ({ id: o.id, alerted_at: o.alerted_at }))
+          });
+        }
+      } catch (err) {
+        logger.error('[DEDUP] Exception while marking orders', {
+          error: err.message,
+          stack: err.stack?.split('\n')[0],
+          ordersCount: orderIds.length
+        });
+        return; // Don't send email if exception occurred
+      }
+    }
+    
+    // STEP 2: Load SMTP settings
     const { data: smtpData, error: smtpError } = await supabaseAdmin
       .from('settings')
       .select('value')
@@ -233,32 +342,26 @@ async function sendFailedOrdersAlert(failedOrders) {
       html: emailBody
     });
     
-    logger.info('Failed orders alert email sent', {
+    logger.info('✅ Failed orders alert email sent', {
       ordersCount: ordersLimit.length,
-      messageId: result.messageId
+      messageId: result.messageId,
+      adminEmail: adminEmail,
+      timestamp: new Date().toISOString()
     });
     
-    // Mark orders as alerted to prevent duplicate alerts
-    const orderIds = failedOrders.map(o => o.id);
-    if (orderIds.length > 0) {
-      try {
-        const { error: updateError } = await supabaseAdmin
-          .from('orders')
-          .update({ alerted_at: new Date().toISOString() })
-          .in('id', orderIds);
-        
-        if (updateError) {
-          logger.warn('Failed to mark orders as alerted', {
-            error: serializeError(updateError),
-            ordersCount: orderIds.length
-          });
-        } else {
-          logger.info('Marked orders as alerted', { ordersCount: orderIds.length });
-        }
-      } catch (err) {
-        logger.warn('Error updating alerted_at timestamps', { error: serializeError(err) });
-      }
-    }
+    // SEND TELEGRAM ALERT
+    const telegramMessage = ordersLimit
+      .map(order => `<b>#${order.order_number}</b> - ${order.providerName} (${order.username}) - $${order.charge?.toFixed(2) || '0.00'}`)
+      .join('\n');
+    
+    const telegramText = `❌ <b>FAILED ORDER ALERT</b> (${ordersLimit.length})
+      
+${telegramMessage}
+
+<i>Check admin dashboard immediately</i>`;
+    
+    await sendTelegramAlert(telegramText);
+
     
     // Log notifications for each failed order
     for (const order of failedOrders) {
@@ -499,6 +602,19 @@ async function sendBulkLowBalanceAlert(lowBalanceProviders, threshold) {
       messageId: result.messageId
     });
     
+    // SEND TELEGRAM ALERT
+    const telegramMessage = lowBalanceProviders
+      .map(p => `<b>${p.name}</b> - $${p.balanceUSD.toFixed(2)} (threshold: $${threshold.toFixed(2)})`)
+      .join('\n');
+    
+    const telegramText = `⚠️ <b>LOW BALANCE ALERT</b> (${lowBalanceProviders.length})
+      
+${telegramMessage}
+
+<i>Add funds immediately to prevent service interruptions</i>`;
+    
+    await sendTelegramAlert(telegramText);
+    
     // Log notifications for each provider
     for (const provider of lowBalanceProviders) {
       try {
@@ -526,8 +642,10 @@ async function checkProviderBalances(providers, alertSettings) {
     return;
   }
   const threshold = alertSettings.providerLowBalanceThreshold;
+  
+  // STEP 1: Find ALL current low balance providers
   const lowBalanceProviders = [];
-  const alertedProviderIds = [];
+  const lowBalanceProviderIds = new Set();
   
   for (const provider of providers) {
     try {
@@ -547,6 +665,7 @@ async function checkProviderBalances(providers, alertSettings) {
       
       if (balanceUSD < threshold) {
         lowBalanceProviders.push({ ...provider, balanceUSD });
+        lowBalanceProviderIds.add(provider.id);
       }
     } catch (err) {
       logger.warn('Error checking provider balance', {
@@ -556,50 +675,106 @@ async function checkProviderBalances(providers, alertSettings) {
     }
   }
   
-  // Check 24-hour cooldown for bulk alert
+  // STEP 2: Find which providers are NEWLY low balance (not in alerts table)
+  let newlyLowProviders = [];
   if (lowBalanceProviders.length > 0) {
     try {
-      const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const { data: recentAlerts } = await supabaseAdmin
         .from('provider_balance_alerts')
         .select('provider_id')
-        .gt('created_at', last24h);
+        .in('provider_id', Array.from(lowBalanceProviderIds));
       
-      if (recentAlerts && recentAlerts.length > 0) {
-        const recentProviderIds = new Set(recentAlerts.map(a => a.provider_id));
-        lowBalanceProviders.length = 0;
-        for (const provider of lowBalanceProviders) {
-          if (!recentProviderIds.has(provider.id)) {
-            lowBalanceProviders.push(provider);
-          }
-        }
-      }
+      const alertedProviderIds = new Set(recentAlerts?.map(a => a.provider_id) || []);
+      
+      newlyLowProviders = lowBalanceProviders.filter(p => !alertedProviderIds.has(p.id));
+      
+      logger.info('[LOW-BALANCE] Status check', {
+        totalLowBalance: lowBalanceProviders.length,
+        newlyLow: newlyLowProviders.length,
+        alreadyAlerted: alertedProviderIds.size
+      });
     } catch (err) {
-      logger.warn('Could not check recent alerts', { error: serializeError(err) });
+      logger.warn('[LOW-BALANCE] Could not check recent alerts', { error: serializeError(err) });
+      newlyLowProviders = lowBalanceProviders; // Default: treat all as new
     }
   }
   
-  // Send single bulk alert for all low balance providers
+  // STEP 3: Mark NEWLY low balance providers
+  if (newlyLowProviders.length > 0) {
+    try {
+      const alertRecords = newlyLowProviders.map(provider => ({
+        provider_id: provider.id,
+        balance_usd: provider.balanceUSD,
+        threshold_usd: threshold,
+        alert_type: 'low_balance',
+        created_at: new Date().toISOString()
+      }));
+      
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from('provider_balance_alerts')
+        .insert(alertRecords)
+        .select('provider_id, balance_usd');
+      
+      if (insertError) {
+        logger.error('[LOW-BALANCE] ❌ Failed to mark new low balance alerts', {
+          error: insertError.message,
+          count: newlyLowProviders.length
+        });
+      } else {
+        logger.info('[LOW-BALANCE] ✅ Marked new low balance providers', {
+          count: inserted?.length || 0,
+          providers: inserted?.map(r => ({ id: r.provider_id, balance: r.balance_usd }))
+        });
+      }
+    } catch (err) {
+      logger.error('[LOW-BALANCE] Exception marking new alerts', {
+        error: err.message,
+        count: newlyLowProviders.length
+      });
+    }
+  }
+  
+  // STEP 4: Clear alerts for providers that recovered (balance >= threshold)
+  try {
+    const recoveredProviderIds = Array.from(providers)
+      .filter(p => {
+        let balanceUSD = Number(p.balance || 0);
+        if (p.currency && p.currency.toUpperCase() !== 'USD') {
+          // Simple estimate if we can't convert
+          balanceUSD = balanceUSD; // Keep as is
+        }
+        return balanceUSD >= threshold;
+      })
+      .map(p => p.id);
+    
+    if (recoveredProviderIds.length > 0) {
+      const { data: deleted, error: deleteError } = await supabaseAdmin
+        .from('provider_balance_alerts')
+        .delete()
+        .in('provider_id', recoveredProviderIds)
+        .select('provider_id');
+      
+      if (!deleteError && deleted && deleted.length > 0) {
+        logger.info('[LOW-BALANCE] ✅ Cleared alerts for recovered providers', {
+          count: deleted.length,
+          providers: deleted.map(r => r.provider_id)
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('[LOW-BALANCE] Could not clear recovered provider alerts', {
+      error: err.message
+    });
+  }
+  
+  // STEP 5: Send email with ALL currently low balance providers
   if (lowBalanceProviders.length > 0) {
     const sent = await sendBulkLowBalanceAlert(lowBalanceProviders, threshold);
     
-    if (sent) {
-      try {
-        // Record alert for each provider
-        const alertRecords = lowBalanceProviders.map(provider => ({
-          provider_id: provider.id,
-          balance_usd: provider.balanceUSD,
-          threshold_usd: threshold,
-          alert_type: 'low_balance',
-          created_at: new Date().toISOString()
-        }));
-        
-        await supabaseAdmin
-          .from('provider_balance_alerts')
-          .insert(alertRecords);
-      } catch (err) {
-        logger.warn('Failed to log balance alerts', { error: serializeError(err) });
-      }
+    if (!sent) {
+      logger.warn('[LOW-BALANCE] Email not sent', {
+        providerCount: lowBalanceProviders.length
+      });
     }
   }
 }
@@ -711,19 +886,87 @@ exports.handler = async (event = {}) => {
     // Fetch and send alert for failed orders from last 3 hours
     try {
       const last3hours = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
-      const { data: failedOrders, error: failedError } = await supabaseAdmin
+      
+      // GET ALL FAILED ORDERS (regardless of alerted_at status)
+      const { data: allFailedOrders, error: failedError } = await supabaseAdmin
         .from('orders')
         .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, alerted_at')
         .in('status', ['failed', 'error'])
         .gt('created_at', last3hours)
-        .is('alerted_at', null)  // Only orders that haven't been alerted yet
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .order('created_at', { ascending: false });
 
-      if (!failedError && failedOrders && failedOrders.length > 0) {
+      if (!failedError && allFailedOrders && allFailedOrders.length > 0) {
+        // STEP 1: Mark ONLY NEW failed orders (alerted_at IS NULL)
+        const newFailedOrders = allFailedOrders.filter(o => !o.alerted_at);
+        
+        if (newFailedOrders.length > 0) {
+          try {
+            const newOrderIds = newFailedOrders.map(o => o.id);
+            const alertTimestamp = new Date().toISOString();
+            
+            logger.info('[DEDUP] Marking NEW failed orders', {
+              count: newOrderIds.length,
+              timestamp: alertTimestamp,
+              orderIds: newOrderIds.slice(0, 3)
+            });
+            
+            const { data: updateData, error: updateError } = await supabaseAdmin
+              .from('orders')
+              .update({ alerted_at: alertTimestamp })
+              .in('id', newOrderIds)
+              .select('id, alerted_at');
+            
+            if (updateError) {
+              logger.error('[DEDUP] ❌ FAILED TO MARK NEW ORDERS', {
+                error: updateError.message,
+                code: updateError.code,
+                ordersCount: newOrderIds.length
+              });
+            } else {
+              logger.info('[DEDUP] ✅ Marked NEW failed orders', {
+                updated: updateData?.length || 0,
+                sample: updateData?.slice(0, 2).map(o => ({ id: o.id, alerted_at: o.alerted_at }))
+              });
+            }
+          } catch (err) {
+            logger.error('[DEDUP] Exception marking new orders', {
+              error: err.message,
+              ordersCount: newFailedOrders.length
+            });
+          }
+        }
+        
+        // STEP 2: Clear alerted_at for orders that are NO LONGER failed
+        try {
+          const { data: clearedOrders, error: clearError } = await supabaseAdmin
+            .from('orders')
+            .update({ alerted_at: null })
+            .neq('status', 'failed')
+            .neq('status', 'error')
+            .not('alerted_at', 'is', null)  // Only clear if alerted_at was set
+            .select('id, status, alerted_at');
+          
+          if (!clearError && clearedOrders && clearedOrders.length > 0) {
+            logger.info('[DEDUP] ✅ Cleared alerted_at for resolved orders', {
+              count: clearedOrders.length,
+              sample: clearedOrders.slice(0, 2)
+            });
+          }
+        } catch (err) {
+          logger.warn('[DEDUP] Could not clear alerted_at for resolved orders', {
+            error: err.message
+          });
+        }
+        
+        // STEP 3: Send email with ALL failed orders (including previously alerted ones)
+        logger.info('[EMAIL] Preparing to send alert with all failed orders', {
+          totalFailedOrders: allFailedOrders.length,
+          newFailedOrders: newFailedOrders.length
+        });
+        
         // Enrich with user, service, and provider details
-        const userIds = [...new Set(failedOrders.map(o => o.user_id).filter(Boolean))];
-        const serviceIds = [...new Set(failedOrders.map(o => o.service_id).filter(Boolean))];
+        const userIds = [...new Set(allFailedOrders.map(o => o.user_id).filter(Boolean))];
+        const serviceIds = [...new Set(allFailedOrders.map(o => o.service_id).filter(Boolean))];
         
         let usersMap = new Map();
         let servicesMap = new Map();
@@ -758,7 +1001,7 @@ exports.handler = async (event = {}) => {
         }
         
         // Enrich orders with user/service/provider info
-        const enrichedOrders = failedOrders.map(order => {
+        const enrichedOrders = allFailedOrders.map(order => {
           const user = usersMap.get(order.user_id);
           const service = servicesMap.get(order.service_id);
           const provider = service ? providersMap.get(service.provider_id) : null;

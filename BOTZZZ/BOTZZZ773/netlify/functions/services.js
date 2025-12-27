@@ -1728,8 +1728,8 @@ async function handleDuplicateService(data, headers) {
       .from('services')
       .insert({
         provider_id: originalService.provider_id,
-        provider_service_id: originalService.provider_service_id,
-        provider_order_id: originalService.provider_order_id,
+        provider_service_id: originalService.provider_service_id, // Copy from original
+        provider_order_id: null, // Don't copy - avoid unique constraint violation
         name: `${originalService.name} (Copy)`,
         category: originalService.category,
         description: originalService.description,
@@ -1740,7 +1740,7 @@ async function handleDuplicateService(data, headers) {
         min_quantity: originalService.min_quantity,
         max_quantity: originalService.max_quantity,
         type: originalService.type,
-        status: 'inactive', // New duplicates start as inactive
+        status: 'active', // New duplicates start as active
         public_id: newPublicId,
         currency: originalService.currency,
         average_time: originalService.average_time,
@@ -1754,10 +1754,15 @@ async function handleDuplicateService(data, headers) {
       .single();
 
     if (insertError) {
+      logServiceError('Duplicate service insert error', insertError, { serviceId, originalName: originalService.name });
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to duplicate service' })
+        body: JSON.stringify({ 
+          error: 'Failed to duplicate service',
+          details: insertError.message || insertError.hint || 'Unknown database error',
+          code: insertError.code
+        })
       };
     }
 
@@ -1770,11 +1775,14 @@ async function handleDuplicateService(data, headers) {
       })
     };
   } catch (error) {
-    logServiceError('Duplicate service error', error, { serviceId: body?.serviceId });
+    logServiceError('Duplicate service error', error, { serviceId: data?.serviceId });
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Failed to duplicate service' })
+      body: JSON.stringify({ 
+        error: 'Failed to duplicate service',
+        details: error.message || 'Unknown error'
+      })
     };
   }
 }

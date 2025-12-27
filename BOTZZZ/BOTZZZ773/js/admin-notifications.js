@@ -8,10 +8,13 @@ let notificationsRefreshInterval;
  * Toggle notification dropdown menu
  */
 function toggleNotificationMenu(event) {
+    console.log('[Notification] Toggle called', event);
     event?.stopPropagation?.();
     const dropdown = document.getElementById('notificationDropdown');
+    console.log('[Notification] Dropdown element:', dropdown);
     if (dropdown) {
         dropdown.classList.toggle('show');
+        console.log('[Notification] Show class:', dropdown.classList.contains('show'));
         if (dropdown.classList.contains('show')) {
             loadAndDisplayNotifications();
         }

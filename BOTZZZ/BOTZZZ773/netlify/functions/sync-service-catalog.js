@@ -830,6 +830,50 @@ exports.handler = async (event = {}) => {
       });
 
       console.log('[PRICE ALERT] Email sent', { messageId: result.messageId, changeCount: allChanges.length });
+      
+      // SEND TELEGRAM ALERT
+      const telegramChanges = allChanges
+        .slice(0, 10)
+        .map(c => `<b>${c.serviceName}</b> (${c.providerName})\n$${c.old_provider_rate?.toFixed(4)} → $${c.new_provider_rate?.toFixed(4)}`)
+        .join('\n\n');
+      
+      const telegramText = `💰 <b>PRICE CHANGES DETECTED</b> (${allChanges.length})
+      
+${telegramChanges}
+${allChanges.length > 10 ? `\n... and ${allChanges.length - 10} more changes` : ''}
+
+<i>Check dashboard for full details</i>`;
+      
+      try {
+        const axios = require('axios');
+        const { data: integrationsData } = await supabaseAdmin
+          .from('settings')
+          .select('value')
+          .eq('key', 'integrations')
+          .single();
+        
+        if (integrationsData) {
+          const integrations = typeof integrationsData.value === 'string' 
+            ? JSON.parse(integrationsData.value) 
+            : integrationsData.value;
+          
+          const token = integrations?.telegramToken || process.env.TELEGRAM_BOT_TOKEN;
+          const chatId = integrations?.telegramChatId || process.env.TELEGRAM_CHAT_ID;
+          
+          if (token && chatId) {
+            const url = `https://api.telegram.org/bot${token}/sendMessage`;
+            await axios.post(url, {
+              chat_id: chatId,
+              text: telegramText,
+              parse_mode: 'HTML'
+            }, { timeout: 10000 });
+            console.log('[PRICE ALERT] Telegram sent');
+          }
+        }
+      } catch (telegramErr) {
+        console.warn('[PRICE ALERT] Telegram send failed', telegramErr.message);
+      }
+      
       return { sent: true, messageId: result.messageId, changeCount: allChanges.length };
     } catch (err) {
       console.warn('[PRICE ALERT] Failed to send email', err?.message || err);

@@ -107,7 +107,7 @@ async function populateUsersTable() {
                     <td class="cell-email">${user.email || ''}</td>
                     <td>$${(balance.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
                     <td>$${(spent.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
-                    <td>$${(profit.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
+                    <td class="cell-profit">$${(profit.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''))}</td>
                     <td>
                         <span class="status-badge ${status.toLowerCase() === 'active' ? 'completed' : 'fail'}">
                             ${status}
@@ -1008,4 +1008,48 @@ async function saveCustomRates(userId) {
 document.addEventListener('DOMContentLoaded', () => {
     populateUsersTable();
     handleSearch('userSearch', 'usersTable');
+    
+    // Auto-refresh profit every 5 seconds - update only profit cells
+    setInterval(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            fetch('/.netlify/functions/users', {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.users && Array.isArray(result.users)) {
+                    // Create a map of user profits
+                    const profitMap = new Map();
+                    result.users.forEach(u => {
+                        const profit = parseFloat(u.profit || 0);
+                        const formatted = '$' + (profit.toFixed(5).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, ''));
+                        profitMap.set(u.id, formatted);
+                    });
+                    
+                    // Update only profit cells by user ID
+                    const tbody = document.getElementById('usersTableBody');
+                    if (tbody) {
+                        const rows = tbody.querySelectorAll('tr[data-user-id]');
+                        rows.forEach(row => {
+                            const userId = row.getAttribute('data-user-id');
+                            const newProfit = profitMap.get(userId);
+                            if (newProfit !== undefined) {
+                                // Find profit cell safely by class
+                                const profitCell = row.querySelector('.cell-profit');
+                                if (profitCell) {
+                                    profitCell.textContent = newProfit;
+                                }
+                            }
+                        });
+                    }
+                }
+            })
+            .catch(err => console.log('[USERS] Profit update error:', err));
+        }
+    }, 5000); // Refresh every 5 seconds
 });

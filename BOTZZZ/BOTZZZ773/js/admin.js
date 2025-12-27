@@ -130,57 +130,126 @@ if (typeof window !== 'undefined') {
     };
 }
 
-// Toggle Sidebar - Mobile & Desktop Compatible
-function toggleSidebar() {
-    const sidebar = document.getElementById('adminSidebar');
-    const overlay = document.getElementById('sidebarOverlay');
-    
-    // Mobile (< 768px) - toggle .active class
-    if (window.innerWidth < 768) {
-        sidebar.classList.toggle('active');
-        if (overlay) {
-            overlay.classList.toggle('active');
-        }
-    } else {
-        // Desktop (>= 768px) - toggle .collapsed class
-        sidebar.classList.toggle('collapsed');
-        document.body.classList.toggle('sidebar-collapsed');
-    }
-}
+// ==========================================
+// SIDEBAR MANAGEMENT - MOBILE + DESKTOP
+// ==========================================
 
-// Mobile - Sidebar menu linkine tıklanınca kapanması
-document.addEventListener('DOMContentLoaded', function() {
-    if (window.innerWidth < 768) {
-        const navItems = document.querySelectorAll('.admin-nav-item');
+class SidebarManager {
+    constructor() {
+        this.sidebar = document.getElementById('adminSidebar');
+        this.overlay = document.getElementById('sidebarOverlay');
+        this.toggle = document.querySelector('.sidebar-toggle');
+        this.isMobileMode = window.innerWidth < 768;
+        this.init();
+    }
+
+    init() {
+        if (!this.sidebar || !this.overlay) return;
+
+        // Toggle butonuna click/touch events ekle
+        if (this.toggle) {
+            this.toggle.addEventListener('click', (e) => this.handleToggle(e));
+            this.toggle.addEventListener('touchend', (e) => this.handleToggle(e));
+        }
+
+        // Overlay tıklamasında sidebar kapanması
+        this.overlay.addEventListener('click', (e) => this.closeSidebar());
+        this.overlay.addEventListener('touchend', (e) => this.closeSidebar());
+
+        // Sidebar nav items tıklamasında kapanması
+        const navItems = this.sidebar.querySelectorAll('.admin-nav-item');
         navItems.forEach(item => {
-            item.addEventListener('click', function() {
-                const sidebar = document.getElementById('adminSidebar');
-                const overlay = document.getElementById('sidebarOverlay');
-                if (sidebar && sidebar.classList.contains('active')) {
-                    sidebar.classList.remove('active');
-                    if (overlay) {
-                        overlay.classList.remove('active');
-                    }
-                }
-            });
+            item.addEventListener('click', (e) => this.closeSidebar());
+            item.addEventListener('touchend', (e) => this.closeSidebar());
+        });
+
+        // Close button
+        const closeBtn = this.sidebar.querySelector('.sidebar-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', (e) => this.closeSidebar());
+            closeBtn.addEventListener('touchend', (e) => this.closeSidebar());
+        }
+
+        // Window resize
+        window.addEventListener('resize', () => this.handleResize());
+
+        // Escape tuşu
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeSidebar();
+            }
+        });
+
+        // Sayfanın en başına scroll
+        window.addEventListener('scroll', () => {
+            if (this.isMobileMode && this.sidebar.classList.contains('active')) {
+                this.closeSidebar();
+            }
         });
     }
 
-    // Window resize event - mode değişirse durum sıfırla
-    window.addEventListener('resize', function() {
-        const sidebar = document.getElementById('adminSidebar');
-        const overlay = document.getElementById('sidebarOverlay');
+    handleToggle(e) {
+        e.preventDefault();
+        e.stopPropagation();
         
-        if (window.innerWidth >= 768) {
-            // Desktop mode'a geçince sidebar state'ini sıfırla
-            if (sidebar && sidebar.classList.contains('active')) {
-                sidebar.classList.remove('active');
-            }
-            if (overlay && overlay.classList.contains('active')) {
-                overlay.classList.remove('active');
-            }
+        if (this.isMobileMode) {
+            this.toggleMobileSidebar();
+        } else {
+            this.toggleDesktopSidebar();
         }
-    });
+    }
+
+    toggleMobileSidebar() {
+        const isOpen = this.sidebar.classList.contains('active');
+        if (isOpen) {
+            this.closeSidebar();
+        } else {
+            this.openSidebar();
+        }
+    }
+
+    toggleDesktopSidebar() {
+        this.sidebar.classList.toggle('collapsed');
+        document.body.classList.toggle('sidebar-collapsed');
+    }
+
+    openSidebar() {
+        this.sidebar.classList.add('active');
+        this.overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    closeSidebar() {
+        this.sidebar.classList.remove('active');
+        this.overlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    handleResize() {
+        const wasMobile = this.isMobileMode;
+        this.isMobileMode = window.innerWidth < 768;
+
+        // Mode değişti
+        if (wasMobile && !this.isMobileMode) {
+            // Mobile -> Desktop
+            this.closeSidebar();
+        } else if (!wasMobile && this.isMobileMode) {
+            // Desktop -> Mobile
+            this.closeSidebar();
+        }
+    }
+}
+
+// Global toggle function (onclick ile çalışması için)
+function toggleSidebar() {
+    if (window.sidebarManager) {
+        window.sidebarManager.handleToggle({ preventDefault: () => {}, stopPropagation: () => {} });
+    }
+}
+
+// Initialize on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    window.sidebarManager = new SidebarManager();
 });
 
 const adminNetworkNotice = (() => {

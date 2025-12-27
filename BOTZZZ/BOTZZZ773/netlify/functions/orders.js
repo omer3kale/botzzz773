@@ -1793,7 +1793,8 @@ async function handleCreateOrder(user, data, headers) {
             provider_id: order.service?.provider_id || null
           },
           extra: {
-            provider_response: providerError.response || { error: providerErrorMessage }
+            provider_response: providerError.response || { error: providerErrorMessage },
+            provider_cost: providerCharge // Set estimated provider cost even on failure
           }
         });
       } catch (dbError) {
