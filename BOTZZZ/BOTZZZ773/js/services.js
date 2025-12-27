@@ -907,6 +907,30 @@ function showServiceDescription(serviceKey) {
         return;
     }
 
+    // Send Google Analytics event for service view
+    if (typeof gtag !== 'undefined') {
+        gtag('event', 'view_item', {
+            'items': [{
+                'item_id': service.public_id ?? service.publicId ?? serviceKey,
+                'item_name': service.name || 'Unknown Service',
+                'item_category': service.category || 'Services',
+                'price': service.rate,
+                'currency': (service.currency || 'USD').toUpperCase()
+            }]
+        });
+    }
+
+    // Send Facebook Pixel event for service view
+    if (typeof fbq !== 'undefined') {
+        fbq('track', 'ViewContent', {
+            content_name: service.name || 'Unknown Service',
+            content_type: 'product',
+            content_id: service.public_id ?? service.publicId ?? serviceKey,
+            value: service.rate,
+            currency: (service.currency || 'USD').toUpperCase()
+        });
+    }
+
     const rawPublicId = service.public_id ?? service.publicId;
     const publicIdValue = (rawPublicId === null || rawPublicId === undefined || rawPublicId === '')
         ? null
