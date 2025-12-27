@@ -127,21 +127,24 @@ async function sendFailedOrdersAlert(failedOrders) {
   try {
     const nodemailer = require('nodemailer');
     
-    // STEP 1: Mark orders as alerted FIRST (before sending email)
-    const orderIds = failedOrders.map(o => o.id);
-    if (orderIds.length > 0) {
+    // STEP 1: Filter for NEW failures only (alerted_at IS NULL) - Prevent duplicates
+    const newFailures = failedOrders.filter(o => !o.alerted_at);
+    const newOrderIds = newFailures.map(o => o.id);
+    
+    if (newOrderIds.length > 0) {
       try {
         const alertTimestamp = new Date().toISOString();
-        logger.info('[DEDUP] Marking orders as alerted', {
-          count: orderIds.length,
+        logger.info('[DEDUP] Marking NEW orders as alerted', {
+          count: newOrderIds.length,
           timestamp: alertTimestamp,
-          orderIds: orderIds.slice(0, 3) // Log first 3 for debugging
+          orderIds: newOrderIds.slice(0, 3) // Log first 3 for debugging
         });
         
         const { data: updateData, error: updateError } = await supabaseAdmin
           .from('orders')
           .update({ alerted_at: alertTimestamp })
-          .in('id', orderIds)
+          .in('id', newOrderIds)
+          .is('alerted_at', null) // Only update if NOT already alerted (idempotency)
           .select('id, alerted_at');
         
         if (updateError) {
@@ -150,7 +153,7 @@ async function sendFailedOrdersAlert(failedOrders) {
             code: updateError.code,
             status: updateError.status,
             hint: updateError.hint,
-            ordersCount: orderIds.length
+            ordersCount: newOrderIds.length
           });
           return; // Don't send email if marking failed
         } else {
@@ -163,10 +166,13 @@ async function sendFailedOrdersAlert(failedOrders) {
         logger.error('[DEDUP] Exception while marking orders', {
           error: err.message,
           stack: err.stack?.split('\n')[0],
-          ordersCount: orderIds.length
+          ordersCount: newOrderIds.length
         });
         return; // Don't send email if exception occurred
       }
+    } else {
+      logger.info('[DEDUP] No new failures to alert - all already marked or no failed orders');
+      return; // No new failures, don't send email
     }
     
     // STEP 2: Load SMTP settings
@@ -887,81 +893,61 @@ exports.handler = async (event = {}) => {
     try {
       const last3hours = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
       
-      // GET ALL FAILED ORDERS (regardless of alerted_at status)
+      // GET ONLY NEW FAILED ORDERS (alerted_at IS NULL) - No duplicates!
       const { data: allFailedOrders, error: failedError } = await supabaseAdmin
         .from('orders')
         .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, alerted_at')
         .in('status', ['failed', 'error'])
         .gt('created_at', last3hours)
+        .is('alerted_at', null)  // ONLY NEW FAILURES - prevents duplicate alerts!
         .order('created_at', { ascending: false });
 
       if (!failedError && allFailedOrders && allFailedOrders.length > 0) {
-        // STEP 1: Mark ONLY NEW failed orders (alerted_at IS NULL)
-        const newFailedOrders = allFailedOrders.filter(o => !o.alerted_at);
+        // These are ALL NEW failures (alerted_at IS NULL from query above)
+        logger.info('[DEDUP] Found NEW failed orders to alert', {
+          count: allFailedOrders.length,
+          orderIds: allFailedOrders.slice(0, 3).map(o => o.id)
+        });
         
-        if (newFailedOrders.length > 0) {
-          try {
-            const newOrderIds = newFailedOrders.map(o => o.id);
-            const alertTimestamp = new Date().toISOString();
-            
-            logger.info('[DEDUP] Marking NEW failed orders', {
-              count: newOrderIds.length,
-              timestamp: alertTimestamp,
-              orderIds: newOrderIds.slice(0, 3)
-            });
-            
-            const { data: updateData, error: updateError } = await supabaseAdmin
-              .from('orders')
-              .update({ alerted_at: alertTimestamp })
-              .in('id', newOrderIds)
-              .select('id, alerted_at');
-            
-            if (updateError) {
-              logger.error('[DEDUP] ❌ FAILED TO MARK NEW ORDERS', {
-                error: updateError.message,
-                code: updateError.code,
-                ordersCount: newOrderIds.length
-              });
-            } else {
-              logger.info('[DEDUP] ✅ Marked NEW failed orders', {
-                updated: updateData?.length || 0,
-                sample: updateData?.slice(0, 2).map(o => ({ id: o.id, alerted_at: o.alerted_at }))
-              });
-            }
-          } catch (err) {
-            logger.error('[DEDUP] Exception marking new orders', {
-              error: err.message,
-              ordersCount: newFailedOrders.length
-            });
-          }
-        }
-        
-        // STEP 2: Clear alerted_at for orders that are NO LONGER failed
+        // STEP 1: Mark ALL retrieved failures (they're all new)
         try {
-          const { data: clearedOrders, error: clearError } = await supabaseAdmin
-            .from('orders')
-            .update({ alerted_at: null })
-            .neq('status', 'failed')
-            .neq('status', 'error')
-            .not('alerted_at', 'is', null)  // Only clear if alerted_at was set
-            .select('id, status, alerted_at');
+          const allOrderIds = allFailedOrders.map(o => o.id);
+          const alertTimestamp = new Date().toISOString();
           
-          if (!clearError && clearedOrders && clearedOrders.length > 0) {
-            logger.info('[DEDUP] ✅ Cleared alerted_at for resolved orders', {
-              count: clearedOrders.length,
-              sample: clearedOrders.slice(0, 2)
+          logger.info('[DEDUP] Marking NEW failed orders', {
+            count: allOrderIds.length,
+            timestamp: alertTimestamp,
+            orderIds: allOrderIds.slice(0, 3)
+          });
+          
+          const { data: updateData, error: updateError } = await supabaseAdmin
+            .from('orders')
+            .update({ alerted_at: alertTimestamp })
+            .in('id', allOrderIds)
+            .select('id, alerted_at');
+          
+          if (updateError) {
+            logger.error('[DEDUP] ❌ FAILED TO MARK NEW ORDERS', {
+              error: updateError.message,
+              code: updateError.code,
+              ordersCount: allOrderIds.length
+            });
+          } else {
+            logger.info('[DEDUP] ✅ Marked NEW failed orders', {
+              updated: updateData?.length || 0,
+              sample: updateData?.slice(0, 2).map(o => ({ id: o.id, alerted_at: o.alerted_at }))
             });
           }
         } catch (err) {
-          logger.warn('[DEDUP] Could not clear alerted_at for resolved orders', {
-            error: err.message
+          logger.error('[DEDUP] Exception marking new orders', {
+            error: err.message,
+            ordersCount: allFailedOrders.length
           });
         }
         
-        // STEP 3: Send email with ALL failed orders (including previously alerted ones)
-        logger.info('[EMAIL] Preparing to send alert with all failed orders', {
-          totalFailedOrders: allFailedOrders.length,
-          newFailedOrders: newFailedOrders.length
+        // STEP 2: Send email + Telegram
+        logger.info('[EMAIL] Preparing to send alert with failed orders', {
+          totalFailedOrders: allFailedOrders.length
         });
         
         // Enrich with user, service, and provider details

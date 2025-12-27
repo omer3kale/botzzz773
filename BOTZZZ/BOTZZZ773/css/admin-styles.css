@@ -3829,9 +3829,10 @@ tr[data-status="error"]:hover {
 
     /* Tüm Tablo Sütunlarını Göster - Kaydırma ile */
     .admin-table {
-        min-width: 100% !important;
-        width: auto !important;
+        min-width: 1440px !important;
+        width: 100% !important;
         border-collapse: collapse;
+        table-layout: auto;
     }
 
     /* Sağ Tarafta Fade Effect (Kaydırılabilir olduğunu göster) */
@@ -3862,6 +3863,7 @@ tr[data-status="error"]:hover {
         white-space: nowrap;
         text-align: left;
         border: 1px solid var(--admin-border);
+        min-width: 120px;
     }
 
     .admin-table th {
@@ -3890,9 +3892,143 @@ tr[data-status="error"]:hover {
         justify-content: center;
     }
 
+    /* Orders Table Mobile Column Widths (12 columns) */
+    .orders-table-panel .admin-table th:nth-child(1),
+    .orders-table-panel .admin-table td:nth-child(1) {
+        width: 40px;
+        min-width: 40px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(2),
+    .orders-table-panel .admin-table td:nth-child(2) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(3),
+    .orders-table-panel .admin-table td:nth-child(3) {
+        width: 110px;
+        min-width: 110px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(4),
+    .orders-table-panel .admin-table td:nth-child(4) {
+        width: 130px;
+        min-width: 130px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(5),
+    .orders-table-panel .admin-table td:nth-child(5) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(6),
+    .orders-table-panel .admin-table td:nth-child(6) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(7),
+    .orders-table-panel .admin-table td:nth-child(7) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(8),
+    .orders-table-panel .admin-table td:nth-child(8) {
+        width: 130px;
+        min-width: 130px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(9),
+    .orders-table-panel .admin-table td:nth-child(9) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(10),
+    .orders-table-panel .admin-table td:nth-child(10) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(11),
+    .orders-table-panel .admin-table td:nth-child(11) {
+        width: 130px;
+        min-width: 130px;
+    }
+
+    .orders-table-panel .admin-table th:nth-child(12),
+    .orders-table-panel .admin-table td:nth-child(12) {
+        width: 110px;
+        min-width: 110px;
+    }
+
     /* Scrollbar Styling */
     .table-container::-webkit-scrollbar {
         height: 6px;
+    }
+
+    /* Users Table Mobile Column Widths (10 columns) */
+    .users-table-panel .admin-table th:nth-child(1),
+    .users-table-panel .admin-table td:nth-child(1) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(2),
+    .users-table-panel .admin-table td:nth-child(2) {
+        width: 180px;
+        min-width: 180px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(3),
+    .users-table-panel .admin-table td:nth-child(3) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(4),
+    .users-table-panel .admin-table td:nth-child(4) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(5),
+    .users-table-panel .admin-table td:nth-child(5) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(6),
+    .users-table-panel .admin-table td:nth-child(6) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(7),
+    .users-table-panel .admin-table td:nth-child(7) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(8),
+    .users-table-panel .admin-table td:nth-child(8) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(9),
+    .users-table-panel .admin-table td:nth-child(9) {
+        width: 100px;
+        min-width: 100px;
+    }
+
+    .users-table-panel .admin-table th:nth-child(10),
+    .users-table-panel .admin-table td:nth-child(10) {
+        width: 100px;
+        min-width: 100px;
     }
 
     .table-container::-webkit-scrollbar-track {
@@ -3906,6 +4042,81 @@ tr[data-status="error"]:hover {
 
     .table-container::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 20, 148, 0.5);
+    }
+
+    /* Services Table Mobile Column Widths (10 columns) */
+    .services-table-panel .admin-table th:nth-child(1),
+    .services-table-panel .admin-table td:nth-child(1) {
+        width: 30px;
+        min-width: 30px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(2),
+    .services-table-panel .admin-table td:nth-child(2) {
+        width: 110px;
+        min-width: 110px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(3),
+    .services-table-panel .admin-table td:nth-child(3) {
+        width: 200px;
+        min-width: 200px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(4),
+    .services-table-panel .admin-table td:nth-child(4) {
+        width: 80px;
+        min-width: 80px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(5),
+    .services-table-panel .admin-table td:nth-child(5) {
+        width: 80px;
+        min-width: 80px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(6),
+    .services-table-panel .admin-table td:nth-child(6) {
+        width: 140px;
+        min-width: 140px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(7),
+    .services-table-panel .admin-table td:nth-child(7) {
+        width: 70px;
+        min-width: 70px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(8),
+    .services-table-panel .admin-table td:nth-child(8) {
+        width: 70px;
+        min-width: 70px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(9),
+    .services-table-panel .admin-table td:nth-child(9) {
+        width: 120px;
+        min-width: 120px;
+    }
+
+    .services-table-panel .admin-table th:nth-child(10),
+    .services-table-panel .admin-table td:nth-child(10) {
+        width: 80px;
+        min-width: 80px;
+    }
+
+    /* Payments Table Mobile Column Widths */
+    .payments-table-panel .admin-table th,
+    .payments-table-panel .admin-table td {
+        width: 150px;
+        min-width: 150px;
+    }
+
+    /* Tickets Table Mobile Column Widths */
+    .tickets-table-panel .admin-table th,
+    .tickets-table-panel .admin-table td {
+        width: 140px;
+        min-width: 140px;
     }
 
     /* Grid Yapıları Tek Sütuna İndir */
@@ -4929,53 +5140,12 @@ tr[data-status="error"]:hover {
         text-overflow: ellipsis;
     }
 
-    /* Users Table Mobil Optimizasyonu */
-    .users-table-panel .admin-table th:nth-child(5),
-    .users-table-panel .admin-table td:nth-child(5),
-    .users-table-panel .admin-table th:nth-child(6),
-    .users-table-panel .admin-table td:nth-child(6),
-    .users-table-panel .admin-table th:nth-child(7),
-    .users-table-panel .admin-table td:nth-child(7),
-    .users-table-panel .admin-table th:nth-child(8),
-    .users-table-panel .admin-table td:nth-child(8),
-    .users-table-panel .admin-table th:nth-child(9),
-    .users-table-panel .admin-table td:nth-child(9),
-    .users-table-panel .admin-table th:nth-child(10),
-    .users-table-panel .admin-table td:nth-child(10) {
-        display: none !important;
-    }
-
-    /* Orders Table Mobil Optimizasyonu */
-    .orders-table-panel .admin-table th:nth-child(5),
-    .orders-table-panel .admin-table td:nth-child(5),
-    .orders-table-panel .admin-table th:nth-child(6),
-    .orders-table-panel .admin-table td:nth-child(6),
-    .orders-table-panel .admin-table th:nth-child(8),
-    .orders-table-panel .admin-table td:nth-child(8),
-    .orders-table-panel .admin-table th:nth-child(9),
-    .orders-table-panel .admin-table td:nth-child(9),
-    .orders-table-panel .admin-table th:nth-child(10),
-    .orders-table-panel .admin-table td:nth-child(10) {
-        display: none !important;
-    }
-
-    /* Tickets Table Mobil Optimizasyonu */
-    .tickets-table-panel .admin-table th:nth-child(4),
-    .tickets-table-panel .admin-table td:nth-child(4),
-    .tickets-table-panel .admin-table th:nth-child(5),
-    .tickets-table-panel .admin-table td:nth-child(5),
-    .tickets-table-panel .admin-table th:nth-child(7),
-    .tickets-table-panel .admin-table td:nth-child(7),
-    .tickets-table-panel .admin-table th:nth-child(8),
-    .tickets-table-panel .admin-table td:nth-child(8) {
-        display: none !important;
-    }
-
+    /* Show ALL table columns on mobile - horizontal scroll instead of hiding */
     /* Tüm tablolar mobil min-width */
     .users-table-panel .admin-table,
     .orders-table-panel .admin-table,
     .tickets-table-panel .admin-table {
-        min-width: 420px !important;
+        min-width: 1440px !important;
     }
 
     /* Stat cards - daha küçük */
