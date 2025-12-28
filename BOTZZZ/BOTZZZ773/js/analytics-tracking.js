@@ -38,8 +38,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     page_path: window.location.pathname
                 });
             }
-
-            console.log('[ANALYTICS] Button clicked:', buttonText);
         });
     });
 
@@ -73,8 +71,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     page_path: window.location.pathname
                 });
             }
-
-            console.log('[ANALYTICS] Form submitted:', formId);
         });
     });
 
@@ -140,8 +136,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 page_path: window.location.pathname
             });
         }
-
-        console.log('[ANALYTICS] Page scrolled to:', percent + '%');
     }
 
     // ==========================================
@@ -165,8 +159,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 content_type: 'product'
             });
         }
-
-        console.log('[ANALYTICS] Purchase tracked:', orderId, amount, currency);
     };
 
     // ==========================================
@@ -190,6 +182,4 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     }, true);
-
-    console.log('[ANALYTICS] Tracking initialized - Button clicks, Forms, Scroll depth enabled');
 });
