@@ -828,42 +828,50 @@ exports.handler = async (event = {}) => {
     // Load alert settings
     const alertSettings = await loadAlertSettings();
     
-    // Refresh provider balances from their APIs
-    await refreshProviderBalances(providers);
+    // Refresh provider balances from their APIs (critical, run in parallel)
+    const balanceRefreshPromise = refreshProviderBalances(providers)
+      .catch(err => logger.warn('Provider balance refresh error', { error: serializeError(err) }));
     
     // Check provider balances and send alerts if needed (only for enabled providers)
     let balanceAlertInfo = { enabled: false, checked: 0, lowBalance: [], alertSent: false };
     
-    if (alertSettings.providerLowBalanceAlertEnabled) {
-      const enabledProviders = providers.filter(p => p.low_balance_alerts_enabled !== false);
-      balanceAlertInfo.enabled = true;
-      balanceAlertInfo.checked = enabledProviders.length;
+    const balanceCheckPromise = (async () => {
+      // Wait for balance refresh to complete first
+      await balanceRefreshPromise;
       
-      if (enabledProviders.length > 0) {
-        await checkProviderBalances(enabledProviders, alertSettings);
+      if (alertSettings.providerLowBalanceAlertEnabled) {
+        const enabledProviders = providers.filter(p => p.low_balance_alerts_enabled !== false);
+        balanceAlertInfo.enabled = true;
+        balanceAlertInfo.checked = enabledProviders.length;
         
-        // Check if alert was sent (by looking at DB for recent alerts)
-        try {
-          const now = new Date();
-          const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000).toISOString();
-          const { data: recentAlerts } = await supabaseAdmin
-            .from('provider_balance_alerts')
-            .select('provider_id, balance_usd, threshold_usd')
-            .gt('created_at', twoMinutesAgo)
-            .limit(10);
+        if (enabledProviders.length > 0) {
+          await checkProviderBalances(enabledProviders, alertSettings);
           
-          if (recentAlerts && recentAlerts.length > 0) {
-            balanceAlertInfo.lowBalance = recentAlerts;
-            balanceAlertInfo.alertSent = true;
+          // Check if alert was sent (by looking at DB for recent alerts)
+          try {
+            const now = new Date();
+            const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000).toISOString();
+            const { data: recentAlerts } = await supabaseAdmin
+              .from('provider_balance_alerts')
+              .select('provider_id, balance_usd, threshold_usd')
+              .gt('created_at', twoMinutesAgo)
+              .limit(10);
+            
+            if (recentAlerts && recentAlerts.length > 0) {
+              balanceAlertInfo.lowBalance = recentAlerts;
+              balanceAlertInfo.alertSent = true;
+            }
+          } catch (err) {
+            logger.warn('Could not fetch balance alert info for response', { error: serializeError(err) });
           }
-        } catch (err) {
-          logger.warn('Could not fetch balance alert info for response', { error: serializeError(err) });
         }
       }
-    }
+    })();
 
     const summary = [];
-
+    const syncPromises = [];
+    
+    // Queue all provider syncs (non-blocking)
     for (const provider of providers) {
       const entry = {
         providerId: provider.id,
@@ -873,26 +881,44 @@ exports.handler = async (event = {}) => {
 
       try {
         logger.info('Queueing provider order sync', { providerId: provider.id, limit: orderSyncLimit });
-        const orderResult = await performOrderStatusSync({ providerId: provider.id, limit: orderSyncLimit });
-        entry.orderSync = orderResult;
-
-        if (!orderResult.success) {
-          logger.warn('Order sync returned errors', { providerId: provider.id, error: orderResult.error });
-        }
+        
+        const syncPromise = performOrderStatusSync({ providerId: provider.id, limit: orderSyncLimit })
+          .then(orderResult => {
+            entry.orderSync = orderResult;
+            if (!orderResult.success) {
+              logger.warn('Order sync returned errors', { providerId: provider.id, error: orderResult.error });
+            }
+            return entry;
+          })
+          .catch(providerError => {
+            entry.orderSync = { success: false, error: providerError.message };
+            logger.error('Provider automation failed', {
+              providerId: provider.id,
+              error: serializeError(providerError)
+            });
+            return entry;
+          });
+        
+        syncPromises.push(syncPromise);
       } catch (providerError) {
-        entry.orderSync = entry.orderSync || { success: false, error: providerError.message };
-        logger.error('Provider automation failed', {
+        entry.orderSync = { success: false, error: providerError.message };
+        logger.error('Provider automation setup error', {
           providerId: provider.id,
           error: serializeError(providerError)
         });
+        syncPromises.push(Promise.resolve(entry));
       }
-
-      summary.push(entry);
     }
 
-    // Fetch and send alert for failed orders (status updated in last 24 hours)
-    try {
-      const last24hours = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    // Run failed order and balance alerts in parallel with syncs (don't block on sync completion)
+    // This way alerts can execute while syncs are still running
+    
+    // Calculate 24 hours ago for filtering failed orders
+    const now = new Date();
+    const last24hours = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    
+    const alertsPromise = (async () => {
+      try {
       
       // GET ONLY NEW FAILED ORDERS (alerted_at IS NULL) - No duplicates!
       const { data: allFailedOrders, error: failedError } = await supabaseAdmin
@@ -1034,9 +1060,21 @@ exports.handler = async (event = {}) => {
           logger.warn('Failed orders alert error', { error: serializeError(err) });
         });
       }
-    } catch (failedErr) {
-      logger.warn('Failed to fetch/send failed orders alert', { error: serializeError(failedErr) });
-    }
+      } catch (failedErr) {
+        logger.warn('Failed to fetch/send failed orders alert', { error: serializeError(failedErr) });
+      }
+    })(); // End of alertsPromise async function - invoke it
+
+    // Wait for syncs, failed order alerts, and balance checks to complete in parallel
+    const [syncResults] = await Promise.all([
+      Promise.all(syncPromises).then(results => {
+        summary.length = 0;
+        summary.push(...results);
+        return results;
+      }),
+      alertsPromise,  // Failed order alerts run in parallel
+      balanceCheckPromise  // Balance checks run in parallel
+    ]);
 
     return {
       statusCode: 200,
