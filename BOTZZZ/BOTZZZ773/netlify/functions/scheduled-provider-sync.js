@@ -718,16 +718,17 @@ async function checkProviderBalances(providers, alertSettings) {
       
       const { data: inserted, error: insertError } = await supabaseAdmin
         .from('provider_balance_alerts')
-        .insert(alertRecords)
+        .upsert(alertRecords, { onConflict: 'provider_id' })
         .select('provider_id, balance_usd');
       
       if (insertError) {
         logger.error('[LOW-BALANCE] ❌ Failed to mark new low balance alerts', {
           error: insertError.message,
+          code: insertError.code,
           count: newlyLowProviders.length
         });
       } else {
-        logger.info('[LOW-BALANCE] ✅ Marked new low balance providers', {
+        logger.info('[LOW-BALANCE] ✅ Marked/Updated low balance providers (deduplicated)', {
           count: inserted?.length || 0,
           providers: inserted?.map(r => ({ id: r.provider_id, balance: r.balance_usd }))
         });
@@ -889,20 +890,30 @@ exports.handler = async (event = {}) => {
       summary.push(entry);
     }
 
-    // Fetch and send alert for failed orders from last 3 hours
+    // Fetch and send alert for failed orders (status updated in last 24 hours)
     try {
-      const last3hours = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const last24hours = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       
       // GET ONLY NEW FAILED ORDERS (alerted_at IS NULL) - No duplicates!
       const { data: allFailedOrders, error: failedError } = await supabaseAdmin
         .from('orders')
-        .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, alerted_at')
+        .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, updated_at, alerted_at')
         .in('status', ['failed', 'error'])
-        .gt('created_at', last3hours)
+        .gt('updated_at', last24hours)  // When status changed to failed (not when order created)
         .is('alerted_at', null)  // ONLY NEW FAILURES - prevents duplicate alerts!
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false })
+        .limit(500);  // Limit to prevent huge queries
 
-      if (!failedError && allFailedOrders && allFailedOrders.length > 0) {
+      if (failedError) {
+        logger.error('[DEDUP] ❌ QUERY ERROR - Failed to fetch failed orders', {
+          error: failedError.message,
+          code: failedError.code,
+          status: failedError.status,
+          hint: failedError.hint
+        });
+      } else if (!allFailedOrders || allFailedOrders.length === 0) {
+        logger.info('[DEDUP] ✅ No new failed orders to alert (all already alerted or none in last 24h)');
+      } else {
         // These are ALL NEW failures (alerted_at IS NULL from query above)
         logger.info('[DEDUP] Found NEW failed orders to alert', {
           count: allFailedOrders.length,
