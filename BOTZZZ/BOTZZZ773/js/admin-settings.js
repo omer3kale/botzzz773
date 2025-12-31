@@ -1874,31 +1874,96 @@ async function testProvider(providerId) {
     `;
     createModal('Testing Connection', content, '', false);
     try {
+        // First try: Direct client-side API call (for smmnice.in to see user IP, not Netlify IP)
         const token = localStorage.getItem('token');
-        const response = await fetch('/.netlify/functions/providers', {
-            method: 'POST',
+        const getResponse = await fetch('/.netlify/functions/providers?action=get&providerId=' + providerId, {
             headers: {
-                'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                action: 'test',
-                providerId: providerId
-            })
+            }
         });
+        
+        let provider;
+        if (getResponse.ok) {
+            const providerData = await getResponse.json();
+            provider = providerData.provider;
+        }
+        
         let data;
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            data = await response.json();
-        } else {
-            const text = await response.text();
-            console.warn('[WARN] Non-JSON response received:', text);
+        
+        // If provider has smmnice.in URL, try direct API call from client
+        if (provider && provider.api_url && provider.api_url.includes('smmnice.in')) {
+            console.log('[DEBUG] Detected smmnice.in provider, using direct client-side API call');
             try {
-                data = JSON.parse(text);
-            } catch (e) {
-                throw new Error('Invalid response from server');
+                // Direct API call - Cloudflare will see user's IP, not Netlify IP
+                const params = new URLSearchParams();
+                params.append('key', provider.api_key);
+                params.append('action', 'balance');
+                
+                const directResponse = await fetch(provider.api_url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    },
+                    body: params.toString()
+                });
+                
+                if (directResponse.ok) {
+                    const text = await directResponse.text();
+                    try {
+                        data = JSON.parse(text);
+                        data.success = true;
+                        data.responseTime = 0;
+                    } catch (e) {
+                        // If not JSON, treat as generic success
+                        data = { success: true, balance: 'N/A', responseTime: 0 };
+                    }
+                } else {
+                    throw new Error(`Direct API returned ${directResponse.status}`);
+                }
+            } catch (directError) {
+                console.warn('[WARN] Direct API call failed, falling back to server:', directError);
+                // Fallback to server call
+                const response = await fetch('/.netlify/functions/providers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        action: 'test',
+                        providerId: providerId
+                    })
+                });
+                data = await response.json();
+            }
+        } else {
+            // For other providers, use server-side call
+            const response = await fetch('/.netlify/functions/providers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    action: 'test',
+                    providerId: providerId
+                })
+            });
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                const text = await response.text();
+                console.warn('[WARN] Non-JSON response received:', text);
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error('Invalid response from server');
+                }
             }
         }
+        
         console.log('[DEBUG] Test response:', data);
         closeModal();
         if (data.success) {
