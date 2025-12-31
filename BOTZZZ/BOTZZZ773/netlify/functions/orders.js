@@ -1020,7 +1020,8 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         const serviceName = String(order.service?.name || '').toLowerCase();
         const servicePublicId = String(order.service?.public_id || '').toLowerCase();
         const serviceCategory = String(order.service?.category || '').toLowerCase();
-        const providerName = String(order.service?.provider?.name || '').toLowerCase();
+        // Use order's snapshot provider name first, fallback to service provider name for backward compatibility
+        const providerName = String(order.provider_name || order.service?.provider?.name || '').toLowerCase();
         const providerOrderId = String(order.provider_order_id || '').toLowerCase();
         const link = String(order.link || '').toLowerCase();
         
@@ -1368,6 +1369,8 @@ async function handleCreateOrder(user, data, headers) {
     const orderInsertBase = {
       user_id: user.userId,
       service_id: serviceId,
+      provider_id: service.provider_id || null, // Snapshot provider at order creation time
+      provider_name: service.provider?.name || null, // Snapshot provider name at order creation time
       service_name: service.name,
       link: linkStr,
       quantity: qty,
@@ -2643,7 +2646,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
   let ordersQuery = supabaseAdmin
     .from('orders')
-    .select('id, service_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
+    .select('id, service_id, provider_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
 
   if (orderIds && orderIds.length > 0) {
     ordersQuery = ordersQuery.in('id', orderIds);
@@ -2791,7 +2794,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
   for (const order of ordersToSync) {
     const service = order.service_id ? servicesMap.get(order.service_id) : null;
-    const provider = service && service.provider_id ? providerMap.get(service.provider_id) : null;
+    // Use order's snapshot provider first (if available), fallback to service provider for backward compatibility
+    const providerId = order.provider_id || (service && service.provider_id);
+    const provider = providerId ? providerMap.get(providerId) : null;
 
     if (!service || !provider || !provider.api_url || !provider.api_key) {
       results.push({
@@ -4096,7 +4101,22 @@ async function handleResendOrder(user, body, headers) {
       };
     }
 
-    const provider = order.service.provider;
+    // CRITICAL: Resolve provider from order.provider_id snapshot, not service's current provider
+    // This ensures orders use their original provider even if service was changed
+    let provider = order.service.provider;
+    if (order.provider_id) {
+      const { data: providerData, error: providerError } = await supabaseAdmin
+        .from('providers')
+        .select('id, name, api_url, api_key, status')
+        .eq('id', order.provider_id)
+        .single();
+      if (providerData && !providerError) {
+        provider = providerData;
+        logger.info('Using order provider snapshot', { orderId, providerId: provider.id, providerName: provider.name });
+      } else if (providerError) {
+        logger.warn('Failed to load order provider snapshot; falling back to service provider', { orderId, providerError });
+      }
+    }
 
     if (provider.status !== 'active') {
       logger.warn('Provider not active', { providerId: provider.id, status: provider.status });

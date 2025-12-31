@@ -841,13 +841,13 @@ function resolveOrderProvider(order, orderService) {
     }
 
     const nameCandidates = [
+        order?.provider_name,
+        order?.providerName,
         rawName,
         providerObject?.name,
         providerObject?.providerName,
         providerObject?.title,
         providerObject?.label,
-        order?.provider_name,
-        order?.providerName,
         service?.provider_name,
         service?.providerName
     ];
@@ -3413,6 +3413,12 @@ async function loadFailedOrders() {
                     ? `Select failed order ${orderPrimaryLabel}`
                     : 'Select failed order';
 
+                // Show provider name for failed orders (below provider order ID)
+                const failedOrderProviderInfo = resolveOrderProvider(order, orderService);
+                const failedOrderProviderNameMarkup = failedOrderProviderInfo.providerName && failedOrderProviderInfo.providerName !== 'Unknown Provider'
+                    ? `<span class="order-provider-name"><i class="fas fa-server"></i> ${escapeHtml(failedOrderProviderInfo.providerName)}</span>`
+                    : '';
+
             const row = document.createElement('tr');
             row.dataset.orderId = selectionKey || order.id || '';
             row.dataset.status = 'failed';
@@ -3428,6 +3434,7 @@ async function loadFailedOrders() {
                     <div class="order-id-cell">
                         <span class="order-id-primary">${orderPrimaryLabel}</span>
                         ${orderSecondaryMarkup}
+                        ${failedOrderProviderNameMarkup}
                     </div>
                 </td>
                 <td>${userName}</td>

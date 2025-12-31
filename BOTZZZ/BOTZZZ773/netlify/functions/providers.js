@@ -399,7 +399,13 @@ async function testProvider(data, headers) {
     const response = await axios.post(apiUrl, params, {
       timeout: 10000,
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/json',
+        'Referer': apiUrl,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache'
       }
     });
     const responseTime = Date.now() - startTime;

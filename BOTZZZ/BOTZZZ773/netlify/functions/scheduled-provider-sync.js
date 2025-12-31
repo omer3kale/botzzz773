@@ -923,7 +923,7 @@ exports.handler = async (event = {}) => {
       // GET ONLY NEW FAILED ORDERS (alerted_at IS NULL) - No duplicates!
       const { data: allFailedOrders, error: failedError } = await supabaseAdmin
         .from('orders')
-        .select('id, order_number, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, updated_at, alerted_at')
+        .select('id, order_number, provider_id, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, updated_at, alerted_at')
         .in('status', ['failed', 'error'])
         .gt('updated_at', last24hours)  // When status changed to failed (not when order created)
         .is('alerted_at', null)  // ONLY NEW FAILURES - prevents duplicate alerts!

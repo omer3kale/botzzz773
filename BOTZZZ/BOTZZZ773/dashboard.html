@@ -383,6 +383,7 @@
             <!-- Orders View (Hidden by default) -->
             <div class="orders-view hidden" id="ordersView">
                 <div class="orders-header">
+                    <div class="refund-alert" id="orderRefundAlert" role="status"></div>
                     <div class="order-search">
                         <input 
                             type="text" 
@@ -407,7 +408,6 @@
                         </button>
                     </div>
                 </div>
-                <div class="refund-alert" id="orderRefundAlert" role="status"></div>
                 <div class="orders-pager top" data-orders-pager></div>
                 <div class="orders-table-container">
                     <table class="orders-table">
@@ -608,7 +608,7 @@
             }, 1000);
         })();
     </script>
-    
+
     <!-- PWA Registration -->
     <script src="/js/pwa.js"></script>
 

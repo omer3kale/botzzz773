@@ -32,7 +32,8 @@ async function checkOrders() {
             .from('orders')
             .select(`
                 id, 
-                user_id, 
+                user_id,
+                provider_id,
                 provider_order_id, 
                 status, 
                 charge, 
@@ -40,6 +41,7 @@ async function checkOrders() {
                 start_count, 
                 remains,
                 service:services (
+                    provider_id,
                     provider:providers (
                         id,
                         api_url,
@@ -63,15 +65,39 @@ async function checkOrders() {
         const ordersByProvider = {};
         
         orders.forEach(order => {
-            // Skip if service or provider info is missing
-            if (!order.service || !order.service.provider) return;
+            // Use order's provider_id snapshot FIRST (if available)
+            let providerId = null;
+            let api_url = null;
+            let api_key = null;
             
-            const providerId = order.service.provider.id;
+            if (order.provider_id && order.service?.provider) {
+                // If order has provider_id snapshot, use service.provider if it matches
+                // Otherwise skip (provider info not in join)
+                if (order.provider_id === order.service.provider.id) {
+                    providerId = order.service.provider.id;
+                    api_url = order.service.provider.api_url;
+                    api_key = order.service.provider.api_key;
+                }
+                // If order.provider_id doesn't match service.provider, we can't get API credentials
+                // This is a data consistency issue - log it and skip
+                else {
+                    log(`WARNING: Order ${order.id} provider_id mismatch: ${order.provider_id} vs service provider ${order.service.provider.id}`, 'warn');
+                    return;
+                }
+            } else if (order.service?.provider) {
+                // Fallback: use service.provider for backward compatibility
+                providerId = order.service.provider.id;
+                api_url = order.service.provider.api_url;
+                api_key = order.service.provider.api_key;
+            }
+            
+            // Skip if we can't determine provider info
+            if (!providerId || !api_url || !api_key) return;
             
             if (!ordersByProvider[providerId]) {
                 ordersByProvider[providerId] = {
-                    api_url: order.service.provider.api_url,
-                    api_key: order.service.provider.api_key,
+                    api_url: api_url,
+                    api_key: api_key,
                     orders: []
                 };
             }
