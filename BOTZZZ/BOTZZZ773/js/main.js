@@ -1958,7 +1958,6 @@ async function checkUnreadTickets() {
         if (response.ok) {
             const data = await response.json();
             const count = data.unreadCount || 0;
-            console.log('[BOTZZZ773] Unread tickets count:', count);
             
             // Update sidebar badge only
             updateTicketBadge('sidebarTicketBadge', count);
@@ -1973,7 +1972,6 @@ async function checkUnreadTickets() {
 // Update ticket notification badge
 function updateTicketBadge(badgeId, count) {
     const badge = document.getElementById(badgeId);
-    console.log(`[UPDATE BADGE] ID: ${badgeId}, Count: ${count}, Element found: ${!!badge}`);
     
     if (badge) {
         if (count > 0) {
@@ -1981,13 +1979,9 @@ function updateTicketBadge(badgeId, count) {
             badge.style.display = 'inline-flex';
             badge.style.alignItems = 'center';
             badge.style.justifyContent = 'center';
-            console.log(`[BADGE VISIBLE] ${badgeId}: ${badge.textContent}`);
         } else {
             badge.style.display = 'none';
-            console.log(`[BADGE HIDDEN] ${badgeId}`);
         }
-    } else {
-        console.warn(`[BADGE NOT FOUND] ${badgeId}`);
     }
 }
 

@@ -1174,6 +1174,179 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 /* ==========================================
+   REFILLS VIEW STYLING
+   ========================================== */
+.refills-view {
+    flex: 1;
+    padding: var(--spacing-md) var(--spacing-sm);
+    background: transparent;
+}
+
+.refills-view.hidden {
+    display: none;
+}
+
+.refills-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-lg);
+    gap: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+
+.refill-search {
+    flex: 1;
+    min-width: 320px;
+    max-width: 640px;
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.refill-search .search-input {
+    flex: 1;
+    padding: 10px 16px;
+    border: 1px solid rgba(255, 20, 148, 0.2);
+    border-radius: var(--radius-md);
+    background: rgba(15, 23, 42, 0.5);
+    color: #e2e8f0;
+    font-size: 14px;
+    transition: all 0.2s ease;
+}
+
+.refill-search .search-input::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.refill-search .search-input:focus {
+    outline: none;
+    border-color: #ff1494;
+    background: rgba(15, 23, 42, 0.8);
+    box-shadow: 0 0 0 3px rgba(255, 20, 148, 0.1);
+}
+
+.refill-search .search-btn,
+.refill-search .refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 16px;
+    background: rgba(255, 20, 148, 0.15);
+    color: #ff1494;
+    border: 1px solid rgba(255, 20, 148, 0.3);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.refill-search .search-btn:hover,
+.refill-search .refresh-btn:hover {
+    background: rgba(255, 20, 148, 0.25);
+    border-color: #ff1494;
+    box-shadow: 0 4px 12px rgba(255, 20, 148, 0.2);
+}
+
+.refill-search .search-btn:active,
+.refill-search .refresh-btn:active {
+    transform: translateY(1px);
+}
+
+.refills-table-container {
+    background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
+    border: 1px solid rgba(255, 20, 148, 0.15);
+    border-radius: 16px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(255, 20, 148, 0.1);
+    backdrop-filter: blur(20px);
+}
+
+.refills-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.refills-table thead {
+    background: rgba(255, 20, 148, 0.1);
+}
+
+.refills-table th {
+    padding: 16px 20px;
+    text-align: left;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.85);
+    letter-spacing: 0.3px;
+    border-bottom: 1px solid rgba(255, 20, 148, 0.15);
+    text-transform: uppercase;
+}
+
+.refills-table th:first-child {
+    border-left: 2px solid #ff1494;
+    padding-left: 18px;
+}
+
+.refills-table td {
+    padding: 14px 20px;
+    border-bottom: 1px solid rgba(255, 20, 148, 0.08);
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.refills-table td:first-child {
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    color: #667eea;
+    letter-spacing: 0.5px;
+}
+
+.refills-table tbody tr {
+    transition: background-color 0.2s ease;
+}
+
+.refills-table tbody tr:hover {
+    background: rgba(255, 20, 148, 0.05);
+}
+
+.refills-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* Status Badge Styling */
+.refills-table .status-badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.refills-table .status-badge.pending {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+.refills-table .status-badge.processing {
+    background: rgba(59, 130, 246, 0.2);
+    color: #60a5fa;
+}
+
+.refills-table .status-badge.completed {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+.refills-table .status-badge.rejected {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+/* ==========================================
    RESPONSIVE DESIGN
    ========================================== */
 @media (max-width: 1024px) {

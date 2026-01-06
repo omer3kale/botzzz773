@@ -514,14 +514,6 @@
             : 'pending';
         const normalizedKey = buildStatusKey(safeRaw);
 
-        // DEBUG: Log status mapping
-        console.log('🔍 Status Debug:', {
-            raw: safeRaw,
-            normalized: normalizedKey,
-            isProcessing: CUSTOMER_PROCESSING_STATUS_KEYS.has(normalizedKey),
-            isInProgress: CUSTOMER_INPROGRESS_STATUS_KEYS.has(normalizedKey)
-        });
-
         // Check if order is being processed
         if (CUSTOMER_PROCESSING_STATUS_KEYS.has(normalizedKey)) {
             return {
@@ -685,24 +677,8 @@
                 }
             }
             
-            // Debug: Log entire response
-            console.log('[DASHBOARD] API Response Status:', response.status);
-            console.log('[DASHBOARD] API Response Data:', data);
-            console.log('[DASHBOARD] Is services array?', Array.isArray(data.services));
-            if (data.services) {
-                console.log('[DASHBOARD] Services count:', data.services.length);
-            }
-            
             if (Array.isArray(data.services)) {
                 const services = data.services;
-                
-                // Debug: Log first service to see available fields
-                if (services.length > 0) {
-                    console.log('[DASHBOARD] Sample service data:', JSON.stringify(services[0], null, 2));
-                    console.log('[DASHBOARD] Total services from API:', services.length);
-                    console.log('[DASHBOARD] customer_portal_enabled value:', services[0].customer_portal_enabled);
-                    console.log('[DASHBOARD] customerPortalEnabled value:', services[0].customerPortalEnabled);
-                }
                 
                 // Filter for customer portal enabled services (has a slot assigned)
                 const customerServices = services.filter(service => {
@@ -710,8 +686,6 @@
                                   service?.customer_portal_slot !== undefined;
                     return hasSlot;
                 });
-                
-                console.log('[DASHBOARD] Filtered customer services:', customerServices.length);
                 
                 // Store all services in global cache for order display
                 window.servicesCache = services;
@@ -769,11 +743,9 @@
                         });
                     });
                     
-                    console.log('Services loaded successfully:', Object.keys(servicesData).length, 'categories');
                     populateCategoryOptions();
                     return true;
                 } else {
-                    console.warn('[DASHBOARD] No customer-visible services returned.');
                     showToast('No services are currently available. Please contact support.', 'error');
                     populateCategoryOptions();
                     return false;
@@ -1201,8 +1173,10 @@
     // ==========================================
     const ordersLink = document.getElementById('ordersLink');
     const dashboardLink = document.getElementById('dashboardLink');
+    const refillsLink = document.getElementById('refillsLink');
     const dashboardContent = document.getElementById('dashboardContent');
     const ordersView = document.getElementById('ordersView');
+    const refillsView = document.getElementById('refillsView');
     const liveOrderStatus = document.getElementById('liveOrderStatus');
     const orderStatusMessageEl = document.getElementById('orderStatusMessage');
     const orderStatusCountsEl = document.getElementById('orderStatusCounts');
@@ -1217,11 +1191,12 @@
     const refundsEligibleEmpty = document.getElementById('refundsEligibleEmpty');
     const refundsHistoryBody = document.getElementById('refundsHistoryBody');
     const refreshRefundsBtn = document.getElementById('refreshRefundsBtn');
+    const refreshRefillsBtn = document.getElementById('refreshRefillsBtn');
 
     const ORDER_AUTO_REFRESH_INTERVAL_MS = 25000;
     let ordersAutoRefreshHandle = null;
     let lastOrdersUpdatedAt = null;
-    let lastOrdersSnapshot = [];
+    window.lastOrdersSnapshot = [];  // Make global for initiateRefill access
     let ordersLoadingInFlight = false;
 
     function setActiveSidebarLink(activeLink) {
@@ -1241,6 +1216,7 @@
         if (ordersView) ordersView.classList.remove('hidden');
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
+        if (refillsView) refillsView.classList.add('hidden');
 
         setActiveSidebarLink(ordersLink);
     }
@@ -1249,6 +1225,7 @@
         if (ordersView) ordersView.classList.add('hidden');
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
+        if (refillsView) refillsView.classList.add('hidden');
         if (dashboardContent) dashboardContent.classList.remove('hidden');
 
         setActiveSidebarLink(dashboardLink);
@@ -1259,6 +1236,7 @@
         if (ordersView) ordersView.classList.add('hidden');
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.remove('hidden');
+        if (refillsView) refillsView.classList.add('hidden');
 
         setActiveSidebarLink(refundsLink);
 
@@ -1267,6 +1245,17 @@
         } else {
             updateRefundDisplays(lastOrdersSnapshot);
         }
+    }
+
+    function showRefillsView() {
+        if (dashboardContent) dashboardContent.classList.add('hidden');
+        if (ordersView) ordersView.classList.add('hidden');
+        if (paymentsView) paymentsView.classList.add('hidden');
+        if (refundsView) refundsView.classList.add('hidden');
+        if (refillsView) refillsView.classList.remove('hidden');
+
+        setActiveSidebarLink(refillsLink);
+        loadRefillRequests();
     }
 
     function startOrdersAutoRefresh() {
@@ -1641,6 +1630,19 @@
         });
     }
 
+    if (refillsLink) {
+        refillsLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showRefillsView();
+        });
+    }
+
+    if (refreshRefillsBtn) {
+        refreshRefillsBtn.addEventListener('click', () => {
+            loadRefillRequests();
+        });
+    }
+
     if (refundsView) {
         refundsView.addEventListener('click', (event) => {
             const actionButton = event.target.closest('[data-refund-order-id]');
@@ -1665,10 +1667,8 @@
     // REAL-TIME ORDER HANDLER (BOTZZZ773)
     // ==========================================
     function handleRealtimeOrderUpdate(data) {
-        console.log('[BOTZZZ773] Dashboard received real-time order update:', data);
         
         if (!data || !data.record) {
-            console.warn('[BOTZZZ773] Invalid real-time data format');
             return;
         }
         
@@ -1678,7 +1678,6 @@
         // Check if this order belongs to current user
         const currentUserId = user?.id || user?.user_id;
         if (record.user_id && record.user_id !== currentUserId) {
-            console.log('[BOTZZZ773] Order update for different user, ignoring');
             return;
         }
         
@@ -1739,7 +1738,6 @@
         if (searchParams.numbers) qp.set('numbers', searchParams.numbers);
         if (extra.status) qp.set('status', extra.status);
         const queryString = qp.toString();
-        console.log('[DASHBOARD] Built query params:', queryString);
         return queryString;
     }
 
@@ -1791,12 +1789,10 @@
     }
 
     if (orderSearchInput) {
-        console.log('[DASHBOARD] Order search input found, attaching listeners');
         let debounceTimer = null;
         const triggerSearch = () => {
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-                console.log('[DASHBOARD] Search triggered, query:', orderSearchInput.value);
                 ordersPageOffset = 0; // reset paging on new search
                 loadOrders({ silent: true, reason: 'search' });
             }, 300);
@@ -1805,25 +1801,17 @@
         orderSearchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                console.log('[DASHBOARD] Enter key pressed');
                 triggerSearch();
             }
         });
         const searchBtn = document.querySelector('.order-search .search-btn');
         if (searchBtn) {
-            console.log('[DASHBOARD] Search button found');
             searchBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                console.log('[DASHBOARD] Search button clicked');
                 triggerSearch();
             });
-        } else {
-            console.warn('[DASHBOARD] Search button NOT found');
         }
-    } else {
-        console.error('[DASHBOARD] Order search input NOT found - #orderSearch element missing');
     }
-
     async function loadOrders(options = {}) {
         const {
             silent = false,
@@ -2004,22 +1992,39 @@
             let refillButtonCell = '';
             
             if (refillButtonEnabled && order.status === 'completed' && order.completed_at) {
-                // Calculate hours remaining for refill
-                const completedTime = new Date(order.completed_at);
                 const now = new Date();
-                const hoursPassed = (now - completedTime) / (1000 * 60 * 60);
                 const REFILL_TIMEOUT_HOURS = 24;
+                let refillDisabled = false;
+                let disabledReason = '';
                 
-                if (hoursPassed < REFILL_TIMEOUT_HOURS) {
-                    // Refill not yet available
-                    const hoursRemaining = Math.floor(REFILL_TIMEOUT_HOURS - hoursPassed);
-                    const minutesRemaining = Math.ceil(((REFILL_TIMEOUT_HOURS - hoursPassed) % 1) * 60);
-                    const tooltipText = `Refill available in ${hoursRemaining}h ${minutesRemaining}m`;
+                // Check if refill was already requested in the last 24 hours
+                if (order.refill_requested_at) {
+                    const refillRequestTime = new Date(order.refill_requested_at);
+                    const hoursSinceRequest = (now - refillRequestTime) / (1000 * 60 * 60);
                     
-                    refillButtonCell = `<button class="btn-refill btn-disabled" disabled title="${tooltipText}" style="opacity: 0.5; cursor: not-allowed;">↻ Refill</button>`;
+                    if (hoursSinceRequest < REFILL_TIMEOUT_HOURS) {
+                        refillDisabled = true;
+                        const hoursRemaining = Math.floor(REFILL_TIMEOUT_HOURS - hoursSinceRequest);
+                        const minutesRemaining = Math.ceil(((REFILL_TIMEOUT_HOURS - hoursSinceRequest) % 1) * 60);
+                        disabledReason = `Next refill in ${hoursRemaining}h ${minutesRemaining}m`;
+                    }
                 } else {
-                    // Refill is available
-                    refillButtonCell = `<button class="btn-refill" onclick="initiateRefill(${order.id}, ${order.service?.id})" title="Request refill for this order">↻ Refill</button>`;
+                    // Check if order is less than 24 hours old
+                    const completedTime = new Date(order.completed_at);
+                    const hoursPassed = (now - completedTime) / (1000 * 60 * 60);
+                    
+                    if (hoursPassed < REFILL_TIMEOUT_HOURS) {
+                        refillDisabled = true;
+                        const hoursRemaining = Math.floor(REFILL_TIMEOUT_HOURS - hoursPassed);
+                        const minutesRemaining = Math.ceil(((REFILL_TIMEOUT_HOURS - hoursPassed) % 1) * 60);
+                        disabledReason = `Refill available in ${hoursRemaining}h ${minutesRemaining}m`;
+                    }
+                }
+                
+                if (refillDisabled) {
+                    refillButtonCell = `<button class="btn-refill btn-disabled" disabled title="${disabledReason}" style="opacity: 0.5; cursor: not-allowed;">↻ Refill</button>`;
+                } else {
+                    refillButtonCell = `<button class="btn-refill" onclick="window.initiateRefill('${order.id}', ${order.service?.id})" title="Request refill for this order">↻ Refill</button>`;
                 }
             }
 
@@ -2057,7 +2062,6 @@
             
             const filter = e.target.dataset.filter;
             // Implement filter logic here
-            console.log('Filter by:', filter);
         });
     });
 
@@ -2077,6 +2081,7 @@
         if (dashboardContent) dashboardContent.classList.add('hidden');
         if (ordersView) ordersView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
+        if (refillsView) refillsView.classList.add('hidden');
         
         // Show payments view
         if (paymentsView) paymentsView.classList.remove('hidden');
@@ -2228,7 +2233,6 @@
 
         // Listen for payment success to refresh balance and payments
         window.addEventListener('popup:payment-success', () => {
-            console.log('[DASHBOARD] Payment success event received, refreshing balance and payments');
             refreshUserSnapshot({ reason: 'payment-success' });
             loadPayments();
         });
@@ -2271,19 +2275,12 @@
     
     // Load services from database on page load
     loadServicesFromDatabase().then(success => {
-        if (success) {
-            console.log('Dashboard ready with', Object.keys(servicesData).length, 'service categories');
-        } else {
-            console.warn('Dashboard loaded but services failed to load');
-        }
+        // Services loaded
     });
 
     function resolveAuthToken(reason) {
-        console.log('[DASHBOARD] Checking auth token, reason:', reason);
         const token = getAuthToken();
-        console.log('[DASHBOARD] Token found:', !!token, token ? `(${token.length} chars)` : '');
         if (!token) {
-            console.warn('[DASHBOARD] No token found, triggering auth guard');
             handleMissingAuth(reason || 'token-missing');
         }
         return token;
@@ -2292,7 +2289,6 @@
     function getAuthToken() {
         try {
             const token = localStorage.getItem('token');
-            console.log('[DASHBOARD] localStorage.getItem("token"):', !!token);
             return token;
         } catch (error) {
             console.warn('[DASHBOARD] Unable to read auth token from storage.', error);
@@ -2301,9 +2297,7 @@
     }
 
     function resolveUserProfile(reason) {
-        console.log('[DASHBOARD] Checking user profile, reason:', reason);
         const userData = getStoredUser();
-        console.log('[DASHBOARD] User found:', !!userData, userData?.email);
         if (!userData) {
             console.warn('[DASHBOARD] No user found, triggering auth guard');
             handleMissingAuth(reason || 'user-missing');
@@ -2314,7 +2308,6 @@
     function getStoredUser() {
         try {
             const raw = localStorage.getItem('user');
-            console.log('[DASHBOARD] localStorage.getItem("user"):', !!raw);
             if (!raw) {
                 return null;
             }
@@ -2362,7 +2355,8 @@
     // ==========================================
     window.initiateRefill = async function(orderId, serviceId) {
         try {
-            console.log('[REFILL] Initiating refill for order:', orderId);
+            // Get lastOrdersSnapshot from global scope
+            const lastOrdersSnapshot = window.lastOrdersSnapshot;
 
             // Find the order in current snapshot
             const order = lastOrdersSnapshot?.find(o => o.id === orderId);
@@ -2399,53 +2393,94 @@
                 return;
             }
 
-            // Show confirmation modal
-            const confirmed = window.confirm(
-                `Are you sure you want to request a refill for this order?\n\n` +
-                `Service: ${order.service?.name || 'Unknown'}\n` +
-                `Quantity: ${order.quantity}\n\n` +
-                `This will resubmit your order to the provider.`
-            );
-
-            if (!confirmed) {
-                return;
-            }
-
             // Show loading toast
             const loadingToastId = Math.random().toString(36);
             showToast('Submitting refill request...', 'info');
 
-            // Send refill request to backend
+            // Try v2.js endpoint first (preferred), then fallback to orders.js
+            let refillResult = null;
+            
+            // Attempt 1: Try v2.js endpoint with API key
             const user = JSON.parse(localStorage.getItem('user') || '{}');
-            const token = localStorage.getItem('auth_token');
+            const apiKey = user.api_key || localStorage.getItem('api_key');
 
-            const response = await fetch('/.netlify/functions/orders', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    action: 'refill',
-                    order: order.order_number  // Send order_number, backend finds it
+            if (apiKey) {
+                try {
+                    const response = await fetch(
+                        `/.netlify/functions/v2?action=refill&order=${encodeURIComponent(order.order_number)}&key=${encodeURIComponent(apiKey)}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' }
+                        }
+                    );
 
-                })
-            });
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.refill) {
+                            refillResult = { endpoint: 'v2', refill: result.refill };
+                        }
+                    }
+                } catch (error) {
+                    // V2 endpoint failed, will try orders.js
+                }
+            } else {
+                console.log('[REFILL] No API key, skipping V2.js');
+            }
 
-            const result = await response.json();
+            // Attempt 2: Fallback to orders.js endpoint with JWT token
+            if (!refillResult) {
+                const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+                console.log('[REFILL] Orders.js - Auth token available?', !!token);
+                
+                if (!token) {
+                    console.error('[REFILL] No auth token found!');
+                    showToast('Authentication token not found. Please log in again.', 'error');
+                    return;
+                }
 
-            if (response.ok && result.success) {
+                try {
+                    console.log('[REFILL] Attempting Orders.js endpoint...');
+                    const response = await fetch('/.netlify/functions/orders', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({
+                            action: 'refill',
+                            orderId: orderId
+                        })
+                    });
+
+                    console.log('[REFILL] Orders.js response status:', response.status);
+                    if (response.ok) {
+                        const result = await response.json();
+                        console.log('[REFILL] Orders.js success:', result);
+                        if (result.refill) {
+                            refillResult = { endpoint: 'orders', refill: result.refill };
+                        }
+                    } else {
+                        console.warn('[REFILL] Orders.js failed with status:', response.status);
+                        const errorBody = await response.text();
+                        console.warn('[REFILL] Orders.js error body:', errorBody);
+                    }
+                } catch (error) {
+                    console.error('[REFILL] orders.js error:', error.message);
+                }
+            }
+
+            if (refillResult) {
+                console.log('[REFILL] SUCCESS! Result:', refillResult);
                 showToast(
-                    `Refill request submitted successfully! Refill ID: ${result.refill_id}`,
+                    `Refill request submitted successfully! Refill ID: #${refillResult.refill}`,
                     'success'
                 );
 
                 // Update order status in snapshot
                 if (order) {
-                    order.refill_id = result.refill_id;
-                    order.refill_status = result.refill_status;
-                    order.refill_requested_at = new Date().toISOString();
+                    order.refill_id = refillResult.refill;
                     order.status = 'refilling';
+                    order.refill_requested_at = new Date().toISOString();
                 }
 
                 // Refresh orders view
@@ -2453,13 +2488,110 @@
                     loadOrders({ silent: true, reason: 'refill-submitted' });
                 }, 1500);
             } else {
-                const errorMsg = result.message || result.error || 'Failed to submit refill request';
-                showToast(errorMsg, 'error');
-                console.error('[REFILL] Error response:', result);
+                console.log('[REFILL] FAILED - No refill result from any endpoint');
+                showToast('Failed to submit refill request. Please try again.', 'error');
             }
         } catch (error) {
             console.error('[REFILL] Error:', error);
             showToast('Failed to submit refill request', 'error');
+        }
+    };
+
+    // ==========================================
+    // REFILL REQUESTS VIEW
+    // ==========================================
+    window.loadRefillRequests = async function() {
+        console.log('[REFILLS] Loading refill requests...');
+        const tbody = document.getElementById('refillsTableBody');
+        if (!tbody) return;
+
+        // Show loading state
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
+                    <i class="fas fa-spinner" style="font-size: 32px; animation: spin 1s linear infinite;"></i>
+                    <p style="margin-top: 16px;">Loading refill requests...</p>
+                </td>
+            </tr>
+        `;
+
+        try {
+            const token = localStorage.getItem('token');
+            
+            const response = await fetch('/.netlify/functions/user-refills?action=list', {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[REFILLS] Error response:', errorText);
+                throw new Error(`Failed to load refill requests: ${response.status}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.success || !data.refills || data.refills.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 16px; display: block;">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <p>No refill requests found</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            data.refills.forEach(refill => {
+                const status = refill.status || 'pending';
+                
+                // Format date as YYYY-MM-DD HH:MM:SS
+                const date = new Date(refill.requested_at);
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                const seconds = String(date.getSeconds()).padStart(2, '0');
+                const requestedDate = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                
+                html += `
+                    <tr>
+                        <td>#${refill.refill_id}</td>
+                        <td>${refill.order_number}</td>
+                        <td>${refill.service_id}</td>
+                        <td>
+                            <span class="status-badge ${status}">
+                                ${status.charAt(0).toUpperCase() + status.slice(1)}
+                            </span>
+                        </td>
+                        <td>${requestedDate}</td>
+                    </tr>`;
+            });
+
+            tbody.innerHTML = html;
+        } catch (error) {
+            console.error('[REFILLS ERROR]', error);
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" style="text-align: center; padding: 40px; color: #dc2626;">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 16px; display: block;">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="12"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <p>${error.message}</p>
+                    </td>
+                </tr>
+            `;
         }
     };
 

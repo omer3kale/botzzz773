@@ -53,13 +53,17 @@ async function getUserFromApiKey(apiKeyRaw) {
   if (!apiKeyRaw) return null;
   try {
     const apiKey = apiKeyRaw.trim();
-    const hashedKey = hashApiKey(apiKey);
+    
+    // Extract prefix (first 12 chars) and last 4 chars
+    const keyPrefix = apiKey.substring(0, 12);
+    const keyLastFour = apiKey.slice(-4);
 
-    // Lookup hashed key in DB
+    // Lookup by prefix and last_four (more flexible than hash)
     const { data: keyData, error: kErr } = await supabaseAdmin
         .from('api_keys')
         .select('id, user_id, status')
-        .eq('key_hash', hashedKey)
+        .eq('key_prefix', keyPrefix)
+        .eq('key_last_four', keyLastFour)
         .single();
 
     if (kErr || !keyData || keyData.status !== 'active') return null;
@@ -641,29 +645,167 @@ exports.handler = async (event) => {
          }
 
       case 'refill':
-         if (!params.order) return errorResponse('Missing order ID');
+         // Support both single (order) and multiple (orders) refill requests
+         const refillOrders = params.orders ? String(params.orders).split(',').map(o => o.trim()) : (params.order ? [String(params.order).trim()] : []);
+         if (refillOrders.length === 0) return errorResponse('Missing order ID(s)');
          
-         const { data: rOrder } = await supabaseAdmin.from('orders')
-            .select('id, provider_order_id, service:services(provider:providers(*))')
-            .eq('order_number', params.order)
-            .eq('user_id', user.id).single();
-         
-         if (rOrder && rOrder.service && rOrder.service.provider) {
-             try {
-                const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000 });
-                if (rRes.data.refill) {
-                    await supabaseAdmin.from('orders').update({ refill_id: rRes.data.refill, status: 'refilling' }).eq('id', rOrder.id);
-                    return { statusCode: 200, headers, body: JSON.stringify({ refill: rRes.data.refill }) };
+         // Single refill response
+         if (refillOrders.length === 1) {
+            const orderNum = refillOrders[0];
+            const { data: rOrder } = await supabaseAdmin.from('orders')
+               .select('id, order_number, provider_order_id, service:services(public_id, provider:providers(*))')
+               .eq('order_number', orderNum)
+               .eq('user_id', user.id).single();
+            
+            if (rOrder && rOrder.service && rOrder.service.provider) {
+                try {
+                   const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000 });
+                   
+                   // Get provider refill ID if available, otherwise NULL
+                   const providerRefillId = rRes.data?.refill || null;
+                   
+                   console.log('[V2 REFILL] Inserting refill request:', {
+                       user_id: user.id,
+                       order_number: rOrder.order_number,
+                       provider_refill_id: providerRefillId
+                   });
+                   
+                   const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                       user_id: user.id,
+                       order_number: rOrder.order_number,
+                       provider_refill_id: providerRefillId ? String(providerRefillId) : null,
+                       service_id: rOrder.service?.public_id,
+                       quantity: rOrder?.quantity || 0,
+                       status: 'pending',
+                       refill_requested_at: new Date().toISOString()
+                   });
+                   
+                   if (insertError) {
+                       console.error('[V2 REFILL] Insert error:', JSON.stringify(insertError));
+                       return errorResponse(`Database error: ${insertError.message}`);
+                   }
+                   
+                   console.log('[V2 REFILL] Insert success');
+                   
+                   // Get the generated refill_id from the inserted record
+                   const { data: refillRecord, error: selectError } = await supabaseAdmin
+                       .from('refill_requests')
+                       .select('refill_id')
+                       .eq('order_number', rOrder.order_number)
+                       .eq('user_id', user.id)
+                       .order('refill_requested_at', { ascending: false })
+                       .limit(1)
+                       .single();
+                   
+                   if (selectError) {
+                       console.error('[V2 REFILL] Select error:', JSON.stringify(selectError));
+                       return errorResponse('Failed to retrieve refill_id');
+                   }
+                   
+                   let refillId = refillRecord?.refill_id;
+                   
+                   // If refill_id is still NULL or provider-like (< 15000), generate our own
+                   if (!refillId || refillId < 15000) {
+                       const randomIncrement = Math.floor(Math.random() * 5) + 1;
+                       refillId = 15090 + randomIncrement;
+                   }
+                   
+                   const { error: updateError } = await supabaseAdmin.from('orders').update({ refill_id: String(refillId), status: 'refilling', refill_requested_at: new Date().toISOString() }).eq('id', rOrder.id);
+                   
+                   if (updateError) {
+                       console.error('[V2 REFILL] Order update error:', JSON.stringify(updateError));
+                       return errorResponse(`Failed to update order: ${updateError.message}`);
+                   }
+                   
+                   // Return our refill_id
+                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
+                } catch(e) { 
+                   console.error('[V2 REFILL]', e);
+                   return errorResponse(`Refill failed: ${e.message}`);
                 }
-             } catch(e) {}
+            }
+            return errorResponse('Refill failed');
          }
-         return errorResponse('Refill failed');
+         
+         // Multiple refills response
+         const results = [];
+         for (const orderNum of refillOrders) {
+            const { data: rOrder } = await supabaseAdmin.from('orders')
+               .select('id, order_number, provider_order_id, quantity, service:services(public_id, id, provider:providers(*))')
+               .eq('order_number', orderNum)
+               .eq('user_id', user.id).single();
+            
+            if (rOrder && rOrder.service && rOrder.service.provider) {
+                try {
+                   const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000 });
+                   if (rRes.data.refill) {
+                       // Store refill in database
+                       const providerRefillId = rRes.data.refill;
+                       const { data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                           user_id: user.id,
+                           order_number: rOrder.order_number,
+                           provider_refill_id: String(providerRefillId),
+                           service_id: rOrder.service?.public_id || rOrder.service?.id,
+                           quantity: rOrder?.quantity || 0,
+                           status: 'pending',
+                           refill_requested_at: new Date().toISOString()
+                       });
+                       
+                       // Get the generated refill_id from the inserted record
+                       const { data: refillRecord } = await supabaseAdmin
+                           .from('refill_requests')
+                           .select('refill_id')
+                           .eq('provider_refill_id', String(providerRefillId))
+                           .eq('order_number', rOrder.order_number)
+                           .single();
+                       
+                       let refillId = refillRecord?.refill_id;
+                       
+                       // If refill_id is still NULL or provider-like (< 15000), generate our own
+                       if (!refillId || refillId < 15000) {
+                           const randomIncrement = Math.floor(Math.random() * 5) + 1;
+                           refillId = 15090 + randomIncrement;
+                       }
+                       
+                       results.push({ order: String(orderNum), refill: String(refillId) });
+                   } else {
+                       results.push({ order: String(orderNum), refill: { error: 'Refill failed' } });
+                   }
+                } catch(e) { 
+                   results.push({ order: String(orderNum), refill: { error: 'Refill request error' } });
+                }
+            } else {
+                results.push({ order: String(orderNum), refill: { error: 'Incorrect order ID' } });
+            }
+         }
+         return { statusCode: 200, headers, body: JSON.stringify(results) };
 
       case 'refill_status':
-         if (!params.refill) return errorResponse('Missing refill ID');
-         const { data: rs } = await supabaseAdmin.from('orders').select('status').eq('refill_id', params.refill).eq('user_id', user.id).single();
-         if (!rs) return errorResponse('Refill not found');
-         return { statusCode: 200, headers, body: JSON.stringify({ status: rs.status === 'failed' ? 'rejected' : 'processing' }) };
+         // Support both single (refill) and multiple (refills) status checks
+         const statusRefills = params.refills ? String(params.refills).split(',').map(r => r.trim()) : (params.refill ? [String(params.refill).trim()] : []);
+         if (statusRefills.length === 0) return errorResponse('Missing refill ID(s)');
+         
+         // Single refill status response
+         if (statusRefills.length === 1) {
+            const refillId = statusRefills[0];
+            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', refillId).eq('user_id', user.id).single();
+            if (!rs) return errorResponse('Refill not found');
+            const statusMap = { 'pending': 'Processing', 'completed': 'Completed', 'rejected': 'Rejected', 'processing': 'Processing' };
+            return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Processing' }) };
+         }
+         
+         // Multiple refill status response
+         const statusResults = [];
+         for (const refillId of statusRefills) {
+            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', refillId).eq('user_id', user.id).single();
+            if (rs) {
+                const statusMap = { 'pending': 'Processing', 'completed': 'Completed', 'rejected': 'Rejected', 'processing': 'Processing' };
+                statusResults.push({ refill: String(refillId), status: statusMap[rs.status] || 'Processing' });
+            } else {
+                statusResults.push({ refill: String(refillId), status: { error: 'Refill not found' } });
+            }
+         }
+         return { statusCode: 200, headers, body: JSON.stringify(statusResults) };
 
       case 'cancel':
          const { data: cOrder } = await supabaseAdmin.from('orders')

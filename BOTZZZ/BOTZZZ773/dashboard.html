@@ -111,7 +111,7 @@
                     <span class="sidebar-link-label">Drip-feed</span>
                 </a>
 
-                <a href="https://www.botzzz773.pro/tickets" class="sidebar-link">
+                <a href="#refills" class="sidebar-link" id="refillsLink">
                     <span class="sidebar-link-icon">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <polyline points="23 4 23 10 17 10"/>
@@ -442,6 +442,60 @@
                 <div class="orders-pager bottom" data-orders-pager></div>
             </div>
 
+            <!-- Refills View (Hidden by default) -->
+            <div class="refills-view hidden" id="refillsView">
+                <div class="refills-header">
+                    <div class="refill-search">
+                        <input 
+                            type="text" 
+                            id="refillSearch" 
+                            class="search-input" 
+                            placeholder="Search refills..."
+                        >
+                        <button type="button" class="search-btn" aria-label="Search refills">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <path d="m21 21-4.35-4.35"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="refresh-btn" id="refreshRefillsBtn">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"/>
+                                <polyline points="1 20 1 14 7 14"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/>
+                                <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14"/>
+                            </svg>
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="refills-table-container">
+                    <table class="refills-table">
+                        <thead>
+                            <tr>
+                                <th>Refill ID</th>
+                                <th>Order #</th>
+                                <th>Service</th>
+                                <th>Status</th>
+                                <th>Requested</th>
+                            </tr>
+                        </thead>
+                        <tbody id="refillsTableBody">
+                            <tr>
+                                <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 16px; display: block;">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <line x1="12" y1="8" x2="12" y2="12"/>
+                                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                                    </svg>
+                                    <p>No refill requests found</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <!-- Payments View (Hidden by default) -->
             <div class="payments-view hidden" id="paymentsView">
                 <div class="payments-header">
@@ -499,34 +553,10 @@
     <script src="js/botzzz773-realtime.js?v=20251216-6"></script>
     <script src="js/dashboard.js?v=20251216-8"></script>
     
-    <!-- INLINE DEBUG: Order Search Test -->
-    <script>
-        console.log('[INLINE DEBUG] Script loaded at:', new Date().toISOString());
-        
-        // Wait for DOM and dashboard.js to load
-        setTimeout(() => {
-            const searchInput = document.getElementById('orderSearch');
-            const searchBtn = document.querySelector('.order-search .search-btn');
-            
-            console.log('[INLINE DEBUG] orderSearch element:', searchInput);
-            console.log('[INLINE DEBUG] search button:', searchBtn);
-            console.log('[INLINE DEBUG] Orders view:', document.getElementById('ordersView'));
-            
-            if (!searchInput) {
-                console.error('[INLINE DEBUG] #orderSearch NOT FOUND IN DOM');
-                // Try to find similar elements
-                const allInputs = document.querySelectorAll('input[type="text"]');
-                console.log('[INLINE DEBUG] All text inputs:', allInputs);
-            }
-        }, 2000);
-    </script>
-    
     <!-- BOTZZZ773 Real-Time Integration -->
     <script>
         (function() {
             'use strict';
-            
-            console.log('[BOTZZZ773] Dashboard real-time integration loading...');
             
             // Wait for supabase:ready event
             document.addEventListener('supabase:ready', function() {
@@ -603,7 +633,6 @@
             setTimeout(() => {
                 if (window.checkUnreadTickets) {
                     window.checkUnreadTickets();
-                    console.log('[DASHBOARD] Fallback unread check triggered');
                 }
             }, 1000);
         })();

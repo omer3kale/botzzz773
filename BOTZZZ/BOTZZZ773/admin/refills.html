@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en" class="admin-html">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Refill Requests - Admin Panel</title>
+    <link rel="stylesheet" href="../css/admin-styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- Supabase Client Library - MUST BE FIRST -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <!-- Admin Authentication Protection -->
+    <script src="../js/admin-auth.js"></script>
+    <!-- Supabase Client Initialization -->
+    <script src="../js/supabase-client.js"></script>
+    <style>
+        .refill-status-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .refill-status-badge.pending {
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            color: #78350f;
+        }
+        .refill-status-badge.processing {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+            color: white;
+        }
+        .refill-status-badge.completed {
+            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            color: white;
+        }
+        .refill-status-badge.rejected {
+            background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
+            color: white;
+        }
+        .refill-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #0f172a;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+            font-size: 14px;
+        }
+        .refill-table-wrapper {
+            overflow-x: auto;
+            border-radius: 10px;
+            -webkit-overflow-scrolling: touch;
+        }
+        .refill-table thead {
+            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .refill-table th {
+            padding: 16px 14px;
+            text-align: left;
+            font-weight: 700;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            white-space: nowrap;
+            color: #f3f4f6;
+        }
+        .refill-table td {
+            padding: 14px;
+            border-bottom: 1px solid #1e293b;
+            vertical-align: middle;
+            color: #e5e7eb;
+        }
+        .refill-table tbody tr {
+            transition: all 0.2s ease;
+        }
+        .refill-table tbody tr:hover {
+            background-color: #1e293b;
+            box-shadow: inset 0 0 8px rgba(102, 126, 234, 0.15);
+        }
+        .refill-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .refill-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+        .refill-id, .provider-id {
+            font-family: 'Courier New', monospace;
+            font-weight: 900;
+            color: #ffffff !important;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: inline-block;
+            letter-spacing: 0.8px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .refill-id {
+            background: #3b3fb7;
+            box-shadow: 0 2px 8px rgba(59, 63, 183, 0.5);
+        }
+        .provider-id {
+            background: #c2531f;
+            box-shadow: 0 2px 8px rgba(194, 83, 31, 0.5);
+        }
+        .refill-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: flex-start;
+        }
+        .refill-actions__btn {
+            padding: 7px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            letter-spacing: 0.3px;
+        }
+        .refill-actions__view {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+        .refill-actions__view:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+        }
+        .refill-actions__accept {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+        .refill-actions__accept:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(16, 185, 129, 0.4);
+        }
+        .refill-actions__reject {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        .refill-actions__reject:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(239, 68, 68, 0.4);
+        }
+        .filters-section {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            align-items: center;
+            background: white;
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .filters-section select,
+        .filters-section input {
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            color: #1f2937;
+            transition: all 0.2s;
+        }
+        .filters-section select:focus,
+        .filters-section input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        .filters-section input {
+            flex: 1;
+            min-width: 200px;
+        }
+        .filter-btn {
+            padding: 10px 20px;
+            border: 1px solid #d1d5db;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .filter-btn:hover {
+            border-color: #667eea;
+            background: #f9fafb;
+        }
+        .filter-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        .loading-state, .empty-state, .error-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+        }
+        .loading-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #667eea;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .empty-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #d1d5db;
+        }
+        .error-state {
+            color: #dc2626;
+        }
+        .error-state i {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        .refill-id {
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-weight: 600;
+            color: #667eea;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .modal-overlay.show {
+            display: flex;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 12px;
+        }
+        .modal-header h2 {
+            margin: 0;
+            font-size: 18px;
+            color: #1f2937;
+        }
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6b7280;
+        }
+        .modal-close:hover {
+            color: #1f2937;
+        }
+        .modal-body {
+            margin: 16px 0;
+        }
+        .modal-field {
+            margin-bottom: 16px;
+        }
+        .modal-field label {
+            display: block;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 4px;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .modal-field input,
+        .modal-field textarea,
+        .modal-field select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        .modal-field textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        .modal-field input:disabled,
+        .modal-field textarea:disabled {
+            background-color: #f9fafb;
+            color: #6b7280;
+        }
+        .modal-footer {
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .modal-footer button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .modal-footer .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .modal-footer .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        .modal-footer .btn-cancel {
+            background: #e5e7eb;
+            color: #1f2937;
+        }
+        .modal-footer .btn-cancel:hover {
+            background: #d1d5db;
+        }
+        .modal-footer .btn-success {
+            background: #10b981;
+            color: white;
+        }
+        .modal-footer .btn-success:hover {
+            background: #059669;
+        }
+        .modal-footer .btn-danger {
+            background: #ef4444;
+            color: white;
+        }
+        .modal-footer .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        /* Responsive Styles */
+        @media (max-width: 1024px) {
+            .refill-table th,
+            .refill-table td {
+                padding: 10px 8px;
+                font-size: 12px;
+            }
+            .refill-actions__btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+            .refill-table-wrapper {
+                margin: 0 -20px;
+                border-radius: 0;
+            }
+        }
+        @media (max-width: 768px) {
+            .filters-section {
+                flex-direction: column;
+            }
+            .filters-section select,
+            .filters-section input {
+                width: 100%;
+            }
+            .refill-table th {
+                padding: 8px 6px;
+                font-size: 11px;
+            }
+            .refill-table td {
+                padding: 8px 6px;
+                font-size: 12px;
+            }
+            .refill-id, .provider-id {
+                padding: 3px 6px;
+                font-size: 11px;
+            }
+            .refill-actions {
+                gap: 4px;
+            }
+            .refill-actions__btn {
+                padding: 4px 6px;
+                font-size: 10px;
+            }
+            .refill-actions__btn i {
+                margin-right: 2px;
+            }
+        }
+    </style>
+</head>
+<body class="admin-body admin-refills-page">
+    <main class="lightbox-main">
+        <div class="lightbox-panel" data-popup-surface>
+            <button type="button" class="lightbox-close" data-popup-close aria-label="Close admin dashboard window">
+                <span aria-hidden="true">&times;</span>
+            </button>
+
+    <!-- Admin Header -->
+    <header class="admin-header">
+        <button class="sidebar-toggle" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="admin-logo">BOTZZZ773</div>
+        <div class="admin-header-right">
+            <div class="admin-search">
+                <i class="fas fa-search"></i>
+                <input type="text" placeholder="Search..." id="dashboardSearch">
+            </div>
+            <div class="admin-user-menu">
+                <button class="admin-user-button" onclick="toggleUserMenu()">
+                    <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+                <div class="user-dropdown-menu" id="userDropdownMenu">
+                    <div class="user-dropdown-header">
+                        <div class="user-dropdown-info">
+                            <strong id="adminUserName">Admin</strong>
+                            <span id="adminUserEmail">admin@botzzz773.com</span>
+                        </div>
+                    </div>
+                    <div class="user-dropdown-divider"></div>
+                    <a href="settings.html" class="user-dropdown-item">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                    <a href="#" onclick="adminLogout(event)" class="user-dropdown-item logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Logout</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Admin Sidebar -->
+    <aside class="admin-sidebar" id="adminSidebar">
+        <div class="admin-sidebar-header">
+            <button class="sidebar-close-btn" onclick="toggleSidebar()" title="Close sidebar">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <nav class="admin-nav">
+            <a href="index.html" class="admin-nav-item">
+                <i class="fas fa-chart-line"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="users.html" class="admin-nav-item">
+                <i class="fas fa-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="orders.html" class="admin-nav-item">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Orders</span>
+            </a>
+            <a href="services.html" class="admin-nav-item">
+                <i class="fas fa-box"></i>
+                <span>Services</span>
+            </a>
+            <a href="payments.html" class="admin-nav-item">
+                <i class="fas fa-credit-card"></i>
+                <span>Payments</span>
+            </a>
+            <a href="refunds.html" class="admin-nav-item">
+                <i class="fas fa-rotate-left"></i>
+                <span>Refunds</span>
+            </a>
+            <a href="refills.html" class="admin-nav-item active">
+                <i class="fas fa-sync-alt"></i>
+                <span>Refills</span>
+            </a>
+            <a href="tickets.html" class="admin-nav-item">
+                <i class="fas fa-ticket-alt"></i>
+                <span>Tickets</span>
+            </a>
+            <a href="reports.html" class="admin-nav-item">
+                <i class="fas fa-chart-bar"></i>
+                <span>Reports</span>
+            </a>
+            <a href="settings.html" class="admin-nav-item">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+        </nav>
+    </aside>
+
+    <!-- Sidebar Overlay (Mobile) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <!-- Main Content -->
+    <section class="admin-main" role="main">
+        <div class="admin-page-header">
+            <h1>Refill Requests</h1>
+            <p>Manage user refill requests</p>
+        </div>
+
+        <!-- Filters Section -->
+        <div class="filters-section">
+            <select id="statusFilter" onchange="applyFilters()">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="completed">Completed</option>
+                <option value="rejected">Rejected</option>
+            </select>
+            <input type="text" id="searchInput" placeholder="Search by order number or refill ID..." onkeyup="applyFilters()">
+            <button class="filter-btn active" onclick="clearFilters()">Clear Filters</button>
+        </div>
+
+        <!-- Refills Table Wrapper -->
+        <div class="refill-table-wrapper">
+            <div id="refillsContainer">
+                <div class="loading-state">
+                    <i class="fas fa-spinner"></i>
+                    <p>Loading refill requests...</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+        </div>
+    </main>
+
+    <!-- Details Modal -->
+    <div class="modal-overlay" id="detailsModal" onclick="window.closeDetailsModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2>Refill Request Details</h2>
+                <button class="modal-close" onclick="closeDetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-field">
+                    <label>Refill ID</label>
+                    <input type="text" id="detailRefillId" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Order Number</label>
+                    <input type="text" id="detailOrderNumber" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>User Email</label>
+                    <input type="text" id="detailUserEmail" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Service ID</label>
+                    <input type="text" id="detailServiceId" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Quantity</label>
+                    <input type="number" id="detailQuantity" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Status</label>
+                    <input type="text" id="detailStatus" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Requested At</label>
+                    <input type="text" id="detailRequestedAt" disabled>
+                </div>
+                <div class="modal-field">
+                    <label>Admin Notes</label>
+                    <textarea id="detailAdminNotes" placeholder="Add notes here..."></textarea>
+                </div>
+                <div class="modal-field">
+                    <label>Reason (for rejected refills)</label>
+                    <input type="text" id="detailReason" disabled>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeDetailsModal()">Close</button>
+                <button class="btn-primary" id="saveNotesBtn" onclick="saveNotes()">Save Notes</button>
+                <button class="btn-success" id="acceptBtn" style="display:none;" onclick="acceptRefill()">Accept</button>
+                <button class="btn-danger" id="rejectBtn" style="display:none;" onclick="rejectRefill()">Reject</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/admin-refills.js"></script>
+    <script>
+        // Sidebar toggle function
+        function toggleSidebar() {
+            const sidebar = document.getElementById('adminSidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            if (sidebar) {
+                sidebar.classList.toggle('active');
+            }
+            if (overlay) {
+                overlay.classList.toggle('active');
+            }
+        }
+
+        // User menu toggle
+        function toggleUserMenu() {
+            const menu = document.getElementById('userDropdownMenu');
+            if (menu) {
+                menu.classList.toggle('active');
+            }
+        }
+
+        // Close menus when clicking elsewhere
+        document.addEventListener('click', function(event) {
+            const userBtn = document.querySelector('.admin-user-button');
+            const userMenu = document.getElementById('userDropdownMenu');
+            
+            if (userBtn && userMenu && !userBtn.contains(event.target) && !userMenu.contains(event.target)) {
+                userMenu.classList.remove('active');
+            }
+        });
+
+        // Admin logout
+        function adminLogout(e) {
+            e.preventDefault();
+            localStorage.clear();
+            window.location.href = '../signin.html';
+        }
+    </script>
+</body>
+</html>
