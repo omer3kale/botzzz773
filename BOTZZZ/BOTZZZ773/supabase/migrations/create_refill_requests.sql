@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS refill_requests (
     refill_id BIGINT NOT NULL UNIQUE,
     service_id VARCHAR(100) NOT NULL, -- public_id instead of UUID
     quantity INTEGER NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'rejected', 'processing')),
+    status VARCHAR(50) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'rejected', 'in progress')),
     reason TEXT,
     admin_notes TEXT,
     requested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

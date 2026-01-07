@@ -1331,7 +1331,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     color: #fbbf24;
 }
 
-.refills-table .status-badge.processing {
+.refills-table .status-badge.in-progress {
     background: rgba(59, 130, 246, 0.2);
     color: #60a5fa;
 }

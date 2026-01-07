@@ -46,6 +46,9 @@ exports.handler = async (event) => {
       case 'update_notes':
         return await updateNotes(event, headers);
       
+      case 'update_status':
+        return await updateStatus(event, headers);
+      
       default:
         return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid action' }) };
     }
@@ -220,6 +223,60 @@ async function updateNotes(event, headers) {
     };
   } catch (error) {
     console.error('[UPDATE_NOTES]', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: error.message })
+    };
+  }
+}
+
+// Update refill status
+async function updateStatus(event, headers) {
+  try {
+    const { refill_id, id, status } = JSON.parse(event.body || '{}');
+    const recordId = refill_id || id;
+    
+    if (!recordId) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing refill_id or id' }) };
+    }
+
+    if (!status) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: 'Missing status' }) };
+    }
+
+    // Validate status
+    const validStatuses = ['pending', 'in progress', 'completed', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return { 
+        statusCode: 400, 
+        headers, 
+        body: JSON.stringify({ 
+          error: `Invalid status. Valid options: ${validStatuses.join(', ')}` 
+        }) 
+      };
+    }
+
+    // If status changes to completed or rejected, set processed_at
+    const updateData = {
+      status: status,
+      ...(status === 'completed' || status === 'rejected' ? { processed_at: new Date().toISOString() } : {})
+    };
+
+    const { error } = await supabaseAdmin
+      .from('refill_requests')
+      .update(updateData)
+      .eq('id', recordId);
+
+    if (error) throw error;
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, message: `Status updated to "${status}"` })
+    };
+  } catch (error) {
+    console.error('[UPDATE_STATUS]', error);
     return {
       statusCode: 500,
       headers,

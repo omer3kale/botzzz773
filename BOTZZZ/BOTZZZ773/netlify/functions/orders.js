@@ -4591,6 +4591,7 @@ async function handleRefillOrder(user, body, headers) {
         body: JSON.stringify({
           success: true,
           refill: String(refillId),
+          status: 'pending',
           message: 'Refill request submitted successfully'
         })
       };

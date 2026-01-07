@@ -2552,6 +2552,7 @@
             let html = '';
             data.refills.forEach(refill => {
                 const status = refill.status || 'pending';
+                const statusClass = status.replace(/ /g, '-'); // Convert spaces to hyphens for CSS class
                 
                 // Format date as YYYY-MM-DD HH:MM:SS
                 const date = new Date(refill.requested_at);
@@ -2569,7 +2570,7 @@
                         <td>${refill.order_number}</td>
                         <td>${refill.service_id}</td>
                         <td>
-                            <span class="status-badge ${status}">
+                            <span class="status-badge ${statusClass}">
                                 ${status.charAt(0).toUpperCase() + status.slice(1)}
                             </span>
                         </td>

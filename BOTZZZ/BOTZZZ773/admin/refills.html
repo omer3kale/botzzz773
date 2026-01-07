@@ -26,7 +26,7 @@
             background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
             color: #78350f;
         }
-        .refill-status-badge.processing {
+        .refill-status-badge.in-progress {
             background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
             color: white;
         }
@@ -133,6 +133,14 @@
         .refill-actions__view:hover {
             transform: translateY(-2px);
             box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+        }
+        .refill-actions__progress {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+        .refill-actions__progress:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(245, 158, 11, 0.4);
         }
         .refill-actions__accept {
             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -348,6 +356,13 @@
         }
         .modal-footer .btn-cancel:hover {
             background: #d1d5db;
+        }
+        .modal-footer .btn-secondary {
+            background: #6366f1;
+            color: white;
+        }
+        .modal-footer .btn-secondary:hover {
+            background: #4f46e5;
         }
         .modal-footer .btn-success {
             background: #10b981;
@@ -575,7 +590,12 @@
                 </div>
                 <div class="modal-field">
                     <label>Status</label>
-                    <input type="text" id="detailStatus" disabled>
+                    <select id="detailStatus">
+                        <option value="pending">Pending</option>
+                        <option value="in progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="rejected">Rejected</option>
+                    </select>
                 </div>
                 <div class="modal-field">
                     <label>Requested At</label>
@@ -593,6 +613,7 @@
             <div class="modal-footer">
                 <button class="btn-cancel" onclick="closeDetailsModal()">Close</button>
                 <button class="btn-primary" id="saveNotesBtn" onclick="saveNotes()">Save Notes</button>
+                <button class="btn-secondary" id="updateStatusBtn" onclick="updateRefillStatus()">Update Status</button>
                 <button class="btn-success" id="acceptBtn" style="display:none;" onclick="acceptRefill()">Accept</button>
                 <button class="btn-danger" id="rejectBtn" style="display:none;" onclick="rejectRefill()">Reject</button>
             </div>

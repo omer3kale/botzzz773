@@ -94,12 +94,16 @@
             const requestedDate = new Date(refill.requested_at).toLocaleDateString();
             const isSelected = window.selectedRefills?.has(refill.id) ? 'checked' : '';
             
-            let actionButtons = `<button class="refill-actions__btn refill-actions__view" onclick="window.viewDetails('${refill.id}')" title="View details"><i class="fas fa-eye"></i></button>`;
+            let actionButtons = '';
             
             if (status === 'pending') {
+                actionButtons += `<button class="refill-actions__btn refill-actions__progress" onclick="window.setRefillInProgress('${refill.id}')" title="Mark as In Progress"><i class="fas fa-spinner"></i></button>`;
                 actionButtons += `<button class="refill-actions__btn refill-actions__accept" onclick="window.acceptRefill('${refill.id}')" title="Accept"><i class="fas fa-check"></i></button>`;
                 actionButtons += `<button class="refill-actions__btn refill-actions__reject" onclick="window.rejectRefill('${refill.id}')" title="Reject"><i class="fas fa-times"></i></button>`;
             }
+            
+            // View button always last
+            actionButtons += `<button class="refill-actions__btn refill-actions__view" onclick="window.viewDetails('${refill.id}')" title="View details"><i class="fas fa-eye"></i></button>`;
             
             html += `
                 <tr>
@@ -110,7 +114,7 @@
                     <td>${refill.user_email || 'Unknown'}</td>
                     <td>${refill.service_id}</td>
                     <td>${refill.quantity}</td>
-                    <td><span class="refill-status-badge ${status}">${status}</span></td>
+                    <td><span class="refill-status-badge ${status.replace(/ /g, '-')}">${status}</span></td>
                     <td>${requestedDate}</td>
                     <td><div class="refill-actions">${actionButtons}</div></td>
                 </tr>`;
@@ -290,6 +294,70 @@
                 window.closeDetailsModal();
             } else {
                 showNotification('Failed to reject refill request', 'error');
+            }
+        } catch (error) {
+            showNotification('Error: ' + error.message, 'error');
+        }
+    };
+
+    window.updateRefillStatus = async function() {
+        const newStatus = document.getElementById('detailStatus').value;
+        const id = window.currentRefillId;
+
+        if (!confirm(`Are you sure you want to change status to "${newStatus}"?`)) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/.netlify/functions/admin-refills', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: 'update_status',
+                    refill_id: id,
+                    status: newStatus
+                })
+            });
+
+            if (response.ok) {
+                showNotification('Status updated successfully', 'success');
+                loadRefills();
+                window.closeDetailsModal();
+            } else {
+                const error = await response.json();
+                showNotification('Failed to update status: ' + (error.error || 'Unknown error'), 'error');
+            }
+        } catch (error) {
+            showNotification('Error: ' + error.message, 'error');
+        }
+    };
+
+    window.setRefillInProgress = async function(refillId) {
+        const id = refillId;
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/.netlify/functions/admin-refills', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    action: 'update_status',
+                    refill_id: id,
+                    status: 'in progress'
+                })
+            });
+
+            if (response.ok) {
+                showNotification('Refill marked as in progress', 'success');
+                loadRefills();
+            } else {
+                const error = await response.json();
+                showNotification('Failed to update status: ' + (error.error || 'Unknown error'), 'error');
             }
         } catch (error) {
             showNotification('Error: ' + error.message, 'error');

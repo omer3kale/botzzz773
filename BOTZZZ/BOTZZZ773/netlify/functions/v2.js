@@ -717,8 +717,8 @@ exports.handler = async (event) => {
                        return errorResponse(`Failed to update order: ${updateError.message}`);
                    }
                    
-                   // Return our refill_id
-                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
+                   // Return our refill_id with status
+                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId), status: 'pending' }) };
                 } catch(e) { 
                    console.error('[V2 REFILL]', e);
                    return errorResponse(`Refill failed: ${e.message}`);
@@ -790,7 +790,7 @@ exports.handler = async (event) => {
             const refillId = statusRefills[0];
             const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', refillId).eq('user_id', user.id).single();
             if (!rs) return errorResponse('Refill not found');
-            const statusMap = { 'pending': 'Processing', 'completed': 'Completed', 'rejected': 'Rejected', 'processing': 'Processing' };
+            const statusMap = { 'pending': 'Processing', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
             return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Processing' }) };
          }
          
