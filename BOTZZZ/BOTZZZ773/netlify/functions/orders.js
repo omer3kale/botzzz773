@@ -4490,7 +4490,76 @@ async function handleRefillOrder(user, body, headers) {
 
     const provider = order.service.provider;
 
-    // Call provider API for refill
+    // First, create the refill record with "pending" status immediately
+    logger.info('Creating pending refill request', {
+      orderId,
+      order_number: order.order_number
+    });
+
+    const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+      user_id: user.userId,
+      order_number: order.order_number,
+      provider_refill_id: null, // Initially null
+      service_id: order.service?.public_id || order.service?.id,
+      quantity: order?.quantity || 0,
+      status: 'pending',
+      refill_requested_at: new Date().toISOString()
+    });
+
+    if (insertError) {
+      logger.error('Refill request insert failed', { orderId, error: insertError });
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: `Failed to save refill request: ${insertError.message}`
+        })
+      };
+    }
+
+    logger.info('Pending refill created, now requesting from provider', { orderId });
+
+    // Get our generated refill_id
+    const { data: refillRecord, error: selectError } = await supabaseAdmin
+      .from('refill_requests')
+      .select('refill_id')
+      .eq('order_number', order.order_number)
+      .eq('user_id', user.userId)
+      .order('refill_requested_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (selectError) {
+      logger.error('Failed to retrieve refill_id', { orderId, error: selectError });
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Failed to retrieve refill_id from database'
+        })
+      };
+    }
+
+    let refillId = refillRecord?.refill_id;
+
+    // If refill_id is still NULL or provider-like (< 15000), generate our own
+    if (!refillId || refillId < 15000) {
+      const randomIncrement = Math.floor(Math.random() * 5) + 1;
+      refillId = 15090 + randomIncrement;
+    }
+
+    // Update order refill status with our refill_id
+    const { error: updateError } = await supabaseAdmin.from('orders')
+      .update({ refill_id: String(refillId), status: 'refilling', refill_requested_at: new Date().toISOString() })
+      .eq('id', orderId);
+
+    if (updateError) {
+      logger.error('Failed to update order with refill_id', { orderId, error: updateError });
+    }
+
+    // Now try to request refill from provider (non-blocking)
     try {
       const refillResponse = await axios.post(
         provider.api_url,
@@ -4502,125 +4571,39 @@ async function handleRefillOrder(user, body, headers) {
         { timeout: 10000 }
       );
 
-      // Get provider refill ID if available, otherwise NULL
+      // Get provider refill ID if available
       const providerRefillId = refillResponse.data?.refill || null;
 
-      // Store refill in database
-      logger.info('Inserting refill request', {
-        orderId,
-        order_number: order.order_number,
-        provider_refill_id: providerRefillId
-      });
+      if (providerRefillId) {
+        // Update with provider refill ID if successful
+        const { error: providerUpdateError } = await supabaseAdmin
+          .from('refill_requests')
+          .update({ provider_refill_id: String(providerRefillId) })
+          .eq('refill_id', refillId);
 
-      const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
-        user_id: user.userId,
-        order_number: order.order_number,
-        provider_refill_id: providerRefillId ? String(providerRefillId) : null,
-        service_id: order.service?.public_id || order.service?.id,
-        quantity: order?.quantity || 0,
-        status: 'pending',
-        refill_requested_at: new Date().toISOString()
-      });
-
-      if (insertError) {
-        logger.error('Refill request insert failed', { orderId, error: insertError });
-        return {
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: `Failed to save refill request: ${insertError.message}`
-          })
-        };
+        if (providerUpdateError) {
+          logger.warn('Could not update provider_refill_id', { orderId, error: providerUpdateError });
+        }
       }
 
-      logger.info('Refill request inserted', { orderId, refillRequestId: insertData?.id, providerRefillId });
-
-      // Get our generated refill_id from refill_requests table
-      const { data: refillRecord, error: selectError } = await supabaseAdmin
-        .from('refill_requests')
-        .select('refill_id')
-        .eq('order_number', order.order_number)
-        .eq('user_id', user.userId)
-        .order('refill_requested_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (selectError) {
-        logger.error('Failed to retrieve refill_id', { orderId, error: selectError });
-        return {
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: 'Failed to retrieve refill_id from database'
-          })
-        };
-      }
-
-      let refillId = refillRecord?.refill_id;
-
-      // If refill_id is still NULL or provider-like (< 15000), generate our own
-      if (!refillId || refillId < 15000) {
-        const randomIncrement = Math.floor(Math.random() * 5) + 1;
-        refillId = 15090 + randomIncrement;
-      }
-
-      // Update order refill status with our refill_id
-      const { error: updateError } = await supabaseAdmin.from('orders')
-        .update({ refill_id: String(refillId), status: 'refilling', refill_requested_at: new Date().toISOString() })
-        .eq('id', orderId);
-
-      if (updateError) {
-        logger.error('Failed to update order with refill_id', { orderId, error: updateError });
-        return {
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: `Failed to update order: ${updateError.message}`
-          })
-        };
-      }
-
-      logger.info('Refill order successful', { orderId, refillId, providerRefillId });
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          refill: String(refillId),
-          status: 'pending',
-          message: 'Refill request submitted successfully'
-        })
-      };
-
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Provider did not return refill ID' })
-      };
-
+      logger.info('Provider response received', { orderId, providerRefillId });
     } catch (providerError) {
-      logger.error('Provider refill request failed', { orderId, error: providerError });
-
-      let errorMessage = 'Provider refill request failed';
-      if (providerError.response && providerError.response.data) {
-        errorMessage = providerError.response.data.error || errorMessage;
-      } else if (providerError.message) {
-        errorMessage = providerError.message;
-      }
-
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: errorMessage
-        })
-      };
+      logger.warn('Provider refill request failed (refill still pending)', { orderId, error: providerError.message });
+      // Continue anyway - refill is already saved as pending
     }
+
+    logger.info('Refill order successful', { orderId, refillId });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        refill: String(refillId),
+        status: 'pending',
+        message: 'Refill request submitted successfully'
+      })
+    };
 
   } catch (error) {
     logOrderError('Failed to process refill', error, { orderId: body.orderId });
