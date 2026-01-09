@@ -4609,7 +4609,8 @@ async function handleRefillOrder(user, body, headers) {
       headers,
       body: JSON.stringify({
         success: true,
-        refill: String(refillId)
+        refill: String(refillId),
+        status: 'Pending'
       })
     };
 

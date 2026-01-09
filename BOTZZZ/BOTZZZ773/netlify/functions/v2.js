@@ -745,8 +745,8 @@ exports.handler = async (event) => {
                        // Continue anyway - refill is already saved as pending
                    }
                    
-                   // Return refill_id as refill (Perfect Panel expects this per spec)
-                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
+                   // Return refill_id and status (Perfect Panel expects both)
+                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId), status: 'Pending' }) };
                 } catch(e) { 
                    console.error('[V2 REFILL] Unexpected error:', e);
                    return errorResponse(`Refill request failed: ${e.message}`);
@@ -799,7 +799,7 @@ exports.handler = async (event) => {
                        refillId = 15090 + randomIncrement;
                    }
                    
-                   results.push({ order: String(orderNum), refill: String(rOrder.order_number) });
+                   results.push({ order: String(orderNum), refill: String(rOrder.order_number), status: 'Pending' });
                    
                    // Now try to request from provider (non-blocking)
                    try {
@@ -844,9 +844,12 @@ exports.handler = async (event) => {
          // Single refill status response
          if (statusRefills.length === 1) {
             const refillId = statusRefills[0];
-            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
-            if (!rs) return errorResponse('Refill not found');
+            console.log('[V2 REFILL_STATUS] Query:', { refillId, refillIdInt: parseInt(refillId) });
+            const { data: rs, error: statusError } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
+            console.log('[V2 REFILL_STATUS] Result:', { rs, statusError });
+            if (statusError || !rs) return errorResponse(`Refill not found: ${statusError?.message || 'no data'}`);
             const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
+            console.log('[V2 REFILL_STATUS] Status:', { dbStatus: rs.status, mappedStatus: statusMap[rs.status] });
             return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Pending' }) };
          }
          
