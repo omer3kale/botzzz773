@@ -850,7 +850,7 @@ exports.handler = async (event) => {
             if (statusError || !rs) return errorResponse(`Refill not found: ${statusError?.message || 'no data'}`);
             const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
             console.log('[V2 REFILL_STATUS] Status:', { dbStatus: rs.status, mappedStatus: statusMap[rs.status] });
-            return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Pending' }) };
+            return { statusCode: 200, headers, body: JSON.stringify({ refill: refillId, status: statusMap[rs.status] || 'Pending' }) };
          }
          
          // Multiple refill status response
@@ -861,7 +861,7 @@ exports.handler = async (event) => {
                 const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
                 statusResults.push({ refill: refillId, status: statusMap[rs.status] || 'Pending' });
             } else {
-                statusResults.push({ refill: refillId, status: 'Refill not found' });
+                statusResults.push({ refill: refillId, status: 'Not found' });
             }
          }
          return { statusCode: 200, headers, body: JSON.stringify(statusResults) };
