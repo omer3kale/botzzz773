@@ -856,9 +856,9 @@ exports.handler = async (event) => {
             const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
             if (rs) {
                 const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
-                statusResults.push({ refill: orderNum, status: statusMap[rs.status] || 'Pending' });
+                statusResults.push({ refill: refillId, status: statusMap[rs.status] || 'Pending' });
             } else {
-                statusResults.push({ refill: orderNum, status: 'Refill not found' });
+                statusResults.push({ refill: refillId, status: 'Refill not found' });
             }
          }
          return { statusCode: 200, headers, body: JSON.stringify(statusResults) };
