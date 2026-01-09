@@ -4571,22 +4571,32 @@ async function handleRefillOrder(user, body, headers) {
         { timeout: 10000 }
       );
 
-      // Get provider refill ID if available
+      // Get provider refill ID and status if available
       const providerRefillId = refillResponse.data?.refill || null;
+      const providerStatus = refillResponse.data?.status || null;
 
       if (providerRefillId) {
-        // Update with provider refill ID if successful
+        // Map provider status to our database status
+        const statusMap = {
+          'Pending': 'pending',
+          'In Progress': 'in progress',
+          'Completed': 'completed',
+          'Rejected': 'rejected'
+        };
+        const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
+
+        // Update with provider refill ID and status
         const { error: providerUpdateError } = await supabaseAdmin
           .from('refill_requests')
-          .update({ provider_refill_id: String(providerRefillId) })
+          .update({ provider_refill_id: String(providerRefillId), status: dbStatus })
           .eq('refill_id', refillId);
 
         if (providerUpdateError) {
-          logger.warn('Could not update provider_refill_id', { orderId, error: providerUpdateError });
+          logger.warn('Could not update provider_refill_id/status', { orderId, error: providerUpdateError });
         }
       }
 
-      logger.info('Provider response received', { orderId, providerRefillId });
+      logger.info('Provider response received', { orderId, providerRefillId, providerStatus });
     } catch (providerError) {
       logger.warn('Provider refill request failed (refill still pending)', { orderId, error: providerError.message });
       // Continue anyway - refill is already saved as pending
@@ -4599,9 +4609,7 @@ async function handleRefillOrder(user, body, headers) {
       headers,
       body: JSON.stringify({
         success: true,
-        refill: String(refillId),
-        status: 'pending',
-        message: 'Refill request submitted successfully'
+        refill: String(refillId)
       })
     };
 

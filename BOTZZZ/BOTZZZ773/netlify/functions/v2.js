@@ -745,8 +745,8 @@ exports.handler = async (event) => {
                        // Continue anyway - refill is already saved as pending
                    }
                    
-                   // Return order_number as refill ID (Perfect Panel expects this)
-                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(rOrder.order_number) }) };
+                   // Return refill_id as refill (Perfect Panel expects this per spec)
+                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
                 } catch(e) { 
                    console.error('[V2 REFILL] Unexpected error:', e);
                    return errorResponse(`Refill request failed: ${e.message}`);
@@ -843,8 +843,8 @@ exports.handler = async (event) => {
          
          // Single refill status response
          if (statusRefills.length === 1) {
-            const orderNum = statusRefills[0];
-            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('order_number', orderNum).eq('user_id', user.id).single();
+            const refillId = statusRefills[0];
+            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
             if (!rs) return errorResponse('Refill not found');
             const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
             return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Pending' }) };
@@ -852,8 +852,8 @@ exports.handler = async (event) => {
          
          // Multiple refill status response
          const statusResults = [];
-         for (const orderNum of statusRefills) {
-            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('order_number', orderNum).eq('user_id', user.id).single();
+         for (const refillId of statusRefills) {
+            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
             if (rs) {
                 const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
                 statusResults.push({ refill: orderNum, status: statusMap[rs.status] || 'Pending' });
