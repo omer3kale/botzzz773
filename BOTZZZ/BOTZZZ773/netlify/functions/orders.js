@@ -2271,7 +2271,8 @@ async function handleUpdateOrder(user, data, headers) {
 
         const refillResponse = await axios.post(provider.api_url, params, {
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           },
           timeout: 30000,
           validateStatus: (status) => status < 500

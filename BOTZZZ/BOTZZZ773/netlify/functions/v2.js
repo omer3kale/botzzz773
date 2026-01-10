@@ -452,7 +452,7 @@ exports.handler = async (event) => {
               key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: qty 
             });
             console.log('[V2 PROVIDER] Request params:', { service: providerServiceId, link: params.link, quantity: qty });
-            const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000 });
+            const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
             console.log('[V2 PROVIDER] Response:', pRes.data);
             if (pRes.data && pRes.data.order) {
               // Provider accepted order; immediately check status to get real state
@@ -467,7 +467,7 @@ exports.handler = async (event) => {
                   action: 'status',
                   order: providerOrderId
                 });
-                const statusRes = await axios.post(sData.provider.api_url, statusParams, { timeout: 5000 });
+                const statusRes = await axios.post(sData.provider.api_url, statusParams, { timeout: 5000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                 const providerStatusRaw = statusRes.data?.status || statusRes.data?.status_text || 'pending';
                 
                 // Normalize provider status using same logic as orders.js
@@ -715,7 +715,7 @@ exports.handler = async (event) => {
                    // If it fails, the pending refill remains in database for admin review
                    let providerRefillId = null;
                    try {
-                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000 });
+                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                        providerRefillId = rRes.data?.refill || null;
                        const providerStatus = rRes.data?.status || null;
                        
@@ -803,7 +803,7 @@ exports.handler = async (event) => {
                    
                    // Now try to request from provider (non-blocking)
                    try {
-                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000 });
+                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                        if (rRes.data.refill) {
                            const providerStatus = rRes.data?.status || null;
                            
