@@ -1890,9 +1890,9 @@ async function testProvider(providerId) {
         
         let data;
         
-        // If provider has smmnice.in URL, try direct API call from client
-        if (provider && provider.api_url && provider.api_url.includes('smmnice.in')) {
-            console.log('[DEBUG] Detected smmnice.in provider, using direct client-side API call');
+        // If provider has smmnice.in or smmzz.com URL, try direct API call from client
+        if (provider && provider.api_url && (provider.api_url.includes('smmnice.in') || provider.api_url.includes('smmzz.com'))) {
+            console.log('[DEBUG] Detected Cloudflare-protected provider, using direct client-side API call');
             try {
                 // Direct API call - Cloudflare will see user's IP, not Netlify IP
                 const params = new URLSearchParams();
@@ -1903,7 +1903,7 @@ async function testProvider(providerId) {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     },
                     body: params.toString()
                 });
