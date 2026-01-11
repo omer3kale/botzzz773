@@ -4,6 +4,80 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+// Real-time exchange rates cache
+let exchangeRatesCache = null;
+let exchangeRatesCacheTime = null;
+const EXCHANGE_RATES_CACHE_TTL = 3600000; // 1 hour
+
+// Fetch real-time exchange rates from API
+async function fetchExchangeRates() {
+  const now = Date.now();
+  
+  // Return cached rates if still valid
+  if (exchangeRatesCache && exchangeRatesCacheTime && (now - exchangeRatesCacheTime < EXCHANGE_RATES_CACHE_TTL)) {
+    return exchangeRatesCache;
+  }
+  
+  try {
+    const axios = require('axios');
+    const response = await axios.get('https://open.er-api.com/v6/latest/USD', {
+      timeout: 5000
+    });
+    
+    if (response.data && response.data.rates) {
+      exchangeRatesCache = response.data.rates;
+      exchangeRatesCacheTime = now;
+      console.log('[CURRENCY] Exchange rates updated successfully');
+      return exchangeRatesCache;
+    }
+  } catch (error) {
+    console.error('[CURRENCY] Failed to fetch exchange rates:', error.message);
+  }
+  
+  // Fallback to static rates if API fails
+  return {
+    USD: 1,
+    EUR: 1.09,
+    GBP: 1.27,
+    INR: 0.012,
+    TRY: 0.029,
+    BRL: 0.20,
+    NGN: 0.0007,
+    CAD: 0.71,
+    AUD: 0.65,
+    SGD: 0.74,
+    AED: 0.27,
+    SAR: 0.27,
+    PHP: 0.018,
+    RUB: 0.011,
+    MXN: 0.050,
+    ZAR: 0.055,
+    JPY: 0.0068,
+    CNY: 0.14
+  };
+}
+
+// Convert amount from any currency to USD
+async function convertToUSD(amount, fromCurrency) {
+  const currency = String(fromCurrency || 'USD').toUpperCase().trim();
+  
+  if (currency === 'USD') {
+    return parseFloat(amount) || 0;
+  }
+  
+  const rates = await fetchExchangeRates();
+  const rate = rates[currency];
+  
+  if (!rate) {
+    console.warn(`[CURRENCY] Unknown currency ${currency}, treating as USD`);
+    return parseFloat(amount) || 0;
+  }
+  
+  // rates are USD-based, so we need to divide by the rate to convert TO USD
+  // Example: 100 INR with rate 83.5 (1 USD = 83.5 INR) -> 100/83.5 = 1.20 USD
+  return (parseFloat(amount) || 0) / rate;
+}
+
 // Helper to verify token and get user
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -166,7 +240,7 @@ async function handleGet(user, headers) {
       while (hasMore) {
         const { data: batchOrders, error: ordersErr } = await supabaseAdmin
           .from('orders')
-          .select('user_id, charge, provider_cost')
+          .select('user_id, charge, provider_cost, provider_currency')
           .neq('status', 'canceled') // Exclude only canceled orders
           .range(offset, offset + 999); // Fetch 1000 records at a time
         
@@ -191,9 +265,15 @@ async function handleGet(user, headers) {
 
       const spendMap = new Map();
       if (Array.isArray(allOrders)) {
-        allOrders.forEach(order => {
+        for (const order of allOrders) {
           const charge = parseFloat(order.charge || 0);
           const providerCost = parseFloat(order.provider_cost || 0);
+          const providerCurrency = (order.provider_currency || 'USD').toUpperCase();
+          
+          // Convert provider_cost to USD if it's in a different currency
+          const providerCostUSD = providerCurrency === 'USD' 
+            ? providerCost 
+            : await convertToUSD(providerCost, providerCurrency);
           
           if (!spendMap.has(order.user_id)) {
             spendMap.set(order.user_id, { spent: 0, profit: 0 });
@@ -201,8 +281,12 @@ async function handleGet(user, headers) {
           
           const agg = spendMap.get(order.user_id);
           agg.spent += charge;
-          agg.profit += (charge - providerCost);
-        });
+          agg.profit += (charge - providerCostUSD);
+          
+          if (providerCurrency !== 'USD') {
+            console.log(`[PROFIT] Converted provider cost: ${providerCost} ${providerCurrency} → ${providerCostUSD.toFixed(4)} USD`);
+          }
+        }
       }
 
       // Remove password hashes and attach spend/profit

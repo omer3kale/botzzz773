@@ -1575,7 +1575,7 @@ async function handleCreateOrder(user, data, headers) {
     
     let providerOrderId = null;
     try {
-      const providerResponse = await submitOrderToProvider(service.provider, {
+      const providerResponse = await submitOrderToProviderWithRetry(service.provider, {
         service: service.provider_service_id,
         link: linkStr,
         quantity: qty
@@ -3176,6 +3176,77 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
   }
 }
 
+// Retry wrapper for order submission with exponential backoff
+async function submitOrderToProviderWithRetry(provider, orderData, maxRetries = 3) {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[PROVIDER RETRY] Attempt ${attempt}/${maxRetries} for ${provider.name}`);
+      return await submitOrderToProvider(provider, orderData);
+    } catch (error) {
+      lastError = error;
+      const isLastAttempt = attempt === maxRetries;
+      
+      // Determine if error is retryable
+      const isRetryable = isRetryableError(error);
+      
+      if (!isRetryable) {
+        console.log(`[PROVIDER RETRY] Non-retryable error on attempt ${attempt}, giving up immediately`);
+        throw error;
+      }
+      
+      if (isLastAttempt) {
+        console.error(`[PROVIDER RETRY] All ${maxRetries} attempts failed`, {
+          lastError: error.message,
+          provider: provider.name
+        });
+        throw error;
+      }
+      
+      // Exponential backoff: 1s, 2s, 4s
+      const delayMs = Math.pow(2, attempt - 1) * 1000;
+      console.log(`[PROVIDER RETRY] Attempt ${attempt} failed, retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  throw lastError;
+}
+
+// Check if error is retryable (network issues, timeouts) vs non-retryable (auth, validation)
+function isRetryableError(error) {
+  const errorMsg = error.message?.toLowerCase() || '';
+  const errorCode = error.response?.status;
+  
+  // Non-retryable: Authentication, validation, not found
+  if (errorCode === 401 || errorCode === 403 || errorCode === 404 || errorCode === 400) {
+    return false;
+  }
+  
+  // Retryable: Server errors, timeouts, network issues
+  if (errorCode >= 500 || errorCode === 429) { // 5xx or rate limit
+    return true;
+  }
+  
+  // Check error message for network/timeout indicators
+  if (errorMsg.includes('timeout') || 
+      errorMsg.includes('econnrefused') || 
+      errorMsg.includes('enotfound') ||
+      errorMsg.includes('no response received') ||
+      errorMsg.includes('network error')) {
+    return true;
+  }
+  
+  // Check if status code is missing (network error)
+  if (!errorCode) {
+    return true;
+  }
+  
+  // Default: treat as non-retryable
+  return false;
+}
+
 async function submitOrderToProvider(provider, orderData) {
   try {
     console.log(`[PROVIDER] Submitting order to ${provider.name}`, {
@@ -3211,10 +3282,35 @@ async function submitOrderToProvider(provider, orderData) {
     
     console.log(`[PROVIDER] Calling ${provider.api_url}`);
 
+    // For smmzz.com, mark as client-side submission required (Cloudflare protection)
+    let response;
+    if (provider.api_url.includes('smmzz.com')) {
+      console.log('[PROVIDER] smmzz.com detected - marking for client-side submission due to Cloudflare');
+      // Return special response indicating client-side submission is needed
+      return {
+        order: null,
+        response: null,
+        requiresClientSideSubmission: true,
+        providerName: provider.name,
+        providerUrl: provider.api_url,
+        apiKey: provider.api_key,
+        orderData: {
+          service: orderData.service,
+          link: orderData.link,
+          quantity: orderData.quantity
+        },
+        error: 'Client-side submission required for Cloudflare-protected provider'
+      };
+    }
+
     // Make request with timeout
-    const response = await axios.post(provider.api_url, params, {
+    response = await axios.post(provider.api_url, params, {
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Cache-Control': 'no-cache'
       },
       timeout: 30000, // 30 second timeout
       validateStatus: (status) => status < 500 // Don't throw on 4xx errors

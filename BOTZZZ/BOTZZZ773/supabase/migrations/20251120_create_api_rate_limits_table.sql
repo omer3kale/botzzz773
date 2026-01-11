@@ -71,7 +71,7 @@ BEGIN
     window_start := TO_TIMESTAMP(window_epoch);
 
     RETURN QUERY
-    INSERT INTO public.api_rate_limits AS rl (
+    INSERT INTO public.api_rate_limits (
         identifier,
         route,
         window_start,
@@ -87,8 +87,11 @@ BEGIN
         1
     )
     ON CONFLICT (identifier, route, window_start)
-    DO UPDATE SET request_count = rl.request_count + 1, updated_at = NOW()
-    RETURNING rl.request_count, rl.request_limit, rl.window_start + MAKE_INTERVAL(secs => safe_window) AS window_reset;
+    DO UPDATE SET request_count = EXCLUDED.request_count + 1, updated_at = NOW()
+    RETURNING 
+        public.api_rate_limits.request_count, 
+        public.api_rate_limits.request_limit, 
+        public.api_rate_limits.window_start + MAKE_INTERVAL(secs => safe_window) AS window_reset;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
