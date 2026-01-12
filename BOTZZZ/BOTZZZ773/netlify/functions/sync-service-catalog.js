@@ -317,12 +317,7 @@ async function syncProviderServices(provider, options = {}) {
         provider_order_id: truncateString(serviceKey, 50),
         // NOTE: currency is NOT stored as a column; it's preserved in provider_metadata
         average_time: averageTime,
-        refill_supported: toBooleanFlag(payload.refill ?? payload.refill_support ?? payload.needs_refill),
-        cancel_supported: toBooleanFlag(payload.cancel ?? payload.cancel_support ?? payload.cancellable),
-        dripfeed_supported: toBooleanFlag(payload.dripfeed ?? payload.drip_feed ?? payload.drip),
-        subscription_supported: toBooleanFlag(payload.subscription ?? payload.subscriptions ?? payload.subscription_supported),
-        // provider_metadata must be valid JSON for PostgREST/Supabase; sanitize to remove
-        // undefined/non-serializable values and to cap sizes/depth.
+        // NOTE: refill, cancel, dripfeed, subscription flags are NOT synced - they must be manually configured
         provider_metadata: sanitizeMetadata({
           ...payload,
           _currency_conversion: currencyConversion
@@ -376,7 +371,21 @@ async function syncProviderServices(provider, options = {}) {
         }
         
         // Detect actual provider price change (in original currency, ignore exchange rate changes)
-        providerPriceChanged = prevOriginalAmount !== newOriginalAmount;
+        // IMPORTANT: Only compare if both have same currency origin
+        // If one had conversion and other doesn't, compare the USD rates instead
+        if ((prevConversion !== undefined && currencyConversion !== null) || (prevConversion === undefined && currencyConversion === null)) {
+          // Both have conversion or both don't - safe to compare original amounts in same currency
+          const prevRounded = prevOriginalAmount !== null ? Number(prevOriginalAmount.toFixed(4)) : null;
+          const newRounded = newOriginalAmount !== null ? Number(newOriginalAmount.toFixed(4)) : null;
+          providerPriceChanged = prevRounded !== newRounded;
+        } else {
+          // One has conversion, other doesn't - compare USD rates
+          const prevUSD = prevConversion ? prevConversion.usdAmount : prevOriginalAmount;
+          const newUSD = currencyConversion ? currencyConversion.usdAmount : newOriginalAmount;
+          const prevUSDRounded = prevUSD !== null ? Number(prevUSD.toFixed(4)) : null;
+          const newUSDRounded = newUSD !== null ? Number(newUSD.toFixed(4)) : null;
+          providerPriceChanged = prevUSDRounded !== newUSDRounded;
+        }
         
         if (providerPriceChanged) {
           console.log(`[PRICE CHANGE] Service ${serviceKey}: ${originalCurrency} ${prevOriginalAmount} → ${newOriginalAmount}`);
@@ -887,7 +896,7 @@ ${allChanges.length > 10 ? `\n... and ${allChanges.length - 10} more changes` : 
     
     let query = supabaseAdmin
       .from('providers')
-      .select('id, name, api_url, api_key, status, markup')
+      .select('id, name, api_url, api_key, status, markup, currency')
       .eq('status', 'active');
 
     if (targetProviderId) {

@@ -260,8 +260,17 @@ exports.handler = async (event) => {
         if (!params.service || !params.link || !params.quantity) return errorResponse('Missing parameters');
         
         // Fetch Service & Provider info
-        const { data: sData } = await supabaseAdmin.from('services').select('*, rate, retail_rate, provider_id, provider:providers(id, name, api_url, api_key)').eq('public_id', params.service).single();
+        const { data: sData } = await supabaseAdmin.from('services').select('*').eq('public_id', params.service).single();
         if (!sData) return errorResponse('Service not found');
+        
+        // DEBUG: Log full service data to understand provider structure
+        console.log('[V2] Service full data:', JSON.stringify({
+          id: sData.id,
+          provider_id: sData.provider_id,
+          provider: sData.provider,
+          providers: sData.providers,
+          provider_name: sData.provider_name
+        }));
 
         // Quantity Check
         const qty = parseInt(params.quantity);
@@ -387,9 +396,29 @@ exports.handler = async (event) => {
           }
           
           // Try to create order with generated order_number
+          // Get provider info from service provider_id
+          let providerIdForOrder = sData.provider_id || null;
+          let providerNameForOrder = null;
+          
+          // Fetch provider name from provider_id
+          if (providerIdForOrder) {
+            try {
+              const { data: providerData } = await supabaseAdmin
+                .from('providers')
+                .select('name')
+                .eq('id', providerIdForOrder)
+                .single();
+              providerNameForOrder = providerData?.name || null;
+            } catch (err) {
+              // Silently continue without provider_name if fetch fails
+            }
+          }
+          
           const insertResult = await supabaseAdmin.from('orders').insert({
             user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge, original_charge: charge,
-              order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null
+              order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null,
+              provider_id: providerIdForOrder,
+              provider_name: providerNameForOrder
           }).select('id, order_number').single();
 
           newOrder = insertResult.data;
@@ -527,9 +556,9 @@ exports.handler = async (event) => {
                 last_status_sync: new Date().toISOString()
               }).eq('id', newOrder.id);
 
-              if (sData.provider && sData.provider.id) {
+              if (newOrder.provider_id) {
                 await supabaseAdmin.from('provider_errors').insert({
-                  provider_id: sData.provider.id,
+                  provider_id: newOrder.provider_id,
                   order_id: newOrder.id,
                   error_type: 'forward_rejected',
                   error_message: providerErrorMessage,
@@ -560,9 +589,9 @@ exports.handler = async (event) => {
             }).eq('id', newOrder.id);
             
             // Log to provider_errors table for admin visibility
-            if (sData.provider && sData.provider.id) {
+            if (newOrder.provider_id) {
               await supabaseAdmin.from('provider_errors').insert({
-                provider_id: sData.provider.id,
+                provider_id: newOrder.provider_id,
                 order_id: newOrder.id,
                 error_type: 'forward_failed',
                 error_message: providerErrorMessage,
@@ -865,6 +894,34 @@ exports.handler = async (event) => {
             }
          }
          return { statusCode: 200, headers, body: JSON.stringify(statusResults) };
+
+      case 'get-sync-rate':
+        // Fetch current service rates for rate synchronization
+        // Used by API users to auto-update their panel prices
+        if (!params.service) return errorResponse('Missing service parameter');
+        
+        const syncServiceId = String(params.service).trim();
+        const { data: syncService } = await supabaseAdmin
+          .from('services')
+          .select('id, public_id, name, provider_rate, rate, retail_rate, markup_percentage')
+          .or(`public_id.eq.${syncServiceId},id.eq.${syncServiceId}`)
+          .single();
+        
+        if (!syncService) return errorResponse('Service not found');
+        
+        // Return rates for API user to sync with their panel
+        return { 
+          statusCode: 200, 
+          headers, 
+          body: JSON.stringify({
+            service: syncService.public_id || syncService.id,
+            name: syncService.name,
+            provider_rate: Number((syncService.provider_rate || 0).toFixed(5)),
+            retail_rate: Number((syncService.retail_rate || syncService.rate || 0).toFixed(5)),
+            markup_percentage: Number(syncService.markup_percentage || 0).toFixed(2),
+            currency: 'USD'
+          })
+        };
 
       case 'cancel':
          const { data: cOrder } = await supabaseAdmin.from('orders')

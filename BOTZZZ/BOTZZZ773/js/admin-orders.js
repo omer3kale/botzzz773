@@ -33,6 +33,7 @@ function createSafeTextNode(message) {
 let servicesCache = [];
 const ADMIN_SERVICES_ENDPOINT = '/.netlify/functions/services?audience=admin';
 let ordersCache = [];
+let providersCache = new Map(); // Provider ID → Provider Name cache
 let ordersAutoRefreshTimer = null;
 let lastOrderSyncTime = 0;
 let ordersSyncInFlight = false;
@@ -142,11 +143,41 @@ function doesOrderMatchLookup(order, lookup) {
         return false;
     }
 
-    const normalizedLookup = String(lookup);
+    const normalizedLookup = String(lookup).trim();
+    
+    // Support comma-separated order IDs
+    // Example: 37054567,37054538,37054533
+    if (normalizedLookup.includes(',')) {
+        const ids = normalizedLookup.split(',').map(id => id.trim()).filter(Boolean);
+        return ids.some(id => {
+            // order_number is a STRING, so compare as strings first
+            if (order.order_number && String(order.order_number) === id) {
+                return true;
+            }
+            // order.id might be string or number
+            if (String(order.id) === id) {
+                return true;
+            }
+            // provider_order_id
+            if (order.provider_order_id && String(order.provider_order_id) === id) {
+                return true;
+            }
+            return false;
+        });
+    }
+
+    // Single ID matching - compare as strings since order_number is a STRING
+    // order_number match (primary)
+    if (order.order_number && String(order.order_number) === normalizedLookup) {
+        return true;
+    }
+
+    // order.id match
     if (String(order.id) === normalizedLookup) {
         return true;
     }
 
+    // provider_order_id match
     const formattedLookup = formatProviderOrderId(normalizedLookup);
     const providerFormatted = formatProviderOrderId(order.provider_order_id);
     if (providerFormatted && formattedLookup && providerFormatted === formattedLookup) {
@@ -166,7 +197,7 @@ function doesOrderMatchLookup(order, lookup) {
 
 function getOrderById(orderId) {
     if (orderId === undefined || orderId === null) return undefined;
-    const lookup = String(orderId);
+    const lookup = String(orderId).trim();
 
     const cached = ordersCache.find(order => doesOrderMatchLookup(order, lookup));
     if (cached) {
@@ -180,6 +211,31 @@ function getOrderById(orderId) {
     }
 
     return undefined;
+}
+
+// Get multiple orders by comma-separated IDs
+function getOrdersByIds(idString) {
+    if (!idString) return [];
+    const lookup = String(idString).trim();
+    
+    if (!lookup.includes(',')) {
+        // Single ID - return as array
+        const order = getOrderById(lookup);
+        return order ? [order] : [];
+    }
+    
+    // Multiple IDs
+    const ids = lookup.split(',').map(id => id.trim()).filter(Boolean);
+    const results = [];
+    
+    for (const id of ids) {
+        const order = getOrderById(id);
+        if (order) {
+            results.push(order);
+        }
+    }
+    
+    return results;
 }
 
 function getOrderDisplayName(order) {
@@ -792,73 +848,52 @@ function refreshOrdersAfterAdminChange() {
 // Resolve provider information from the order payload regardless of shape
 function resolveOrderProvider(order, orderService) {
     const service = orderService || order?.service || order?.services || null;
-    const providerCandidates = [
-        order?.provider,
-        order?.providers,
-        order?.provider_info,
-        order?.providerDetails,
-        service?.provider,
-        service?.providers
-    ];
 
-    let providerObject = null;
-    let rawName = null;
+    // Simple priority: order.provider_name first, then service provider
+    let providerName = null;
+    let providerId = null;
 
-    for (const candidate of providerCandidates) {
-        if (!candidate) {
-            continue;
-        }
+    // Priority 1: order.provider_name (should be set when order created)
+    if (order?.provider_name && typeof order.provider_name === 'string' && order.provider_name.trim().length > 0) {
+        providerName = order.provider_name.trim();
+        providerId = order?.provider_id;
+        return { providerName, providerId };
+    }
 
-        if (Array.isArray(candidate)) {
-            for (const entry of candidate) {
-                if (!entry) {
-                    continue;
-                }
-                if (typeof entry === 'object') {
-                    providerObject = entry;
-                    break;
-                }
-                if (!rawName && typeof entry === 'string') {
-                    rawName = entry.trim();
-                }
-            }
-
-            if (providerObject) {
-                break;
-            }
-            continue;
-        }
-
-        if (typeof candidate === 'object') {
-            providerObject = candidate;
-            break;
-        }
-
-        if (typeof candidate === 'string') {
-            rawName = candidate.trim();
-            break;
+    // Priority 2: service.provider (the service object itself might have provider info - nested relationship)
+    if (service?.provider && typeof service.provider === 'object') {
+        providerName = service.provider.name || service.provider.title || null;
+        providerId = service.provider.id || null;
+        if (providerName) {
+            return { providerName, providerId };
         }
     }
 
-    const nameCandidates = [
-        order?.provider_name,
-        order?.providerName,
-        rawName,
-        providerObject?.name,
-        providerObject?.providerName,
-        providerObject?.title,
-        providerObject?.label,
-        service?.provider_name,
-        service?.providerName
-    ];
+    // Priority 3: service.provider_id (direct provider_id field in service)
+    // If service has provider_id but no nested provider object, try to use what we have
+    if (service?.provider_id && !providerName) {
+        providerId = service.provider_id;
+        // providerName might still be null here, which is OK - frontend won't show anything
+        // But if we have nested provider with just the ID (no name), this won't help
+        return { providerName: null, providerId };
+    }
 
-    const providerName = nameCandidates.find(value => typeof value === 'string' && value.trim().length > 0)?.trim() || 'Unknown Provider';
+    // Priority 4: order's provider references (legacy support)
+    if (order?.provider) {
+        if (typeof order.provider === 'string' && order.provider.trim().length > 0) {
+            providerName = order.provider.trim();
+        } else if (typeof order.provider === 'object' && order.provider?.name) {
+            providerName = order.provider.name;
+        }
+        if (providerName) {
+            return { providerName, providerId: order?.provider_id };
+        }
+    }
 
-    return {
-        provider: providerObject,
-        providerName
-    };
+    // If nothing found, return null (no provider name)
+    return { providerName: null, providerId: null };
 }
+
 
 // Build consistent provider order ID markup with graceful fallback
 function buildProviderOrderIdMarkup(providerName, providerOrderDisplay, providerOrderRaw) {
@@ -2610,11 +2645,11 @@ function copyProviderOrderIds() {
         return;
     }
     
-    // Join with newline for easy copy-paste
-    const idsText = providerOrderIds.join('\n');
+    // Join with comma for easy bulk operations
+    const idsText = providerOrderIds.join(',');
     
     navigator.clipboard.writeText(idsText).then(() => {
-        showNotification(`Copied ${providerOrderIds.length} provider order ID(s)`, 'success');
+        showNotification(`Copied ${providerOrderIds.length} provider order ID(s): ${idsText}`, 'success');
     }).catch(() => {
         showNotification('Failed to copy to clipboard', 'error');
     });
@@ -2856,16 +2891,31 @@ async function loadOrders({ skipSync = false } = {}) {
         const searchInput = document.getElementById('orderSearch');
         const searchQuery = searchInput ? searchInput.value.trim() : '';
         
-        // Calculate offset for API call
-        const offset = (window.ordersCurrentPage - 1) * window.ordersPerPage;
+        // Check if this is a comma-separated search (bulk order lookup)
+        const isCommaSeparatedSearch = searchQuery.includes(',');
+        let searchQueryToUse = searchQuery;
+        let limitToUse = window.ordersPerPage;
+        let offsetToUse = (window.ordersCurrentPage - 1) * window.ordersPerPage;
+        
+        if (isCommaSeparatedSearch) {
+            console.log('[ORDERS] COMMA SEARCH DETECTED:', searchQuery);
+            console.log('[ORDERS] isCommaSeparatedSearch =', isCommaSeparatedSearch);
+            // For comma-separated searches, fetch many more orders to ensure we get all matches
+            // (they might be spread across multiple pages)
+            limitToUse = 10000;  // Fetch up to 10k orders
+            offsetToUse = 0;     // Always start from beginning for bulk search
+            searchQueryToUse = '';  // No API-side search filter
+        }
 
         // Build API URL with pagination and search
         const apiUrl = new URL('/.netlify/functions/orders', window.location.origin);
-        apiUrl.searchParams.append('limit', window.ordersPerPage);
-        apiUrl.searchParams.append('offset', offset);
-        if (searchQuery) {
-            apiUrl.searchParams.append('search', searchQuery);
+        apiUrl.searchParams.append('limit', limitToUse);
+        apiUrl.searchParams.append('offset', offsetToUse);
+        if (searchQueryToUse) {
+            apiUrl.searchParams.append('search', searchQueryToUse);
         }
+
+        console.log('[ORDERS] API Request URL:', apiUrl.toString());
 
         console.log('[ORDERS] Fetching orders with pagination/search...');
         console.log('[ORDERS] Request URL:', apiUrl.toString());
@@ -2889,8 +2939,99 @@ async function loadOrders({ skipSync = false } = {}) {
         const data = await response.json();
         ordersCache = Array.isArray(data.orders) ? data.orders : [];
         
+        // For comma-separated searches, fetch ALL pages until we have everything
+        if (isCommaSeparatedSearch && data.pagination && data.pagination.totalPages > 1) {
+            console.log('[ORDERS] Comma search - fetching all pages. Total pages:', data.pagination.totalPages);
+            let allOrders = [...ordersCache];
+            
+            // Detect actual page size from API response
+            const actualPageSize = ordersCache.length;
+            console.log('[ORDERS] Detected page size:', actualPageSize);
+            
+            // Fetch remaining pages
+            for (let page = 2; page <= data.pagination.totalPages; page++) {
+                const pageUrl = new URL('/.netlify/functions/orders', window.location.origin);
+                const pageOffset = (page - 1) * actualPageSize;
+                pageUrl.searchParams.append('limit', actualPageSize);
+                pageUrl.searchParams.append('offset', pageOffset);
+                
+                console.log('[ORDERS] Fetching page', page, '(offset=' + pageOffset + ')...');
+                try {
+                    const pageResponse = await fetch(pageUrl.toString(), {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (pageResponse.ok) {
+                        const pageData = await pageResponse.json();
+                        const pageOrders = Array.isArray(pageData.orders) ? pageData.orders : [];
+                        allOrders = allOrders.concat(pageOrders);
+                        console.log('[ORDERS] Page', page, 'fetched:', pageOrders.length, 'total so far:', allOrders.length);
+                    }
+                } catch (err) {
+                    console.error('[ORDERS] Error fetching page', page, ':', err);
+                }
+            }
+            
+            ordersCache = allOrders;
+            console.log('[ORDERS] Total orders fetched for comma search:', ordersCache.length);
+        }
+        console.log('[ORDERS] API Response - received', ordersCache.length, 'orders from API');
+        
+        // DEBUG: Log first few orders to see their structure
+        if (ordersCache.length > 0) {
+            console.log('[ORDERS] First order structure:', ordersCache[0]);
+            console.log('[ORDERS] Order keys:', Object.keys(ordersCache[0]));
+            console.log('[ORDERS] First order values:', {
+                id: ordersCache[0].id,
+                order_number: ordersCache[0].order_number,
+                order_id: ordersCache[0].order_id,
+                provider_order_id: ordersCache[0].provider_order_id,
+                display_order_id: ordersCache[0].display_order_id
+            });
+        }
+        
+        // Filter for comma-separated searches client-side
+        if (isCommaSeparatedSearch && ordersCache.length > 0) {
+            console.log('[ORDERS] FILTERING COMMA SEARCH');
+            console.log('[ORDERS] Search query:', searchQuery);
+            console.log('[ORDERS] Total orders to filter:', ordersCache.length);
+            
+            const beforeCount = ordersCache.length;
+            let matchCount = 0;
+            let errorCount = 0;
+            
+            ordersCache = ordersCache.filter(order => {
+                try {
+                    const matches = doesOrderMatchLookup(order, searchQuery);
+                    if (matches) {
+                        matchCount++;
+                        console.log('[ORDERS] MATCH FOUND: order_number=' + order.order_number + ', id=' + order.id);
+                    }
+                    return matches;
+                } catch (err) {
+                    errorCount++;
+                    console.error('[ORDERS] ERROR in doesOrderMatchLookup:', err, 'order:', order);
+                    return false;
+                }
+            });
+            
+            console.log('[ORDERS] Filtering complete - before:', beforeCount, 'after:', ordersCache.length, 'matches:', matchCount, 'errors:', errorCount);
+        } else if (isCommaSeparatedSearch) {
+            console.log('[ORDERS] COMMA SEARCH but no orders from API!');
+        }
+        
         // Store pagination info
-        if (data.pagination) {
+        // For comma-separated searches, disable pagination since we already fetched all matching orders
+        if (isCommaSeparatedSearch) {
+            window.ordersTotalCount = ordersCache.length;
+            window.ordersTotalPages = 1;
+            window.ordersCurrentPage = 1;
+            console.log('[ORDERS] Comma-separated search complete:', window.ordersTotalCount, 'orders found');
+        } else if (data.pagination) {
             window.ordersTotalCount = data.pagination.totalCount;
             window.ordersTotalPages = data.pagination.totalPages;
             window.ordersCurrentPage = data.pagination.currentPage;
@@ -2977,11 +3118,11 @@ async function loadOrders({ skipSync = false } = {}) {
                     ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
                     : '';
                 const providerInfo = resolveOrderProvider(order, orderService);
-                // Show provider name for ALL orders (below provider order ID)
-                const providerNameMarkup = providerInfo.providerName && providerInfo.providerName !== 'Unknown Provider'
-                    ? `<span class="order-provider-name"><i class="fas fa-server"></i> ${escapeHtml(providerInfo.providerName)}</span>`
-                    : '';
-                const providerOrderMarkup = '';
+                // Show provider name for orders that have it (below provider order ID)
+                let providerNameMarkup = '';
+                if (providerInfo.providerName && providerInfo.providerName.trim().length > 0) {
+                    providerNameMarkup = `<span class="order-provider-name" style="display: block; font-size: 0.95em; font-weight: 500; color: #fff; background-color: #2c3e50; padding: 4px 8px; margin-top: 6px; border-radius: 3px;"><i class="fas fa-server"></i> ${escapeHtml(providerInfo.providerName)}</span>`;
+                }
                 const internalOrderMarkup = '';
 
 
@@ -3060,7 +3201,6 @@ async function loadOrders({ skipSync = false } = {}) {
                                 <span class="order-id-primary"${orderPrimaryTitle ? ` title="${orderPrimaryTitle}"` : ''}>${orderPrimaryLabel}</span>
                                 ${orderSecondaryMarkup}
                                 ${providerNameMarkup}
-                                ${providerOrderMarkup}
                                 ${internalOrderMarkup}
                             </div>
                         </td>
@@ -3215,6 +3355,14 @@ async function getServicesOptions(selectedServiceId = null) {
         servicesOptionsState.hasServices = servicesCache.length > 0;
         servicesOptionsState.error = null;
         servicesOptionsState.lastUpdated = Date.now();
+        
+        // DEBUG: Check if provider_id is in services
+        if (servicesCache.length > 0) {
+            console.log('[ADMIN SERVICES] First service structure:', servicesCache[0]);
+            console.log('[ADMIN SERVICES] Has provider_id?', 'provider_id' in servicesCache[0]);
+            console.log('[ADMIN SERVICES] Service 198 data:', servicesCache.find(s => s.id === 198 || s.public_id === 198));
+        }
+        
         return buildServicesOptionsHTML(servicesCache, selectedServiceId);
     } catch (error) {
         console.error('Failed to load services:', error);
@@ -4018,8 +4166,8 @@ async function loadProviderErrors() {
             const summaryFromApi = Array.isArray(data.providerSummary) ? data.providerSummary : [];
             const fallbackSummary = summaryFromApi.length === 0 && Array.isArray(providerErrorsCache)
                 ? Object.values(providerErrorsCache.reduce((acc, err) => {
-                    const provider = err.provider || err.order?.service?.provider || {};
-                    const providerId = provider.id || err.provider_id || err.order?.service?.provider_id || 'unknown';
+                    const provider = err.provider || {};  // REMOVED: err.order?.service?.provider fallback
+                    const providerId = provider.id || err.provider_id || 'unknown';
                     const providerName = provider.name || 'Unknown Provider';
                     if (!acc[providerId]) {
                         acc[providerId] = { provider_id: providerId, provider_name: providerName, count: 0 };
@@ -4089,7 +4237,7 @@ async function loadProviderErrors() {
         tbody.innerHTML = providerErrorsCache.map(err => {
             const order = err.order || {};
             const service = order.service || {};
-            const provider = err.provider || service.provider || {};
+            const provider = err.provider || {};  // REMOVED: service.provider fallback
             const user = order.user || {};
             
             const orderId = order.order_number || order.public_id || order.id?.substring(0, 8) || 'N/A';

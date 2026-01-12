@@ -849,6 +849,88 @@ async function handleGoogleSignIn(data, headers) {
         });
       }
       
+      // Create welcome ticket for new Google user (same as signup)
+      try {
+        console.log('[WELCOME TICKET] Creating ticket for Google user:', newUser.id);
+        
+        const randomSuffix = Math.random().toString(36).substring(2, 12).toUpperCase();
+        const ticketNumber = `TCK-${Date.now().toString().slice(-6)}${randomSuffix}`;
+        const shortId = Math.random().toString().substring(2, 8);
+        
+        const { data: ticketData, error: ticketError } = await supabaseAdmin
+          .from('tickets')
+          .insert({
+            user_id: newUser.id,
+            ticket_number: ticketNumber,
+            short_id: shortId,
+            subject: 'Welcome to our platform!',
+            category: 'general',
+            status: 'open',
+            priority: 'normal',
+            order_id: null,
+            last_reply_by: null,
+            closed_at: null,
+            has_unread_replies: false,
+            last_viewed_at: null
+          })
+          .select();
+
+        console.log('[WELCOME TICKET] Insert response:', { ticketError, ticketDataLength: ticketData?.length });
+
+        if (ticketError) {
+          console.error('[WELCOME TICKET] Ticket creation error:', JSON.stringify(ticketError));
+          logger.warn('Could not create welcome ticket', {
+            userId: newUser.id,
+            error: serializeError(ticketError)
+          });
+        } else if (ticketData && ticketData.length > 0) {
+          const ticket = ticketData[0];
+          console.log('[WELCOME TICKET] Ticket created successfully:', ticket.id);
+          
+          const messageResult = await supabaseAdmin
+            .from('ticket_messages')
+            .insert({
+              ticket_id: ticket.id,
+              user_id: newUser.id,
+              message: `Welcome to Botzzz773!
+
+Your Account Details:
+Username: ${newUser.username}
+Site Link: https://www.botzzz773.pro
+
+We are delighted to have you with us. Our mission is to provide you with the most reliable and affordable services in the market.
+
+Your Feedback Matters: If there are any services you need that are not currently listed on our panel, please let us know. We are constantly expanding our catalog based on your requests and will always be here to support your growth.
+
+Best regards, Botzzz773 Team
+
+📩 37M+ COMPLETED ORDERS [ OUR PROVIDING ]
+📲 Contact WhatsApp: https://wa.me/447547387681
+📲 Contact Telegram: https://t.me/botzzz773
+🌐 Website: www.botzzz773.pro`,
+              is_admin: true,
+              is_internal: false
+            });
+
+          if (messageResult.error) {
+            console.error('[WELCOME TICKET] Message creation error:', JSON.stringify(messageResult.error));
+            logger.warn('Could not create welcome message', {
+              ticketId: ticket.id,
+              error: serializeError(messageResult.error)
+            });
+          } else {
+            console.log('[WELCOME TICKET] Welcome message created successfully');
+            logger.info('Welcome ticket created successfully', { ticketId: ticket.id });
+          }
+        }
+      } catch (err) {
+        console.error('[WELCOME TICKET] Exception:', err.message || err);
+        logger.warn('Could not create welcome ticket or message', {
+          userId: newUser.id,
+          error: serializeError(err)
+        });
+      }
+      
       user = newUser;
     }
 

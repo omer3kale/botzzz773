@@ -1,15 +1,14 @@
-# Test Scenario: Service 9161 (royalsmmworld.com) with provider_service_id=1073
-# Provider insufficient balance test
+# Test Scenario: Service 9267 - Test provider_id and provider_name capture
 # -----------------------------------------------
 
 $API_BASE_URL = "http://localhost:8888/.netlify/functions/v2"
 $API_KEY = "sk_be2b83b5836ab8c56e413093f7e8b20c975fffa88478ea1ec6876d1b215751ae"
 
-Write-Host "`n=== Service 9161 Test (royalsmmworld.com) ===" -ForegroundColor Cyan
-Write-Host "Provider Service ID: 1073" -ForegroundColor Yellow
+Write-Host "`n=== Service 198 Test ===" -ForegroundColor Cyan
+Write-Host "Service 198 (Instagram Followers) - has provider_id" -ForegroundColor Yellow
 
-$testServiceId = "9161"
-$testQuantity = 50
+$testServiceId = "198"
+$testQuantity = 1
 
 Write-Host "Service ID: $testServiceId" -ForegroundColor Yellow
 Write-Host "Quantity: $testQuantity" -ForegroundColor Yellow
@@ -30,10 +29,10 @@ try {
     exit 1
 }
 
-Write-Host "`n=== Siparis Olustur (Service 9161) ===" -ForegroundColor Cyan
-Write-Host "Provider: royalsmmworld.com (provider_service_id=1073)" -ForegroundColor Yellow
+Write-Host "`n=== Siparis Olustur (Service 198) ===" -ForegroundColor Cyan
+Write-Host "Testing provider_id and provider_name in new order" -ForegroundColor Yellow
 
-$testLink = "https://t.me/doskazpozorayakutii/1205"
+$testLink = "https://example.com/test-" + (Get-Random)
 
 $orderBody = "key=$API_KEY&action=add&service=$testServiceId&link=$testLink&quantity=$testQuantity"
 
@@ -50,13 +49,14 @@ try {
     $orderId = $orderResponse.order
     Write-Host "Siparis Basarili!" -ForegroundColor Green
     Write-Host "Order ID: $orderId" -ForegroundColor Green
-    Write-Host "`n=== Check Admin Console ===" -ForegroundColor Cyan
-    Write-Host "Order #$orderId should show FAILED status with provider_error if provider rejected." -ForegroundColor Yellow
-    Write-Host "Customer will see PENDING status." -ForegroundColor Yellow
+    Write-Host "`n=== Kontrol Et ===" -ForegroundColor Cyan
+    Write-Host "1. v2.js console'unda [V2] Service full data log'unu kontrol et" -ForegroundColor Yellow
+    Write-Host "2. Admin panel'i yenile ve order #$orderId'yi ara" -ForegroundColor Yellow
+    Write-Host "3. Provider name'in beyaz kutu içinde gösterildiğini kontrol et" -ForegroundColor Yellow
     
 } catch {
     Write-Host "Siparis olusturma hatasi: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "`nTest completed. Check Netlify logs for [V2 PROVIDER] forwarding details." -ForegroundColor Cyan
+Write-Host "`nTest completed. Check v2.js console logs and admin panel for provider_name display." -ForegroundColor Cyan
