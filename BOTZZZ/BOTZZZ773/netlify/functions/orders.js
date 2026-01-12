@@ -2644,7 +2644,8 @@ async function recordRefundTransaction(order, amount, options = {}) {
 }
 
 async function performOrderStatusSync({ orderIds = null, providerId = null, limit = 100 } = {}) {
-  // Do NOT include 'canceled' in active sync set to avoid reprocessing canceled orders
+  // Active sync states - states that can still change
+  // NOTE: partial can progress to completed, so it's included
   const statusesToSync = ['pending', 'processing', 'in progress', 'refilling', 'partial'];
   const providerFilter = providerId ? String(providerId) : null;
 
@@ -2656,8 +2657,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     ordersQuery = ordersQuery.in('id', orderIds);
   } else {
     // Sync orders that are:
-    // 1. In active states (pending, processing, etc.) OR
-    // 2. Completed on provider but customer_status not yet updated
+    // 1. In active states (pending, processing, refilling, partial, in progress) - these can still change
+    // 2. Completed on provider but customer_status not yet updated (status=completed, customer_status!=completed)
+    // 3. Do NOT sync: completed+completed, canceled+canceled, partial+partial (final states already synced)
     ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
   }
 
@@ -2801,6 +2803,16 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   }
 
   for (const order of ordersToSync) {
+    // Skip if order is in final state and customer_status matches
+    const isFinalState = (order.status === 'completed' && order.customer_status === 'completed') ||
+                         (order.status === 'canceled' && order.customer_status === 'canceled') ||
+                         (order.status === 'partial' && order.customer_status === 'partial');
+    
+    if (isFinalState) {
+      console.log(`[ORDER SYNC] Skipping order ${order.order_number} - already in final state (${order.status})`);
+      continue;
+    }
+
     const service = order.service_id ? servicesMap.get(order.service_id) : null;
     // Use order's snapshot provider first (if available), fallback to service provider for backward compatibility
     const providerId = order.provider_id || (service && service.provider_id);
@@ -2824,6 +2836,8 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         ?? statusResponse.state
         ?? 'processing';
       const normalizedStatus = normalizeProviderStatus(providerStatusRaw);
+
+      console.log(`[ORDER SYNC] Order ${order.order_number}: rawStatus=${providerStatusRaw}, normalized=${normalizedStatus}, response=${JSON.stringify(statusResponse)}`);
 
       const providerChargeFromResponse = toNumberOrNull(
         statusResponse.charge ?? statusResponse.price ?? statusResponse.cost
@@ -3116,7 +3130,7 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
     throw new Error('Provider order id missing');
   }
 
-  const maxRetries = 1;  // 2 total attempts (1 initial + 1 retry) = ~30s max
+  const maxRetries = 3;  // 3 total attempts with exponential backoff
   let lastError;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -3126,11 +3140,13 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
       params.append('action', 'status');
       params.append('order', providerOrderId);
 
+      console.log(`[PROVIDER STATUS] Fetching status for order ${providerOrderId}, attempt ${attempt}/${maxRetries}`);
+      
       const response = await axios.post(provider.api_url, params, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        timeout: 15000,  // 15 second timeout per request
+        timeout: 20000,  // 20 second timeout (increased from 15s)
         validateStatus: (status) => status < 500
       });
 
@@ -3145,6 +3161,8 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
       // Prefer nested payloads if present (many providers wrap under `data` or `result`)
       const result = unwrapProviderPayload(response.data);
       
+      console.log(`[PROVIDER STATUS] Successfully fetched status for order ${providerOrderId}:`, result?.status);
+      
       // Success: restore provider health if degraded
       if (provider?.id) {
         try {
@@ -3158,15 +3176,19 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
     } catch (error) {
       lastError = error;
       
+      console.error(`[PROVIDER STATUS] Attempt ${attempt} failed for order ${providerOrderId}:`, error.message);
+      
       if (attempt < maxRetries) {
-        const delayMs = 1000 * attempt;
-        console.log(`[PROVIDER STATUS] Attempt ${attempt} failed, retrying in ${delayMs}ms...`, error.message);
+        const delayMs = 1000 * Math.pow(2, attempt - 1);  // Exponential backoff: 1s, 2s, 4s
+        console.log(`[PROVIDER STATUS] Retrying in ${delayMs}ms...`);
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
   }
 
   // All retries exhausted
+  console.error(`[PROVIDER STATUS] All ${maxRetries} attempts failed for order ${providerOrderId}`);
+  
   if (provider?.id) {
     try {
       await degradeProviderHealth(provider.id);

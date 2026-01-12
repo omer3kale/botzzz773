@@ -259,8 +259,12 @@ exports.handler = async (event) => {
 
         if (!params.service || !params.link || !params.quantity) return errorResponse('Missing parameters');
         
-        // Fetch Service & Provider info
-        const { data: sData } = await supabaseAdmin.from('services').select('*').eq('public_id', params.service).single();
+        // Fetch Service & Provider info with nested provider relationship
+        const { data: sData } = await supabaseAdmin
+          .from('services')
+          .select('*, provider:providers(id, name, api_url, api_key)')
+          .eq('public_id', params.service)
+          .single();
         if (!sData) return errorResponse('Service not found');
         
         // DEBUG: Log full service data to understand provider structure
@@ -268,7 +272,6 @@ exports.handler = async (event) => {
           id: sData.id,
           provider_id: sData.provider_id,
           provider: sData.provider,
-          providers: sData.providers,
           provider_name: sData.provider_name
         }));
 
@@ -533,6 +536,12 @@ exports.handler = async (event) => {
                 }
               } catch (statusErr) {
                 // Status check failed; default to pending and let sync job handle it later
+                console.error('[V2 PROVIDER STATUS CHECK FAILED]', {
+                  provider: sData.provider.name,
+                  providerOrderId: providerOrderId,
+                  error: statusErr.message,
+                  response: statusErr.response?.data
+                });
               }
 
               await supabaseAdmin.from('orders').update({ 

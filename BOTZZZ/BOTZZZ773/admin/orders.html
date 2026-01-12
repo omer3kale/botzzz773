@@ -212,6 +212,9 @@
                         <i class="fas fa-cog"></i> Actions <i class="fas fa-chevron-down" style="font-size: 10px; margin-left: 4px;"></i>
                     </button>
                     <div class="dropdown-menu" id="ordersActionsDropdown" style="display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; background: var(--admin-dark-bg); border: 1px solid var(--admin-border); border-radius: 8px; min-width: 220px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
+                        <button class="dropdown-item" onclick="manualOrdersSync(); toggleOrdersActionsDropdown();">
+                            <i class="fas fa-sync-alt"></i> Sync Selected
+                        </button>
                         <button class="dropdown-item" onclick="bulkResendSelectedOrders(); toggleOrdersActionsDropdown();">
                             <i class="fas fa-redo"></i> Resend Selected
                         </button>
