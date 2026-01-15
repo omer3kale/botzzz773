@@ -71,17 +71,61 @@ async function handleAdminStats(headers) {
     
     const totalRevenue = revenueData?.reduce((sum, p) => sum + parseFloat(p.amount), 0) || 0;
 
-    // Get total provider costs (sum of all order charges - these are costs to us)
-    const { data: ordersData } = await supabaseAdmin
-      .from('orders')
-      .select('charge, original_charge, provider_cost')
-      .in('status', ['completed', 'partial']);
+    // Get total provider costs (sum of all orders with pagination to handle >1000 orders)
+    let allOrdersData = [];
+    let pageNum = 0;
+    const pageSize = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabaseAdmin
+        .from('orders')
+        .select('charge, original_charge, provider_cost, provider_currency')
+        .in('status', ['completed', 'partial'])
+        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
+      
+      if (pageError) {
+        console.error('Error fetching orders page', pageNum, ':', pageError);
+        break;
+      }
+      
+      if (!pageData || pageData.length === 0) {
+        hasMore = false;
+      } else {
+        allOrdersData = allOrdersData.concat(pageData);
+        pageNum++;
+        if (pageData.length < pageSize) {
+          hasMore = false;
+        }
+      }
+    }
+    
+    const ordersData = allOrdersData;
 
-    // Calculate profit per order: income (customer charge) - outcome (provider cost)
+    // Currency conversion rates to USD (simple fallback - should be updated from external API)
+    const conversionRates = {
+      'USD': 1,
+      'EUR': 1.10,
+      'GBP': 1.27,
+      'TRY': 0.032,
+      'INR': 0.012,
+      'RUB': 0.011,
+      'CNY': 0.14
+    };
+
+    const getConversionRate = (currency) => {
+      return conversionRates[currency?.toUpperCase()] || 1;
+    };
+
+    // Calculate profit per order: income (customer charge in USD) - outcome (provider cost converted to provider's currency, then to USD)
     const totalProfits = ordersData?.reduce((sum, o) => {
-      const income = parseFloat(o.charge || o.original_charge || 0);
-      const outcome = parseFloat(o.provider_cost || o.charge || 0);
-      return sum + (income - outcome);
+      const income = parseFloat(o.charge || o.original_charge || 0); // Customer charge (assumed USD)
+      const outcome = parseFloat(o.provider_cost || 0);
+      
+      // Convert provider cost to USD if provider_currency is different
+      const outcomeUSD = outcome * getConversionRate(o.provider_currency || 'USD');
+      
+      return sum + (income - outcomeUSD);
     }, 0) || 0;
 
     // Get total orders

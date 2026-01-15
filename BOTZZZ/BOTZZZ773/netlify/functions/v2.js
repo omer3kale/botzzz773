@@ -743,7 +743,7 @@ exports.handler = async (event) => {
                        refillId = 15090 + randomIncrement;
                    }
                    
-                   const { error: updateError } = await supabaseAdmin.from('orders').update({ refill_id: String(refillId), status: 'refilling', refill_requested_at: new Date().toISOString() }).eq('id', rOrder.id);
+                   const { error: updateError } = await supabaseAdmin.from('orders').update({ refill_id: String(refillId), refill_requested_at: new Date().toISOString() }).eq('id', rOrder.id);
                    
                    if (updateError) {
                        console.error('[V2 REFILL] Order update error:', JSON.stringify(updateError));
@@ -754,8 +754,35 @@ exports.handler = async (event) => {
                    let providerRefillId = null;
                    try {
                        const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+                       
+                       // Log full response for debugging provider format
+                       console.log('[V2 REFILL] Full provider response:', {
+                           status: rRes.status,
+                           statusText: rRes.statusText,
+                           data: JSON.stringify(rRes.data),
+                           headers: rRes.headers
+                       });
+                       
                        providerRefillId = rRes.data?.refill || null;
                        const providerStatus = rRes.data?.status || null;
+                       
+                       // Try alternative field names if standard ones don't exist
+                       if (!providerRefillId) {
+                           providerRefillId = rRes.data?.refill_id || rRes.data?.refillId || rRes.data?.order || null;
+                       }
+                       if (!providerStatus) {
+                           const altStatus = rRes.data?.status_text || rRes.data?.statusText || rRes.data?.state || null;
+                           if (altStatus) {
+                               console.log('[V2 REFILL] Using alternative status field:', { altStatus });
+                           }
+                       }
+                       
+                       console.log('[V2 REFILL] Parsed provider response:', {
+                           providerOrderId: rOrder.provider_order_id,
+                           providerRefillId,
+                           providerStatus,
+                           rawData: rRes.data
+                       });
                        
                        if (providerRefillId) {
                            // Map provider status to our database status
@@ -767,10 +794,14 @@ exports.handler = async (event) => {
                            };
                            const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
                            
-                           // Update with provider refill ID and status
+                           // Update with provider refill ID, status, and full response
                            const { error: providerUpdateError } = await supabaseAdmin
                                .from('refill_requests')
-                               .update({ provider_refill_id: String(providerRefillId), status: dbStatus })
+                               .update({ 
+                                   provider_refill_id: String(providerRefillId), 
+                                   status: dbStatus,
+                                   provider_response: rRes.data  // Store full provider response for debugging
+                               })
                                .eq('refill_id', refillId);
                            
                            if (providerUpdateError) {
@@ -842,9 +873,24 @@ exports.handler = async (event) => {
                    // Now try to request from provider (non-blocking)
                    try {
                        const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
-                       if (rRes.data.refill) {
-                           const providerStatus = rRes.data?.status || null;
-                           
+                       
+                       // Log full response for debugging provider format
+                       console.log('[V2 REFILL BULK] Provider response for order ' + orderNum + ':', {
+                           status: rRes.status,
+                           data: JSON.stringify(rRes.data)
+                       });
+                       
+                       let providerRefillId = rRes.data?.refill || rRes.data?.refill_id || rRes.data?.refillId || rRes.data?.order || null;
+                       const providerStatus = rRes.data?.status || rRes.data?.status_text || rRes.data?.statusText || null;
+                       
+                       console.log('[V2 REFILL BULK] Parsed response:', {
+                           orderNum,
+                           providerRefillId,
+                           providerStatus,
+                           rawData: rRes.data
+                       });
+                       
+                       if (providerRefillId) {
                            // Map provider status to our database status
                            const statusMap = {
                                'Pending': 'pending',
@@ -854,10 +900,14 @@ exports.handler = async (event) => {
                            };
                            const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
                            
-                           // Update with provider refill ID and status
+                           // Update with provider refill ID, status, and full response
                            await supabaseAdmin
                                .from('refill_requests')
-                               .update({ provider_refill_id: String(rRes.data.refill), status: dbStatus })
+                               .update({ 
+                                   provider_refill_id: String(providerRefillId), 
+                                   status: dbStatus,
+                                   provider_response: rRes.data  // Store full provider response for debugging
+                               })
                                .eq('refill_id', refillId);
                        }
                    } catch(providerError) { 
@@ -875,7 +925,7 @@ exports.handler = async (event) => {
 
       case 'refill_status':
          // Support both single (refill) and multiple (refills) status checks
-         // Note: refill parameter now contains order_number (per Perfect Panel API spec)
+         // Also queries provider API to get current status and save response
          const statusRefills = params.refills ? String(params.refills).split(',').map(r => r.trim()) : (params.refill ? [String(params.refill).trim()] : []);
          if (statusRefills.length === 0) return errorResponse('Missing order ID(s)');
          
@@ -883,21 +933,182 @@ exports.handler = async (event) => {
          if (statusRefills.length === 1) {
             const refillId = statusRefills[0];
             console.log('[V2 REFILL_STATUS] Query:', { refillId, refillIdInt: parseInt(refillId) });
-            const { data: rs, error: statusError } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
+            const { data: rs, error: statusError } = await supabaseAdmin
+               .from('refill_requests')
+               .select('refill_id, status, provider_refill_id, order_number, id')
+               .eq('refill_id', parseInt(refillId))
+               .single();
+            
             console.log('[V2 REFILL_STATUS] Result:', { rs, statusError });
             if (statusError || !rs) return errorResponse(`Refill not found: ${statusError?.message || 'no data'}`);
+            
+            // Try to query provider if we have provider_refill_id
+            if (rs.provider_refill_id && rs.order_number) {
+               try {
+                  // Get order to find provider info
+                  const { data: orderData } = await supabaseAdmin
+                     .from('orders')
+                     .select('service:services(provider:providers(*))')
+                     .eq('order_number', rs.order_number)
+                     .eq('user_id', user.id)
+                     .single();
+                  
+                  if (orderData?.service?.provider?.api_url && orderData.service.provider.api_key) {
+                     const provider = orderData.service.provider;
+                     console.log('[V2 REFILL_STATUS] Querying provider for refill status:', { 
+                        refillId: rs.provider_refill_id,
+                        providerName: provider.name 
+                     });
+                     
+                     try {
+                        const statusRes = await axios.post(
+                           provider.api_url,
+                           new URLSearchParams({ 
+                              key: provider.api_key, 
+                              action: 'refill_status', 
+                              refill: rs.provider_refill_id 
+                           }),
+                           { timeout: 5000 }
+                        );
+                        
+                        console.log('[V2 REFILL_STATUS] Provider response:', {
+                           status: statusRes.status,
+                           data: JSON.stringify(statusRes.data)
+                        });
+                        
+                        // Save provider response to database
+                        const providerStatus = statusRes.data?.status || statusRes.data?.status_text || statusRes.data?.statusText || null;
+                        const normalizeProviderStatus = (raw) => {
+                           if (!raw) return 'pending';
+                           const s = String(raw).trim().toLowerCase();
+                           if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
+                           if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
+                           if (s === 'processing' || s === 'started') return 'processing';
+                           if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
+                           if (s.includes('reject')) return 'rejected';
+                           return 'pending';
+                        };
+                        
+                        const dbStatus = normalizeProviderStatus(providerStatus);
+                        
+                        // Update database with provider response
+                        const { error: updateError } = await supabaseAdmin
+                           .from('refill_requests')
+                           .update({ 
+                              provider_response: statusRes.data,
+                              status: dbStatus
+                           })
+                           .eq('refill_id', rs.refill_id);
+                        
+                        if (updateError) {
+                           console.error('[V2 REFILL_STATUS] Database update failed:', {
+                              refillId: rs.id,
+                              error: updateError.message,
+                              code: updateError.code
+                           });
+                        }
+                        
+                        console.log('[V2 REFILL_STATUS] Saved provider response:', { 
+                           providerStatus,
+                           dbStatus 
+                        });
+                        
+                        // Return provider response directly (not normalized)
+                        return { statusCode: 200, headers, body: JSON.stringify(statusRes.data) };
+                     } catch (providerErr) {
+                        console.warn('[V2 REFILL_STATUS] Provider query failed:', providerErr.message);
+                        // Fall through to return DB status
+                     }
+                  }
+               } catch (err) {
+                  console.warn('[V2 REFILL_STATUS] Could not query provider:', err.message);
+                  // Fall through to return DB status
+               }
+            }
+            
+            // Return status from database if no provider_refill_id or provider query failed
             const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
-            console.log('[V2 REFILL_STATUS] Status:', { dbStatus: rs.status, mappedStatus: statusMap[rs.status] });
-            return { statusCode: 200, headers, body: JSON.stringify({ refill: refillId, status: statusMap[rs.status] || 'Pending' }) };
+            console.log('[V2 REFILL_STATUS] No provider info, returning DB status:', { dbStatus: rs.status });
+            return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Pending' }) };
          }
          
          // Multiple refill status response
          const statusResults = [];
          for (const refillId of statusRefills) {
-            const { data: rs } = await supabaseAdmin.from('refill_requests').select('status').eq('refill_id', parseInt(refillId)).single();
+            const { data: rs } = await supabaseAdmin
+               .from('refill_requests')
+               .select('refill_id, status, provider_refill_id, order_number, id')
+               .eq('refill_id', parseInt(refillId))
+               .single();
+            
             if (rs) {
-                const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
-                statusResults.push({ refill: refillId, status: statusMap[rs.status] || 'Pending' });
+               // Try to query provider for updated status
+               if (rs.provider_refill_id && rs.order_number) {
+                  try {
+                     const { data: orderData } = await supabaseAdmin
+                        .from('orders')
+                        .select('service:services(provider:providers(*))')
+                        .eq('order_number', rs.order_number)
+                        .eq('user_id', user.id)
+                        .single();
+                     
+                     if (orderData?.service?.provider?.api_url && orderData.service.provider.api_key) {
+                        const provider = orderData.service.provider;
+                        const statusRes = await axios.post(
+                           provider.api_url,
+                           new URLSearchParams({ 
+                              key: provider.api_key, 
+                              action: 'refill_status', 
+                              refill: rs.provider_refill_id 
+                           }),
+                           { timeout: 5000 }
+                        );
+                        
+                        const providerStatus = statusRes.data?.status || statusRes.data?.status_text || statusRes.data?.statusText || null;
+                        const normalizeProviderStatus = (raw) => {
+                           if (!raw) return 'pending';
+                           const s = String(raw).trim().toLowerCase();
+                           if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
+                           if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
+                           if (s === 'processing' || s === 'started') return 'processing';
+                           if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
+                           if (s.includes('reject')) return 'rejected';
+                           return 'pending';
+                        };
+                        
+                        const dbStatus = normalizeProviderStatus(providerStatus);
+                        
+                        // Update database
+                        const { error: bulkUpdateError } = await supabaseAdmin
+                           .from('refill_requests')
+                           .update({ 
+                              provider_response: statusRes.data,
+                              status: dbStatus
+                           })
+                           .eq('refill_id', rs.refill_id);
+                        
+                        if (bulkUpdateError) {
+                           console.error('[V2 REFILL_STATUS BULK] Database update failed:', {
+                              refillId: rs.id,
+                              error: bulkUpdateError.message,
+                              code: bulkUpdateError.code
+                           });
+                        }
+                        
+                        // Return provider response directly
+                        statusResults.push({ refill: refillId, ...statusRes.data });
+                     } else {
+                        const bulkStatusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
+                        statusResults.push({ refill: refillId, status: bulkStatusMap[rs.status] || 'Pending' });
+                     }
+                  } catch (err) {
+                     console.warn('[V2 REFILL_STATUS] Provider query failed for refill', refillId);
+                     const bulkStatusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
+                     statusResults.push({ refill: refillId, status: bulkStatusMap[rs.status] || 'Pending' });
+                  }
+               } else {
+                  statusResults.push({ refill: refillId, status: 'Pending' });
+               }
             } else {
                 statusResults.push({ refill: refillId, status: 'Not found' });
             }

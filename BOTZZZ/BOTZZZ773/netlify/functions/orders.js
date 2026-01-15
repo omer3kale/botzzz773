@@ -763,7 +763,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     }
 
     // Get pagination params with validation
-    const limit = Math.min(Math.max(parseInt(queryParams?.limit) || 50, 1), 500); // Default 50 per page
+    const limit = Math.min(Math.max(parseInt(queryParams?.limit) || 200, 1), 500); // Default 200 per page (was 50)
     const offset = Math.max(parseInt(queryParams?.offset) || 0, 0);
     const statusFilter = queryParams?.status ? String(queryParams.status).toLowerCase().trim() : null;
     const orderIdFilter = queryParams?.orderId ? String(queryParams.orderId).trim() : null;
@@ -2645,8 +2645,8 @@ async function recordRefundTransaction(order, amount, options = {}) {
 
 async function performOrderStatusSync({ orderIds = null, providerId = null, limit = 100 } = {}) {
   // Active sync states - states that can still change
-  // NOTE: partial can progress to completed, so it's included
-  const statusesToSync = ['pending', 'processing', 'in progress', 'refilling', 'partial'];
+  // NOTE: partial is final state (partial status = final), do not include
+  const statusesToSync = ['pending', 'processing', 'in progress', 'refilling'];
   const providerFilter = providerId ? String(providerId) : null;
 
   let ordersQuery = supabaseAdmin
@@ -2657,7 +2657,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     ordersQuery = ordersQuery.in('id', orderIds);
   } else {
     // Sync orders that are:
-    // 1. In active states (pending, processing, refilling, partial, in progress) - these can still change
+    // 1. In active states (pending, processing, refilling, in progress) - these can still change
     // 2. Completed on provider but customer_status not yet updated (status=completed, customer_status!=completed)
     // 3. Do NOT sync: completed+completed, canceled+canceled, partial+partial (final states already synced)
     ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
@@ -4119,7 +4119,7 @@ async function handleResendOrder(user, body, headers) {
     logger.info('Resending failed order', { orderId, adminUser: user.email || user.userId });
 
     // Get order details with service and provider info
-    const { data: order, error: orderError } = await supabaseAdmin
+    let { data: order, error: orderError } = await supabaseAdmin
       .from('orders')
       .select(`
         *,
@@ -4808,9 +4808,9 @@ async function handleRefillOrder(user, body, headers) {
       refillId = 15090 + randomIncrement;
     }
 
-    // Update order refill status with our refill_id
+    // Update order refill status with our refill_id (keep original order status)
     const { error: updateError } = await supabaseAdmin.from('orders')
-      .update({ refill_id: String(refillId), status: 'refilling', refill_requested_at: new Date().toISOString() })
+      .update({ refill_id: String(refillId), refill_requested_at: new Date().toISOString() })
       .eq('id', orderId);
 
     if (updateError) {
@@ -4830,8 +4830,28 @@ async function handleRefillOrder(user, body, headers) {
       );
 
       // Get provider refill ID and status if available
-      const providerRefillId = refillResponse.data?.refill || null;
-      const providerStatus = refillResponse.data?.status || null;
+      let providerRefillId = refillResponse.data?.refill || null;
+      let providerStatus = refillResponse.data?.status || null;
+
+      // Try alternative field names if standard ones don't exist
+      if (!providerRefillId) {
+        providerRefillId = refillResponse.data?.refill_id || refillResponse.data?.refillId || refillResponse.data?.order || null;
+      }
+      if (!providerStatus) {
+        const altStatus = refillResponse.data?.status_text || refillResponse.data?.statusText || refillResponse.data?.state || null;
+        if (altStatus) {
+          providerStatus = altStatus;
+          logger.info('Using alternative status field from provider', { orderId, altStatus });
+        }
+      }
+
+      // Log full response for debugging
+      logger.info('Provider response received', { 
+        orderId, 
+        providerRefillId, 
+        providerStatus,
+        fullResponse: refillResponse.data
+      });
 
       if (providerRefillId) {
         // Map provider status to our database status
@@ -4843,18 +4863,56 @@ async function handleRefillOrder(user, body, headers) {
         };
         const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
 
-        // Update with provider refill ID and status
-        const { error: providerUpdateError } = await supabaseAdmin
+        // Update with provider refill ID, status, and full response (if column exists)
+        // First try with provider_response, if it fails, update without it
+        let updateData = { 
+          provider_refill_id: String(providerRefillId), 
+          status: dbStatus,
+          provider_response: refillResponse.data
+        };
+        
+        let { error: providerUpdateError } = await supabaseAdmin
           .from('refill_requests')
-          .update({ provider_refill_id: String(providerRefillId), status: dbStatus })
+          .update(updateData)
           .eq('refill_id', refillId);
+
+        // If error is about provider_response column, retry without it
+        if (providerUpdateError && (providerUpdateError.message?.includes('provider_response') || providerUpdateError.code === 'PGRST204')) {
+          logger.warn('provider_response column may not exist, updating without it', { orderId });
+          updateData = { 
+            provider_refill_id: String(providerRefillId), 
+            status: dbStatus
+          };
+          const retryResult = await supabaseAdmin
+            .from('refill_requests')
+            .update(updateData)
+            .eq('refill_id', refillId);
+          providerUpdateError = retryResult.error;
+        }
 
         if (providerUpdateError) {
           logger.warn('Could not update provider_refill_id/status', { orderId, error: providerUpdateError });
         }
+      } else {
+        // Even if no providerRefillId, save the response for debugging
+        logger.warn('Provider did not return refill ID', { 
+          orderId, 
+          providerResponse: refillResponse.data 
+        });
+        
+        // Try to save provider_response, but don't fail if column doesn't exist
+        try {
+          await supabaseAdmin
+            .from('refill_requests')
+            .update({ 
+              provider_response: refillResponse.data
+            })
+            .eq('refill_id', refillId);
+        } catch (err) {
+          // Column may not exist, that's ok
+          logger.debug('Could not save provider_response', { error: err.message });
+        }
       }
-
-      logger.info('Provider response received', { orderId, providerRefillId, providerStatus });
     } catch (providerError) {
       logger.warn('Provider refill request failed (refill still pending)', { orderId, error: providerError.message });
       // Continue anyway - refill is already saved as pending
@@ -4866,9 +4924,7 @@ async function handleRefillOrder(user, body, headers) {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        success: true,
-        refill: String(refillId),
-        status: 'Pending'
+        refill: String(refillId)
       })
     };
 

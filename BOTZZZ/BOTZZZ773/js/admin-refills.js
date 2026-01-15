@@ -77,7 +77,7 @@
                     <tr>
                         <th style="width: 30px;"><input type="checkbox" id="selectAllRefills" onchange="window.toggleSelectAll()"></th>
                         <th>Refill ID</th>
-                        <th>P. Refill ID</th>
+                        <th>P. Refill ID<br><small>Provider</small></th>
                         <th>Order Number</th>
                         <th>Username</th>
                         <th>Service ID</th>
@@ -98,7 +98,7 @@
             
             if (status === 'pending') {
                 actionButtons += `<button class="refill-actions__btn refill-actions__progress" onclick="window.setRefillInProgress('${refill.id}')" title="Mark as In Progress"><i class="fas fa-spinner"></i></button>`;
-                actionButtons += `<button class="refill-actions__btn refill-actions__accept" onclick="window.acceptRefill('${refill.id}')" title="Accept"><i class="fas fa-check"></i></button>`;
+                actionButtons += `<button class="refill-actions__btn refill-actions__accept" onclick="window.completeRefill('${refill.id}')" title="Complete"><i class="fas fa-check"></i></button>`;
                 actionButtons += `<button class="refill-actions__btn refill-actions__reject" onclick="window.rejectRefill('${refill.id}')" title="Reject"><i class="fas fa-times"></i></button>`;
             }
             
@@ -109,7 +109,10 @@
                 <tr>
                     <td style="width: 30px;"><input type="checkbox" class="refill-checkbox" data-refill-id="${refill.id}" onchange="window.updateRefillSelection()" ${isSelected}></td>
                     <td><span class="refill-id">#${refill.refill_id || '-'}</span></td>
-                    <td><span class="provider-id">#${refill.provider_refill_id || '-'}</span></td>
+                    <td>
+                        <span class="provider-id">#${refill.provider_refill_id || '-'}</span>
+                        <br><small style="color: #666;">${refill.provider_name || refill.orders?.service?.provider?.name || 'Unknown'}</small>
+                    </td>
                     <td>${refill.order_number}</td>
                     <td>${refill.user_email || 'Unknown'}</td>
                     <td>${refill.service_id}</td>
@@ -235,11 +238,11 @@
         }
     };
 
-    window.acceptRefill = async function(refillId) {
+    window.completeRefill = async function(refillId) {
         // Use parameter if provided, otherwise use stored value
         const id = refillId || window.currentRefillId;
         
-        if (!confirm('Are you sure you want to accept this refill request?')) return;
+        if (!confirm('Are you sure you want to complete this refill request?')) return;
 
         try {
             const token = localStorage.getItem('token');
@@ -250,17 +253,17 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    action: 'accept',
+                    action: 'completed',
                     refill_id: id
                 })
             });
 
             if (response.ok) {
-                showNotification('Refill request accepted', 'success');
+                showNotification('Refill request completed', 'success');
                 loadRefills();
                 window.closeDetailsModal();
             } else {
-                showNotification('Failed to accept refill request', 'error');
+                showNotification('Failed to complete refill request', 'error');
             }
         } catch (error) {
             showNotification('Error: ' + error.message, 'error');
@@ -454,8 +457,8 @@
         
         bulkBar.innerHTML = `
             <span>${selectedCount} selected</span>
-            <button onclick="window.bulkAcceptRefills()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                <i class="fas fa-check"></i> Accept All
+            <button onclick="window.bulkCompleteRefills()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                <i class="fas fa-check"></i> Complete All
             </button>
             <button onclick="window.bulkRejectRefills()" style="padding: 8px 16px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                 <i class="fas fa-times"></i> Reject All
@@ -468,9 +471,9 @@
         bulkBar.style.display = 'flex';
     }
 
-    // Bulk accept refills
-    window.bulkAcceptRefills = async function() {
-        if (!confirm(`Accept ${window.selectedRefills.size} refill requests?`)) return;
+    // Bulk complete refills
+    window.bulkCompleteRefills = async function() {
+        if (!confirm(`Complete ${window.selectedRefills.size} refill requests?`)) return;
         
         const token = localStorage.getItem('token');
         let successCount = 0;
@@ -485,7 +488,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        action: 'accept',
+                        action: 'completed',
                         refill_id: refillId
                     })
                 });
@@ -500,7 +503,7 @@
             }
         }
         
-        showNotification(`${successCount} accepted, ${errorCount} failed`, successCount > 0 ? 'success' : 'error');
+        showNotification(`${successCount} completed, ${errorCount} failed`, successCount > 0 ? 'success' : 'error');
         window.clearRefillSelection();
         loadRefills();
     };

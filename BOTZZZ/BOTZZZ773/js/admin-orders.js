@@ -1414,7 +1414,12 @@ function syncOrdersMasterToggle() {
         return;
     }
 
-    const checkboxes = Array.from(document.querySelectorAll('.order-checkbox'));
+    // Only count visible checkboxes (not display:none rows)
+    const checkboxes = Array.from(document.querySelectorAll('.order-checkbox')).filter(cb => {
+        const row = cb.closest('tr');
+        return row && row.style.display !== 'none';
+    });
+    
     if (checkboxes.length === 0) {
         masterToggle.checked = false;
         masterToggle.indeterminate = false;
@@ -1511,7 +1516,12 @@ function toggleAllOrders(masterCheckbox) {
         return;
     }
 
-    const checkboxes = document.querySelectorAll('.order-checkbox');
+    // Only select visible checkboxes (not display:none rows)
+    const checkboxes = Array.from(document.querySelectorAll('.order-checkbox')).filter(cb => {
+        const row = cb.closest('tr');
+        return row && row.style.display !== 'none';
+    });
+    
     const shouldSelectAll = masterCheckbox.checked;
     masterCheckbox.indeterminate = false;
 
@@ -2076,6 +2086,9 @@ async function filterOrders(status) {
     // Reset to all view
     currentOrdersView = 'all';
     
+    // Clear all selections when filter changes
+    selectedOrderIds.clear();
+    
     if (status === 'all') {
         // Always reload all orders when clicking All tab
         console.log('[ORDERS] Reloading ALL orders');
@@ -2094,6 +2107,10 @@ async function filterOrders(status) {
             }
         });
     }
+    
+    // Update UI after filter
+    restoreOrderSelectionState();
+    updateSelectedOrdersSummary();
 }
 
 // View order details
@@ -2854,6 +2871,9 @@ function handleNextPage() {
 
 // Load real orders from database
 async function loadOrders({ skipSync = false } = {}) {
+    // Clear selections when loading new orders
+    selectedOrderIds.clear();
+    
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) {
         console.error('[ORDERS] Table body element not found!');
@@ -2890,6 +2910,12 @@ async function loadOrders({ skipSync = false } = {}) {
         // Get search query from input
         const searchInput = document.getElementById('orderSearch');
         const searchQuery = searchInput ? searchInput.value.trim() : '';
+        
+        // If search is cleared, reset to page 1
+        if (!searchQuery && window.ordersCurrentPage !== 1) {
+            console.log('[ORDERS] Search cleared - resetting to page 1');
+            window.ordersCurrentPage = 1;
+        }
         
         // Check if this is a comma-separated search (bulk order lookup)
         const isCommaSeparatedSearch = searchQuery.includes(',');
@@ -3411,6 +3437,9 @@ function buildServicesOptionsHTML(services, selectedServiceId = null) {
 // Load failed orders from API
 async function loadFailedOrders() {
     console.log('[FAILED ORDERS] Loading failed orders view');
+    // Clear selections when loading failed orders
+    selectedOrderIds.clear();
+    
     currentOrdersView = 'failed';
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) {

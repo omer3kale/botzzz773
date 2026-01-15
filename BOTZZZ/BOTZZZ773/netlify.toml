@@ -73,9 +73,9 @@
   status = 200
   force = true
 
-# Order status sync - runs every 10 minutes
+# Order status sync - runs every 5 minutes
 [functions.order-status-sync]
-  schedule = "*/10 * * * *"
+  schedule = "*/5 * * * *"
 
 # Provider balance sync - runs every 3 minutes to check balances and send alerts
 [functions.scheduled-provider-sync]
@@ -116,3 +116,7 @@
   for = "/*.html"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# Scheduled function: Refill status sync every 10 minutes
+[functions."refill-status-sync"]
+  schedule = "*/10 * * * *"
