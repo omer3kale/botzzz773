@@ -238,7 +238,7 @@ async function syncProviderServices(provider, options = {}) {
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
-    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name, category, description, min_quantity, max_quantity')
+    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name, category, description, min_quantity, max_quantity, provider_metadata')
     .eq('provider_id', provider.id);
 
   if (existingError) {
@@ -335,11 +335,45 @@ async function syncProviderServices(provider, options = {}) {
       }
 
       const providerCost = providerCostUSD !== null ? providerCostUSD : null;
-      if (providerCost !== null) {
-        basePayload.provider_rate = providerCost;
-      }
-
       const existing = existingMap.get(serviceKey);
+      
+      // Smart provider_rate update strategy
+      // Preserve existing provider_rate if user has manually set it via metadata
+      let shouldPreserveProviderRate = false;
+      if (existing && existing.provider_metadata && existing.provider_metadata._currency_conversion) {
+        const existingConversion = existing.provider_metadata._currency_conversion;
+        const existingRate = toRate(existing.provider_rate);
+        const newRate = providerCost;
+        
+        if (serviceKey === '9086') {
+          console.log(`[DEBUG 9086] existingRate: ${existingRate}, newRate: ${newRate}`);
+        }
+        
+        // Check if existing rate differs significantly from what sync would set
+        // If it does, user probably manually overrode it - preserve it!
+        if (existingRate !== null && newRate !== null) {
+          const rateDiff = Math.abs(existingRate - newRate);
+          // If difference > 0.001, user likely manually set this rate
+          if (rateDiff > 0.001) {
+            shouldPreserveProviderRate = true;
+            console.log(`[SERVICE SYNC] Service ${serviceKey}: Preserving manual provider_rate ${existingRate} (differs from sync ${newRate} by ${rateDiff})`);
+          }
+        } else if (existingRate !== null && newRate === null) {
+          // New sync has no rate but existing has one - preserve it
+          shouldPreserveProviderRate = true;
+          console.log(`[SERVICE SYNC] Service ${serviceKey}: Preserving manual provider_rate ${existingRate} (sync returned null)`);
+        }
+      } else {
+        if (serviceKey === '9086') {
+          console.log(`[DEBUG 9086] No metadata or existing: existing=${!!existing}, metadata=${existing?.provider_metadata ? 'yes' : 'no'}, conversion=${existing?.provider_metadata?._currency_conversion ? 'yes' : 'no'}`);
+        }
+      }
+      
+      if (providerCost !== null && !shouldPreserveProviderRate) {
+        basePayload.provider_rate = providerCost;
+      } else if (existing && shouldPreserveProviderRate) {
+        basePayload.provider_rate = existing.provider_rate;
+      }
       
       // PRICE CHANGE DETECTION:
       // Compare in ORIGINAL currency if available, otherwise USD
@@ -371,20 +405,37 @@ async function syncProviderServices(provider, options = {}) {
         }
         
         // Detect actual provider price change (in original currency, ignore exchange rate changes)
-        // IMPORTANT: Only compare if both have same currency origin
-        // If one had conversion and other doesn't, compare the USD rates instead
-        if ((prevConversion !== undefined && currencyConversion !== null) || (prevConversion === undefined && currencyConversion === null)) {
-          // Both have conversion or both don't - safe to compare original amounts in same currency
+        // IMPORTANT: Compare original amounts in SAME currency to ignore exchange rate fluctuations
+        const tolerance = 0.001;
+        
+        // Check if both have conversion metadata AND same original currency
+        if (prevConversion && currencyConversion && 
+            prevConversion.originalCurrency === currencyConversion.originalCurrency) {
+          // Both have conversion AND same currency - safe to compare original amounts
+          const prevRounded = prevConversion.originalAmount !== null ? Number(prevConversion.originalAmount.toFixed(4)) : null;
+          const newRounded = currencyConversion.originalAmount !== null ? Number(currencyConversion.originalAmount.toFixed(4)) : null;
+          providerPriceChanged = prevRounded !== null && newRounded !== null && Math.abs(prevRounded - newRounded) > tolerance;
+        } else if (prevConversion && currencyConversion && 
+                   prevConversion.originalCurrency !== currencyConversion.originalCurrency) {
+          // Both have conversion BUT different currencies - compare USD amounts only
+          const prevUSDRounded = prevConversion.usdAmount !== null ? Number(prevConversion.usdAmount.toFixed(4)) : null;
+          const newUSDRounded = currencyConversion.usdAmount !== null ? Number(currencyConversion.usdAmount.toFixed(4)) : null;
+          // Note: USD differences due to exchange rate changes don't count as price changes
+          // Only actual provider price changes (in original currency) count
+          providerPriceChanged = prevUSDRounded !== null && newUSDRounded !== null && Math.abs(prevUSDRounded - newUSDRounded) > tolerance;
+        } else if ((prevConversion === undefined && currencyConversion === null) || 
+                   (prevConversion === null && currencyConversion === undefined)) {
+          // Neither has conversion - both are already in provider's native currency (no conversion needed)
           const prevRounded = prevOriginalAmount !== null ? Number(prevOriginalAmount.toFixed(4)) : null;
           const newRounded = newOriginalAmount !== null ? Number(newOriginalAmount.toFixed(4)) : null;
-          providerPriceChanged = prevRounded !== newRounded;
+          providerPriceChanged = prevRounded !== null && newRounded !== null && Math.abs(prevRounded - newRounded) > tolerance;
         } else {
-          // One has conversion, other doesn't - compare USD rates
+          // One has conversion, other doesn't - compare USD rates as fallback
           const prevUSD = prevConversion ? prevConversion.usdAmount : prevOriginalAmount;
           const newUSD = currencyConversion ? currencyConversion.usdAmount : newOriginalAmount;
           const prevUSDRounded = prevUSD !== null ? Number(prevUSD.toFixed(4)) : null;
           const newUSDRounded = newUSD !== null ? Number(newUSD.toFixed(4)) : null;
-          providerPriceChanged = prevUSDRounded !== newUSDRounded;
+          providerPriceChanged = prevUSDRounded !== null && newUSDRounded !== null && Math.abs(prevUSDRounded - newUSDRounded) > tolerance;
         }
         
         if (providerPriceChanged) {
@@ -427,6 +478,15 @@ async function syncProviderServices(provider, options = {}) {
       }
 
       if (existing) {
+        // Preserve currency conversion metadata if provider_rate was manually overridden
+        if (shouldPreserveProviderRate && existing.provider_metadata && existing.provider_metadata._currency_conversion) {
+          basePayload.provider_metadata = {
+            ...basePayload.provider_metadata,
+            _currency_conversion: existing.provider_metadata._currency_conversion
+          };
+          console.log(`[SERVICE SYNC] Service ${serviceKey}: Preserved metadata currency conversion`);
+        }
+        
         // Preserve admin-customized service name
         const existingName = existing.name ? String(existing.name).trim() : '';
         if (existingName) {
