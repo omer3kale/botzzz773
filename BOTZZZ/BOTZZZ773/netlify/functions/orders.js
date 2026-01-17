@@ -495,7 +495,9 @@ async function processOrderRefund(order, options = {}) {
   const {
     source = 'unknown',
     reason = 'refund',
-    skipIfAlreadyRefunded = true
+    skipIfAlreadyRefunded = true,
+    isPartial = false,
+    remains = 0
   } = options;
 
   const orderId = order?.id;
@@ -507,7 +509,7 @@ async function processOrderRefund(order, options = {}) {
       : (order?.charge ?? 0)
   );
 
-  console.log(`[REFUND] Processing refund for order ${orderId}`, { userId, chargeAmount, source, reason });
+  console.log(`[REFUND] Processing refund for order ${orderId}`, { userId, chargeAmount, source, reason, isPartial, remains });
 
   // Validate order and user exist
   if (!orderId || !userId) {
@@ -515,16 +517,25 @@ async function processOrderRefund(order, options = {}) {
     return { success: false, error: 'Missing order or user ID' };
   }
 
+  // Calculate refund amount
+  let refundAmountCalculated = chargeAmount;
+  if (isPartial && order.quantity > 0) {
+    // Partial refund = (charge / quantity) * remains
+    const unitPrice = chargeAmount / order.quantity;
+    refundAmountCalculated = unitPrice * remains;
+    console.log(`[REFUND] Partial refund calculation: ($${chargeAmount} / ${order.quantity}) * ${remains} = $${refundAmountCalculated.toFixed(2)}`);
+  }
+
   // Validate charge amount: must be positive and reasonable
-  if (chargeAmount <= 0) {
-    console.log(`[REFUND] Order ${orderId} has no charge to refund (${chargeAmount})`);
+  if (refundAmountCalculated <= 0) {
+    console.log(`[REFUND] Order ${orderId} has no charge to refund (${refundAmountCalculated})`);
     return { success: true, newBalance: null, refundAmount: 0, message: 'No charge to refund' };
   }
 
   // Security: Prevent excessive refunds (max $10,000 per refund)
   const MAX_REFUND_AMOUNT = 10000;
-  if (chargeAmount > MAX_REFUND_AMOUNT) {
-    console.error(`[REFUND] Refund amount ${chargeAmount} exceeds maximum allowed (${MAX_REFUND_AMOUNT})`);
+  if (refundAmountCalculated > MAX_REFUND_AMOUNT) {
+    console.error(`[REFUND] Refund amount ${refundAmountCalculated} exceeds maximum allowed (${MAX_REFUND_AMOUNT})`);
     return { success: false, error: `Refund amount exceeds maximum limit of $${MAX_REFUND_AMOUNT}` };
   }
 
@@ -582,10 +593,10 @@ async function processOrderRefund(order, options = {}) {
   }
 
   const previousBalance = Number(userData.balance ?? 0);
-  const refundAmount = Math.abs(chargeAmount);
+  const refundAmount = Math.abs(refundAmountCalculated);
   const newBalance = Number((previousBalance + refundAmount).toFixed(5));
 
-  console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount} = $${newBalance}`);
+  console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount.toFixed(2)} = $${newBalance}`);
 
   // Update user balance
   const { data: balanceResult, error: balanceError } = await supabaseAdmin
@@ -606,10 +617,10 @@ async function processOrderRefund(order, options = {}) {
   console.log(`[REFUND] Balance updated successfully:`, balanceResult);
 
   // Record refund transaction
-  const refundRecord = await recordRefundTransaction(order, chargeAmount, {
+  const refundRecord = await recordRefundTransaction(order, refundAmount, {
     source,
     reason,
-    memo: `Refund for ${order.order_number || order.order_reference || order.public_id || orderId}`
+    memo: `Refund for ${order.order_number || order.order_reference || order.public_id || orderId}${isPartial ? ` (${remains} items)` : ''}`
   });
 
   return {
@@ -2913,9 +2924,11 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         updatePayload.completed_at = nowIso;
       }
 
-      // Process refund if provider status changed to cancelled
+      // Process refund if provider status changed to cancelled OR partial
       const wasAlreadyCancelled = order.status === 'cancelled' || order.status === 'canceled';
       const isBeingCancelled = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+      const wasAlreadyPartial = order.status === 'partial';
+      const isBecomingPartial = normalizedStatus === 'partial';
       let refundResult = null;
       
       if (isBeingCancelled && !wasAlreadyCancelled) {
@@ -2940,6 +2953,35 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
             updatePayload.customer_status = 'canceled';
           } else {
             console.warn(`[ORDER SYNC] Refund failed for order ${order.id}:`, refundResult.error);
+          }
+        }
+      }
+      
+      // Process partial refund if provider status changed to partial
+      if (isBecomingPartial && !wasAlreadyPartial) {
+        console.log(`[ORDER SYNC] Provider order became partial ${order.id}, processing partial refund...`);
+        
+        // Need to get full order data with charge and quantity for partial refund
+        const { data: fullOrder } = await supabaseAdmin
+          .from('orders')
+          .select('id, user_id, charge, quantity, order_number, order_reference, public_id')
+          .eq('id', order.id)
+          .single();
+        
+        if (fullOrder) {
+          refundResult = await processOrderRefund(fullOrder, {
+            source: 'provider_sync',
+            reason: 'provider_partial',
+            skipIfAlreadyRefunded: true,
+            isPartial: true,
+            remains: remainsFromResponse
+          });
+          
+          if (refundResult.success) {
+            console.log(`[ORDER SYNC] Partial refund processed for order ${order.id}:`, refundResult);
+            updatePayload.customer_status = 'partial';
+          } else {
+            console.warn(`[ORDER SYNC] Partial refund failed for order ${order.id}:`, refundResult.error);
           }
         }
       }
@@ -4829,42 +4871,24 @@ async function handleRefillOrder(user, body, headers) {
         { timeout: 10000 }
       );
 
-      // Get provider refill ID and status if available
-      let providerRefillId = refillResponse.data?.refill || null;
-      let providerStatus = refillResponse.data?.status || null;
-
-      // Try alternative field names if standard ones don't exist
-      if (!providerRefillId) {
-        providerRefillId = refillResponse.data?.refill_id || refillResponse.data?.refillId || refillResponse.data?.order || null;
-      }
-      if (!providerStatus) {
-        const altStatus = refillResponse.data?.status_text || refillResponse.data?.statusText || refillResponse.data?.state || null;
-        if (altStatus) {
-          providerStatus = altStatus;
-          logger.info('Using alternative status field from provider', { orderId, altStatus });
-        }
-      }
+      // Get provider refill ID from response
+      // Expected format: { "refill": "123456" }
+      const providerRefillId = refillResponse.data?.refill || null;
 
       // Log full response for debugging
-      logger.info('Provider response received', { 
+      logger.info('Provider refill response received', { 
         orderId, 
-        providerRefillId, 
-        providerStatus,
+        providerRefillId,
         fullResponse: refillResponse.data
       });
 
       if (providerRefillId) {
-        // Map provider status to our database status
-        const statusMap = {
-          'Pending': 'pending',
-          'In Progress': 'in progress',
-          'Completed': 'completed',
-          'Rejected': 'rejected'
-        };
-        const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
+        // Refill action returns only refill ID, status is checked via refill_status action later
+        // Initially set status to 'pending' - actual status will be fetched via refill_status
+        const dbStatus = 'pending';
 
-        // Update with provider refill ID, status, and full response (if column exists)
-        // First try with provider_response, if it fails, update without it
+        // Update with provider refill ID and keep status as pending
+        // Status will be updated via refill_status sync (scheduled every 10 minutes)
         let updateData = { 
           provider_refill_id: String(providerRefillId), 
           status: dbStatus,
