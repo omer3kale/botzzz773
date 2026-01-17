@@ -755,52 +755,34 @@ exports.handler = async (event) => {
                    try {
                        const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                        
-                       // Log full response for debugging provider format
-                       console.log('[V2 REFILL] Full provider response:', {
+                       // Log full response for debugging
+                       console.log('[V2 REFILL] Provider refill response:', {
                            status: rRes.status,
-                           statusText: rRes.statusText,
-                           data: JSON.stringify(rRes.data),
-                           headers: rRes.headers
+                           data: JSON.stringify(rRes.data)
                        });
                        
+                       // Expected format: { "refill": "123456" }
                        providerRefillId = rRes.data?.refill || null;
-                       const providerStatus = rRes.data?.status || null;
-                       
-                       // Try alternative field names if standard ones don't exist
-                       if (!providerRefillId) {
-                           providerRefillId = rRes.data?.refill_id || rRes.data?.refillId || rRes.data?.order || null;
-                       }
-                       if (!providerStatus) {
-                           const altStatus = rRes.data?.status_text || rRes.data?.statusText || rRes.data?.state || null;
-                           if (altStatus) {
-                               console.log('[V2 REFILL] Using alternative status field:', { altStatus });
-                           }
-                       }
                        
                        console.log('[V2 REFILL] Parsed provider response:', {
                            providerOrderId: rOrder.provider_order_id,
                            providerRefillId,
-                           providerStatus,
                            rawData: rRes.data
                        });
                        
                        if (providerRefillId) {
-                           // Map provider status to our database status
-                           const statusMap = {
-                               'Pending': 'pending',
-                               'In Progress': 'in progress',
-                               'Completed': 'completed',
-                               'Rejected': 'rejected'
-                           };
-                           const dbStatus = providerStatus ? statusMap[providerStatus] || 'pending' : 'pending';
+                           // Refill action returns only refill ID, status is checked via refill_status later
+                           // Initially set status to 'pending'
+                           const dbStatus = 'pending';
                            
-                           // Update with provider refill ID, status, and full response
+                           // Update with provider refill ID only
+                           // Status will be updated via refill_status sync (scheduled every 10 minutes)
                            const { error: providerUpdateError } = await supabaseAdmin
                                .from('refill_requests')
                                .update({ 
                                    provider_refill_id: String(providerRefillId), 
                                    status: dbStatus,
-                                   provider_response: rRes.data  // Store full provider response for debugging
+                                   provider_response: rRes.data
                                })
                                .eq('refill_id', refillId);
                            
@@ -814,8 +796,8 @@ exports.handler = async (event) => {
                        // Continue anyway - refill is already saved as pending
                    }
                    
-                   // Return refill_id and status (Perfect Panel expects both)
-                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId), status: 'Pending' }) };
+                   // Return only refill_id (status is checked via refill_status action)
+                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
                 } catch(e) { 
                    console.error('[V2 REFILL] Unexpected error:', e);
                    return errorResponse(`Refill request failed: ${e.message}`);
@@ -868,7 +850,7 @@ exports.handler = async (event) => {
                        refillId = 15090 + randomIncrement;
                    }
                    
-                   results.push({ order: String(orderNum), refill: String(rOrder.order_number), status: 'Pending' });
+                   results.push({ order: String(orderNum), refill: String(refillId) });
                    
                    // Now try to request from provider (non-blocking)
                    try {
