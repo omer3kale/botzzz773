@@ -343,7 +343,7 @@ async function updateStatus(event, headers) {
     }
 
     // Validate status
-    const validStatuses = ['pending', 'in progress', 'completed', 'rejected'];
+    const validStatuses = ['pending', 'awaiting', 'in progress', 'completed', 'rejected'];
     if (!validStatuses.includes(status)) {
       return { 
         statusCode: 400, 

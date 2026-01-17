@@ -4759,6 +4759,14 @@ async function handleResendOrder(user, body, headers) {
 async function handleRefillOrder(user, body, headers) {
   try {
     const orderId = body.orderId;
+    
+    // Log incoming refill request
+    console.log(`[REFILL] Incoming refill request for user ${user.userId}:`, {
+      orderId,
+      body,
+      timestamp: new Date().toISOString()
+    });
+    
     if (!orderId) {
       return {
         statusCode: 400,
@@ -4805,8 +4813,9 @@ async function handleRefillOrder(user, body, headers) {
       provider_refill_id: null, // Initially null
       service_id: order.service?.public_id || order.service?.id,
       quantity: order?.quantity || 0,
-      status: 'pending',
-      refill_requested_at: new Date().toISOString()
+      status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
+      refill_requested_at: new Date().toISOString(),
+      api_request: body // Save the incoming request body
     });
 
     if (insertError) {
@@ -4887,10 +4896,10 @@ async function handleRefillOrder(user, body, headers) {
 
       if (providerRefillId) {
         // Refill action returns only refill ID, status is checked via refill_status action later
-        // Initially set status to 'pending' - actual status will be fetched via refill_status
-        const dbStatus = 'pending';
+        // Initially set status based on whether we got a provider refill ID
+        const dbStatus = providerRefillId ? 'pending' : 'awaiting';
 
-        // Update with provider refill ID and keep status as pending
+        // Update with provider refill ID and set appropriate status
         // Status will be updated via refill_status sync (scheduled every 10 minutes)
         let updateData = { 
           provider_refill_id: String(providerRefillId), 

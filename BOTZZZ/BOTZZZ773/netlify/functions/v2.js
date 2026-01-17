@@ -709,8 +709,9 @@ exports.handler = async (event) => {
                        provider_refill_id: null, // Initially null
                        service_id: rOrder.service?.public_id,
                        quantity: rOrder?.quantity || 0,
-                       status: 'pending',
-                       refill_requested_at: new Date().toISOString()
+                       status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
+                       refill_requested_at: new Date().toISOString(),
+                       api_request: params // Save the incoming request parameters
                    });
                    
                    if (insertError) {
@@ -995,8 +996,8 @@ exports.handler = async (event) => {
                            dbStatus 
                         });
                         
-                        // Return provider response directly (not normalized)
-                        return { statusCode: 200, headers, body: JSON.stringify(statusRes.data) };
+                        // Return standardized status response (not raw provider response)
+                        return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[dbStatus] || 'Awaiting' }) };
                      } catch (providerErr) {
                         console.warn('[V2 REFILL_STATUS] Provider query failed:', providerErr.message);
                         // Fall through to return DB status
@@ -1009,9 +1010,9 @@ exports.handler = async (event) => {
             }
             
             // Return status from database if no provider_refill_id or provider query failed
-            const statusMap = { 'pending': 'Pending', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
+            const statusMap = { 'pending': 'Pending', 'awaiting': 'Awaiting', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
             console.log('[V2 REFILL_STATUS] No provider info, returning DB status:', { dbStatus: rs.status });
-            return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Pending' }) };
+            return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Awaiting' }) };
          }
          
          // Multiple refill status response
