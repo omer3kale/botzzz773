@@ -526,11 +526,13 @@ async function processOrderRefund(order, options = {}) {
     console.log(`[REFUND] Partial refund calculation: ($${chargeAmount} / ${order.quantity}) * ${remains} = $${refundAmountCalculated.toFixed(2)}`);
   }
 
-  // Validate charge amount: must be positive and reasonable
+  // Validate charge amount: must be positive (even very small amounts)
   if (refundAmountCalculated <= 0) {
     console.log(`[REFUND] Order ${orderId} has no charge to refund (${refundAmountCalculated})`);
     return { success: true, newBalance: null, refundAmount: 0, message: 'No charge to refund' };
   }
+  
+  // Note: No minimum threshold - process all positive refunds, even very small amounts (e.g., $0.00016)
 
   // Security: Prevent excessive refunds (max $10,000 per refund)
   const MAX_REFUND_AMOUNT = 10000;
@@ -2958,8 +2960,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       }
       
       // Process partial refund if provider status changed to partial
-      if (isBecomingPartial && !wasAlreadyPartial) {
-        console.log(`[ORDER SYNC] Provider order became partial ${order.id}, processing partial refund...`);
+      // IMPORTANT: Only process if remains is valid (> 0) to avoid 0-amount refunds
+      if (isBecomingPartial && !wasAlreadyPartial && remainsFromResponse && remainsFromResponse > 0) {
+        console.log(`[ORDER SYNC] Provider order became partial ${order.id}, processing partial refund with remains=${remainsFromResponse}...`);
         
         // Need to get full order data with charge and quantity for partial refund
         const { data: fullOrder } = await supabaseAdmin

@@ -20,7 +20,7 @@ function formatCurrency(value) {
     if (!Number.isFinite(number)) {
         return '$0.00';
     }
-    return `$${number.toFixed(2)}`;
+    return `$${number.toFixed(5)}`;
 }
 
 function formatCurrencyDynamic(value) {
