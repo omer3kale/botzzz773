@@ -4814,8 +4814,9 @@ async function handleRefillOrder(user, body, headers) {
       service_id: order.service?.public_id || order.service?.id,
       quantity: order?.quantity || 0,
       status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
-      refill_requested_at: new Date().toISOString(),
-      api_request: body // Save the incoming request body
+      api_request: body,
+      api_response: null,
+      refill_requested_at: new Date().toISOString()
     });
 
     if (insertError) {

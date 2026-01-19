@@ -683,8 +683,9 @@ exports.handler = async (event) => {
          }
 
       case 'refill':
-         // Support both single (order) and multiple (orders) refill requests
-         const refillOrders = params.orders ? String(params.orders).split(',').map(o => o.trim()) : (params.order ? [String(params.order).trim()] : []);
+         // Support both single (order/order_id) and multiple (orders) refill requests
+         // Handle both 'order' (botzzz773.pro) and 'order_id' (Perfect Panel) parameters
+         const refillOrders = params.orders ? String(params.orders).split(',').map(o => o.trim()) : (params.order || params.order_id ? [String(params.order || params.order_id).trim()] : []);
          if (refillOrders.length === 0) return errorResponse('Missing order ID(s)');
          
          // Single refill response
@@ -710,8 +711,9 @@ exports.handler = async (event) => {
                        service_id: rOrder.service?.public_id,
                        quantity: rOrder?.quantity || 0,
                        status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
-                       refill_requested_at: new Date().toISOString(),
-                       api_request: params // Save the incoming request parameters
+                       api_request: params,
+                       api_response: null,
+                       refill_requested_at: new Date().toISOString()
                    });
                    
                    if (insertError) {
@@ -783,7 +785,7 @@ exports.handler = async (event) => {
                                .update({ 
                                    provider_refill_id: String(providerRefillId), 
                                    status: dbStatus,
-                                   provider_response: rRes.data
+                                   api_response: rRes.data
                                })
                                .eq('refill_id', refillId);
                            
@@ -798,7 +800,15 @@ exports.handler = async (event) => {
                    }
                    
                    // Return only refill_id (status is checked via refill_status action)
-                   return { statusCode: 200, headers, body: JSON.stringify({ refill: String(refillId) }) };
+                   const apiResponseToUser = { refill: String(refillId) };
+                   
+                   // Save the response we're sending to user
+                   await supabaseAdmin
+                       .from('refill_requests')
+                       .update({ api_response: apiResponseToUser })
+                       .eq('refill_id', refillId);
+                   
+                   return { statusCode: 200, headers, body: JSON.stringify(apiResponseToUser) };
                 } catch(e) { 
                    console.error('[V2 REFILL] Unexpected error:', e);
                    return errorResponse(`Refill request failed: ${e.message}`);
@@ -824,7 +834,9 @@ exports.handler = async (event) => {
                        provider_refill_id: null, // Initially null
                        service_id: rOrder.service?.public_id || rOrder.service?.id,
                        quantity: rOrder?.quantity || 0,
-                       status: 'pending',
+                       status: 'awaiting',
+                       api_request: params,
+                       api_response: null,
                        refill_requested_at: new Date().toISOString()
                    });
                    
@@ -851,7 +863,14 @@ exports.handler = async (event) => {
                        refillId = 15090 + randomIncrement;
                    }
                    
-                   results.push({ order: String(orderNum), refill: String(refillId) });
+                   const apiResponseToUser = { order: String(orderNum), refill: String(refillId) };
+                   results.push(apiResponseToUser);
+                   
+                   // Save the response we're sending to user
+                   await supabaseAdmin
+                       .from('refill_requests')
+                       .update({ api_response: apiResponseToUser })
+                       .eq('refill_id', refillId);
                    
                    // Now try to request from provider (non-blocking)
                    try {
@@ -889,7 +908,7 @@ exports.handler = async (event) => {
                                .update({ 
                                    provider_refill_id: String(providerRefillId), 
                                    status: dbStatus,
-                                   provider_response: rRes.data  // Store full provider response for debugging
+                                   api_response: rRes.data  // Store full provider response for debugging
                                })
                                .eq('refill_id', refillId);
                        }

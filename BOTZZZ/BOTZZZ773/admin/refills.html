@@ -545,8 +545,9 @@
         <div class="filters-section">
             <select id="statusFilter" onchange="applyFilters()">
                 <option value="">All Statuses</option>
+                <option value="awaiting">Awaiting</option>
                 <option value="pending">Pending</option>
-                <option value="processing">Processing</option>
+                <option value="in progress">In Progress</option>
                 <option value="completed">Completed</option>
                 <option value="rejected">Rejected</option>
             </select>
@@ -599,6 +600,7 @@
                 <div class="modal-field">
                     <label>Status</label>
                     <select id="detailStatus">
+                        <option value="awaiting">Awaiting</option>
                         <option value="pending">Pending</option>
                         <option value="in progress">In Progress</option>
                         <option value="completed">Completed</option>
