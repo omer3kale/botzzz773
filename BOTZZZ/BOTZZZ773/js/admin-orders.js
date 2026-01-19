@@ -1566,7 +1566,7 @@ async function syncOrderStatuses({ silent = false, force = false, orderIds = nul
     updateOrdersSyncStatus('Syncing provider statuses...', 'pending');
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 180000);
+    const timeoutId = setTimeout(() => controller.abort(), 300000);
 
     try {
         console.log('[SYNC] Starting order status sync...');
