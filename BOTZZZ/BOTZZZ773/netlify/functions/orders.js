@@ -808,7 +808,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     }));
     
     // Validate status filter if provided
-    const validStatuses = ['pending', 'processing', 'completed', 'partial', 'canceled', 'failed', 'error'];
+    const validStatuses = ['pending', 'processing', 'in progress', 'completed', 'partial', 'canceled', 'failed', 'error'];
     if (statusFilter && !validStatuses.includes(statusFilter)) {
       console.warn('[GET ORDERS] Invalid status filter:', statusFilter);
       return {
@@ -822,6 +822,10 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       .from('orders')
       .select(`
         *,
+        order_number,
+        provider_order_id,
+        provider_name,
+        service_name,
         user:users(id, email, username),
         service:services(id, public_id, name, category, rate, provider_service_id, provider_id, provider:providers(id, name), refill_supported, cancel_supported, dripfeed_supported, subscription_supported)
       `)
@@ -841,6 +845,61 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     if (orderIdFilter) {
       query = query.eq('id', orderIdFilter);
       countQuery = countQuery.eq('id', orderIdFilter);
+    }
+    
+    // Handle search query
+    let searchServiceIds = [];
+    let searchUserIds = [];
+    if (searchQuery) {
+      // If search is numeric, try to find services with that public_id
+      const searchAsNumber = parseInt(searchQuery, 10);
+      if (!isNaN(searchAsNumber)) {
+        const { data: servicesData, error: servicesError } = await supabaseAdmin
+          .from('services')
+          .select('id')
+          .eq('public_id', searchAsNumber);
+        
+        if (!servicesError && Array.isArray(servicesData) && servicesData.length > 0) {
+          searchServiceIds = servicesData.map(s => s.id);
+          console.log('[GET ORDERS] Found services with public_id:', searchAsNumber, 'serviceIds:', searchServiceIds);
+        } else if (servicesError) {
+          console.log('[GET ORDERS] Error finding services by public_id:', servicesError);
+        }
+      }
+      
+      // Try to find users with this username
+      const { data: usersData, error: usersError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .ilike('username', `%${searchQuery}%`);
+      
+      if (!usersError && Array.isArray(usersData) && usersData.length > 0) {
+        searchUserIds = usersData.map(u => u.id);
+        console.log('[GET ORDERS] Found users with username like:', searchQuery, 'userIds:', searchUserIds);
+      } else if (usersError) {
+        console.log('[GET ORDERS] Error finding users by username:', usersError);
+      }
+      
+      // Search by order_number, provider_order_id, provider_name, service_name, link
+      // Using ilike for case-insensitive substring matching
+      let orClauses = `order_number.ilike.%${searchQuery}%,provider_order_id.ilike.%${searchQuery}%,provider_name.ilike.%${searchQuery}%,service_name.ilike.%${searchQuery}%,link.ilike.%${searchQuery}%`;
+      
+      // If we found services by public_id, add them to the OR clause
+      if (searchServiceIds.length > 0) {
+        const serviceIdOrClauses = searchServiceIds.map(id => `service_id.eq.${id}`).join(',');
+        orClauses += `,${serviceIdOrClauses}`;
+        console.log('[GET ORDERS] Added service_id conditions to search for public_id:', searchAsNumber);
+      }
+      
+      // If we found users by username, add them to the OR clause
+      if (searchUserIds.length > 0) {
+        const userIdOrClauses = searchUserIds.map(id => `user_id.eq.${id}`).join(',');
+        orClauses += `,${userIdOrClauses}`;
+        console.log('[GET ORDERS] Added user_id conditions to search for username like:', searchQuery);
+      }
+      
+      query = query.or(orClauses);
+      countQuery = countQuery.or(orClauses);
     }
     if (idsFilter && idsFilter.length > 0) {
       // Cast numeric strings to numbers where possible, keep strings otherwise
@@ -4813,7 +4872,7 @@ async function handleRefillOrder(user, body, headers) {
       provider_refill_id: null, // Initially null
       service_id: order.service?.public_id || order.service?.id,
       quantity: order?.quantity || 0,
-      status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
+      status: 'pending', // Initially pending
       api_request: body,
       api_response: null,
       refill_requested_at: new Date().toISOString()

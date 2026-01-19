@@ -783,12 +783,12 @@ function formatNumber(num) {
         return '∞';
     }
 
-    if (num >= 1000000) {
-        return (num / 1000000).toFixed(1) + 'M';
-    } else if (num >= 1000) {
-        return (num / 1000).toFixed(0) + 'K';
+    const numeric = Number(num);
+    if (!Number.isFinite(numeric)) {
+        return '∞';
     }
-    return num.toString();
+
+    return numeric.toLocaleString();
 }
 
 const CURRENCY_SYMBOL_MAP = {

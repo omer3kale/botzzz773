@@ -710,7 +710,7 @@ exports.handler = async (event) => {
                        provider_refill_id: null, // Initially null
                        service_id: rOrder.service?.public_id,
                        quantity: rOrder?.quantity || 0,
-                       status: 'awaiting', // Initially awaiting (will change to pending if provider accepts)
+                       status: 'pending', // Initially pending
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
@@ -834,7 +834,7 @@ exports.handler = async (event) => {
                        provider_refill_id: null, // Initially null
                        service_id: rOrder.service?.public_id || rOrder.service?.id,
                        quantity: rOrder?.quantity || 0,
-                       status: 'awaiting',
+                       status: 'pending',
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
@@ -942,7 +942,12 @@ exports.handler = async (event) => {
                .single();
             
             console.log('[V2 REFILL_STATUS] Result:', { rs, statusError });
-            if (statusError || !rs) return errorResponse(`Refill not found: ${statusError?.message || 'no data'}`);
+            
+            // If refill not found, return Pending status
+            if (statusError || !rs) {
+               console.warn('[V2 REFILL_STATUS] Refill not found, returning Pending:', statusError?.message);
+               return { statusCode: 200, headers, body: JSON.stringify({ status: 'Pending' }) };
+            }
             
             // Try to query provider if we have provider_refill_id
             if (rs.provider_refill_id && rs.order_number) {
@@ -1112,7 +1117,7 @@ exports.handler = async (event) => {
                   statusResults.push({ refill: refillId, status: 'Pending' });
                }
             } else {
-                statusResults.push({ refill: refillId, status: 'Not found' });
+                statusResults.push({ refill: refillId, status: 'Pending' });
             }
          }
          return { statusCode: 200, headers, body: JSON.stringify(statusResults) };

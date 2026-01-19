@@ -696,7 +696,12 @@ async function openCustomRateModal(userId) {
                             step="0.01"
                             placeholder="Enter discount (0-100)"
                             style="width: 100%; padding: 10px; border: 2px solid #0EA5E9; border-radius: 6px; font-size: 14px;"
+                            oninput="updateDiscountPreview()"
                         >
+                        <div id="discountPreview" style="margin-top: 8px; padding: 10px; background: white; border: 1px solid #0EA5E9; border-radius: 6px; font-size: 13px; color: #0C4A6E; display: none;">
+                            <strong>Original Price:</strong> $<span id="previewOriginalPrice">0.00</span><br>
+                            <strong>New Price:</strong> $<span id="previewNewPrice">0.00</span>
+                        </div>
                     </div>
                     <button 
                         type="button" 
@@ -1053,3 +1058,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 5000); // Refresh every 5 seconds
 });
+
+// Update discount preview when discount input changes
+function updateDiscountPreview() {
+    const discountInput = document.getElementById('customDiscountInput');
+    const previewDiv = document.getElementById('discountPreview');
+    const previewOriginalPrice = document.getElementById('previewOriginalPrice');
+    const previewNewPrice = document.getElementById('previewNewPrice');
+    
+    const selectedService = window.selectedCustomRateService;
+    if (!selectedService || !discountInput) return;
+    
+    const discountRate = parseFloat(discountInput.value) || 0;
+    const originalPrice = parseFloat(selectedService.rate) || 0;
+    
+    if (discountRate > 0 && originalPrice > 0) {
+        const newPrice = originalPrice * (1 - discountRate / 100);
+        
+        previewOriginalPrice.textContent = originalPrice.toFixed(4);
+        previewNewPrice.textContent = newPrice.toFixed(4);
+        previewDiv.style.display = 'block';
+    } else {
+        previewDiv.style.display = 'none';
+    }
+}

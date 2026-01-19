@@ -87,7 +87,7 @@ BEGIN
         1
     )
     ON CONFLICT (identifier, route, window_start)
-    DO UPDATE SET request_count = EXCLUDED.request_count + 1, updated_at = NOW()
+    DO UPDATE SET request_count = public.api_rate_limits.request_count + 1, updated_at = NOW()
     RETURNING 
         public.api_rate_limits.request_count, 
         public.api_rate_limits.request_limit, 

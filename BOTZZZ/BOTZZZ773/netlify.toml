@@ -73,9 +73,9 @@
   status = 200
   force = true
 
-# Order status sync - runs every 5 minutes
+# Order status sync - runs every 2 minutes
 [functions.order-status-sync]
-  schedule = "*/5 * * * *"
+  schedule = "*/2 * * * *"
 
 # Provider balance sync - runs every 3 minutes to check balances and send alerts
 [functions.scheduled-provider-sync]

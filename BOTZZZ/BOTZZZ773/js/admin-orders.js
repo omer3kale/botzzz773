@@ -1565,6 +1565,9 @@ async function syncOrderStatuses({ silent = false, force = false, orderIds = nul
 
     updateOrdersSyncStatus('Syncing provider statuses...', 'pending');
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
     try {
         console.log('[SYNC] Starting order status sync...');
         const payload = { action: 'sync-status' };
@@ -1573,101 +1576,102 @@ async function syncOrderStatuses({ silent = false, force = false, orderIds = nul
         }
 
         const response = await fetch('/.netlify/functions/orders', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(payload)
-        });
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
 
-        console.log('[SYNC] Response status:', response.status);
-        
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error('[SYNC] API error response:', errorText);
-            throw new Error(`Sync failed (${response.status}): ${errorText}`);
-        }
-
-        const result = await response.json();
-        console.log('[SYNC] Sync result:', result);
-
-        if (result.error) {
-            throw new Error(result.error);
-        }
-
-        lastOrderSyncTime = Date.now();
-        const relative = formatRelativeTime(new Date(lastOrderSyncTime).toISOString());
-        updateOrdersSyncStatus(relative, 'success');
-
-        if (!silent) {
-            const totalResults = Array.isArray(result.results) ? result.results.length : 0;
-            const failureCount = totalResults > 0
-                ? result.results.filter(entry => !entry.success).length
-                : 0;
-            const successCount = result.updated || 0;
-            const targetCount = orderIds && orderIds.length > 0
-                ? orderIds.length
-                : (totalResults || successCount);
-
-            let message;
-            if (!targetCount && !successCount) {
-                message = 'Orders are already up to date';
-            } else {
-                const scopeLabel = orderIds && orderIds.length > 0 ? 'selected orders' : 'pending orders';
-                message = `Synced ${successCount}/${targetCount || successCount || 0} ${scopeLabel}`;
-                if (failureCount > 0) {
-                    message += ` (${failureCount} failed)`;
-                }
-                
-                // Check if any orders were refunded during sync (provider cancelled them)
-                const refundedOrders = Array.isArray(result.results) 
-                    ? result.results.filter(entry => entry.refunded && entry.refundAmount > 0)
-                    : [];
-                if (refundedOrders.length > 0) {
-                    const totalRefunded = refundedOrders.reduce((sum, entry) => sum + (entry.refundAmount || 0), 0);
-                    message += ` | ${refundedOrders.length} refunded ($${totalRefunded.toFixed(2)})`;
-                    
-                    // Dispatch refund events for cross-tab sync
-                    refundedOrders.forEach(entry => {
-                        window.dispatchEvent(new CustomEvent('refund:updated', {
-                            detail: { 
-                                amount: entry.refundAmount || 0,
-                                orderId: entry.orderId,
-                                source: 'provider-sync'
-                            }
-                        }));
-                    });
-                }
+            console.log('[SYNC] Response status:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('[SYNC] API error response:', errorText);
+                throw new Error(`Sync failed (${response.status}): ${errorText}`);
+            }
+            const result = await response.json();
+            console.log('[SYNC] Sync result:', result);
+            
+            if (result.error) {
+                throw new Error(result.error);
             }
 
-            const level = failureCount > 0 ? 'warning' : 'success';
-            showNotification(message, level);
-        }
+            lastOrderSyncTime = Date.now();
+            const relative = formatRelativeTime(new Date(lastOrderSyncTime).toISOString());
+            updateOrdersSyncStatus(relative, 'success');
 
-        console.log('[SYNC] Sync completed successfully');
-        return {
-            success: true,
-            updated: result.updated || 0,
-            results: result.results || [],
-            targeted: Array.isArray(orderIds) && orderIds.length > 0
-        };
-    } catch (error) {
-        console.error('[SYNC] Order sync error:', error);
-        console.error('[SYNC] Error stack:', error.stack);
-        const message = error.message || 'Failed to sync provider statuses';
-        updateOrdersSyncStatus(message, 'error');
-        if (!silent) {
-            showNotification(message, 'error');
+            if (!silent) {
+                const totalResults = Array.isArray(result.results) ? result.results.length : 0;
+                const failureCount = totalResults > 0
+                    ? result.results.filter(entry => !entry.success).length
+                    : 0;
+                const successCount = result.updated || 0;
+                const targetCount = orderIds && orderIds.length > 0
+                    ? orderIds.length
+                    : (totalResults || successCount);
+
+                let message;
+                if (!targetCount && !successCount) {
+                    message = 'Orders are already up to date';
+                } else {
+                    const scopeLabel = orderIds && orderIds.length > 0 ? 'selected orders' : 'pending orders';
+                    message = `Synced ${successCount}/${targetCount || successCount || 0} ${scopeLabel}`;
+                    if (failureCount > 0) {
+                        message += ` (${failureCount} failed)`;
+                    }
+                    
+                    // Check if any orders were refunded during sync (provider cancelled them)
+                    const refundedOrders = Array.isArray(result.results) 
+                        ? result.results.filter(entry => entry.refunded && entry.refundAmount > 0)
+                        : [];
+                    if (refundedOrders.length > 0) {
+                        const totalRefunded = refundedOrders.reduce((sum, entry) => sum + (entry.refundAmount || 0), 0);
+                        message += ` | ${refundedOrders.length} refunded ($${totalRefunded.toFixed(2)})`;
+                        
+                        // Dispatch refund events for cross-tab sync
+                        refundedOrders.forEach(entry => {
+                            window.dispatchEvent(new CustomEvent('refund:updated', {
+                                detail: { 
+                                    amount: entry.refundAmount || 0,
+                                    orderId: entry.orderId,
+                                    source: 'provider-sync'
+                                }
+                            }));
+                        });
+                    }
+                }
+
+                const level = failureCount > 0 ? 'warning' : 'success';
+                showNotification(message, level);
+            }
+
+            console.log('[SYNC] Sync completed successfully');
+            return {
+                success: true,
+                updated: result.updated || 0,
+                results: result.results || [],
+                targeted: Array.isArray(orderIds) && orderIds.length > 0
+            };
+        } catch (error) {
+            console.error('[SYNC] Order sync error:', error);
+            console.error('[SYNC] Error stack:', error.stack);
+            const message = error.message || 'Failed to sync provider statuses';
+            updateOrdersSyncStatus(message, 'error');
+            if (!silent) {
+                showNotification(message, 'error');
+            }
+            return { success: false, error: message };
+        } finally {
+            clearTimeout(timeoutId);
+            ordersSyncInFlight = false;
+            if (syncButton && originalLabel !== null) {
+                syncButton.disabled = false;
+                syncButton.innerHTML = originalLabel;
+            }
         }
-        return { success: false, error: message };
-    } finally {
-        ordersSyncInFlight = false;
-        if (syncButton && originalLabel !== null) {
-            syncButton.disabled = false;
-            syncButton.innerHTML = originalLabel;
-        }
-    }
 }
 
 async function manualOrdersSync() {
@@ -2046,6 +2050,9 @@ function closeModal() {
 async function filterOrders(status) {
     console.log('[ORDERS] filterOrders called with status:', status);
     
+    // Normalize status: convert 'in-progress' to 'in progress'
+    const normalizedStatus = status === 'in-progress' ? 'in progress' : status;
+    
     // If we're currently in provider-errors view, hide it first to restore the orders layout
     if (currentOrdersView === 'provider-errors') {
         console.log('[ORDERS] Leaving provider-errors view, restoring orders layout');
@@ -2077,7 +2084,7 @@ async function filterOrders(status) {
     document.querySelector(`[data-status="${status}"]`)?.classList.add('active');
     
     // Handle 'failed' filter separately - load from API with status=failed
-    if (status === 'failed') {
+    if (normalizedStatus === 'failed') {
         currentOrdersView = 'failed';
         loadFailedOrders();
         return;
@@ -2089,23 +2096,14 @@ async function filterOrders(status) {
     // Clear all selections when filter changes
     selectedOrderIds.clear();
     
-    if (status === 'all') {
+    if (normalizedStatus === 'all') {
         // Always reload all orders when clicking All tab
         console.log('[ORDERS] Reloading ALL orders');
         loadOrders({ skipSync: true });
     } else {
-        // Client-side filter for other statuses
-        rows.forEach(row => {
-            if (row.classList.contains('failed-orders-notice')) {
-                row.remove(); // Remove any lingering failed notice
-                return;
-            }
-            if (row.dataset.status === status) {
-                row.style.display = '';
-            } else {
-                row.style.display = 'none';
-            }
-        });
+        // Load orders filtered by status from API (not client-side)
+        console.log('[ORDERS] Loading orders with status filter:', normalizedStatus);
+        await loadOrders({ skipSync: true, statusFilter: normalizedStatus });
     }
     
     // Update UI after filter
@@ -2870,7 +2868,7 @@ function handleNextPage() {
 }
 
 // Load real orders from database
-async function loadOrders({ skipSync = false } = {}) {
+async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
     // Clear selections when loading new orders
     selectedOrderIds.clear();
     
@@ -2932,13 +2930,20 @@ async function loadOrders({ skipSync = false } = {}) {
             offsetToUse = 0;     // Always start from beginning for bulk search
             searchQueryToUse = '';  // No API-side search filter
         }
-
-        // Build API URL with pagination and search
+        
+        // When searching or filtering by status, fetch all matching orders
+        if (statusFilter || searchQuery) {
+            limitToUse = 10000;  // Fetch up to 10k orders
+            offsetToUse = 0;     // Always start from beginning for search/filter
+        }        // Build API URL with pagination and search
         const apiUrl = new URL('/.netlify/functions/orders', window.location.origin);
         apiUrl.searchParams.append('limit', limitToUse);
         apiUrl.searchParams.append('offset', offsetToUse);
         if (searchQueryToUse) {
             apiUrl.searchParams.append('search', searchQueryToUse);
+        }
+        if (statusFilter) {
+            apiUrl.searchParams.append('status', statusFilter);
         }
 
         console.log('[ORDERS] API Request URL:', apiUrl.toString());
@@ -3461,7 +3466,7 @@ async function loadFailedOrders() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
         
-        const response = await fetch('/.netlify/functions/orders?status=failed', {
+        const response = await fetch('/.netlify/functions/orders?status=failed&limit=10000', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -4179,7 +4184,7 @@ async function loadProviderErrors() {
                 action: 'get-provider-errors',
                 providerId,
                 resolved: false,
-                limit: 100
+                limit: 10000
             })
         });
 

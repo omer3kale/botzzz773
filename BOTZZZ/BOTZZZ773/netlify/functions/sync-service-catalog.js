@@ -473,8 +473,15 @@ async function syncProviderServices(provider, options = {}) {
       }
 
       if (retailRate !== null) {
-        basePayload.rate = retailRate;
-        basePayload.retail_rate = retailRate;
+        // Preserve existing rate if provider_rate is being preserved (fixed prices)
+        if (shouldPreserveProviderRate && existing && existing.rate) {
+          basePayload.rate = existing.rate;
+          basePayload.retail_rate = existing.rate;
+          console.log(`[SERVICE SYNC] Service ${serviceKey}: Preserved existing rate ${existing.rate} (shouldPreserveProviderRate=true)`);
+        } else {
+          basePayload.rate = retailRate;
+          basePayload.retail_rate = retailRate;
+        }
       }
 
       if (existing) {
@@ -627,7 +634,9 @@ async function syncProviderServices(provider, options = {}) {
 
       // Log price changes - use original currency comparison to avoid false positives from exchange rates
       // Only log when ACTUAL provider price changed (not just exchange rate fluctuation)
-      const retailChanged = prevRetailRate !== newRetailRate;
+      // Use tolerance for floating point comparison to avoid false positives from precision errors
+      const tolerance = 0.0001;
+      const retailChanged = Math.abs((newRetailRate || 0) - (prevRetailRate || 0)) > tolerance;
       
       if ((providerPriceChanged || retailChanged) && newProviderRate !== null && newRetailRate !== null) {
         // Determine which strategy was applied
