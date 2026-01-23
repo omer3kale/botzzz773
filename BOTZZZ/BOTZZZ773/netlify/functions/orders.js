@@ -553,17 +553,16 @@ async function processOrderRefund(order, options = {}) {
     return { success: true, alreadyRefunded: true, message: 'Already refunded' };
   }
 
-  // Secondary check: verify no refund payment record exists (belt-and-suspenders)
+  // Secondary check: verify no refund record exists (belt-and-suspenders)
   if (skipIfAlreadyRefunded) {
     const { data: existingRefund } = await supabaseAdmin
-      .from('payments')
+      .from('refunds')
       .select('id')
       .eq('order_id', orderId)
-      .eq('method', 'refund')
       .maybeSingle();
 
     if (existingRefund) {
-      console.log(`[REFUND] Order ${orderId} already has a refund payment record, skipping`);
+      console.log(`[REFUND] Order ${orderId} already has a refund record, skipping`);
       return { success: true, alreadyRefunded: true, message: 'Already refunded' };
     }
   }
@@ -624,6 +623,40 @@ async function processOrderRefund(order, options = {}) {
     reason,
     memo: `Refund for ${order.order_number || order.order_reference || order.public_id || orderId}${isPartial ? ` (${remains} items)` : ''}`
   });
+
+  // CRITICAL: If payment recording failed, refund is incomplete - revert balance and refund_applied_at
+  if (!refundRecord) {
+    console.error(`[REFUND] Failed to record refund transaction for order ${orderId}, rolling back...`);
+    
+    // Revert the refund_applied_at marker
+    const { error: revertMarkerError } = await supabaseAdmin
+      .from('orders')
+      .update({ refund_applied_at: null })
+      .eq('id', orderId);
+    
+    if (revertMarkerError) {
+      console.error(`[REFUND] Failed to revert refund_applied_at marker:`, revertMarkerError);
+    }
+    
+    // Revert the balance update
+    const revertedBalance = Number((previousBalance).toFixed(5));
+    const { error: revertBalanceError } = await supabaseAdmin
+      .from('users')
+      .update({ balance: revertedBalance })
+      .eq('id', userId);
+    
+    if (revertBalanceError) {
+      console.error(`[REFUND] Failed to revert balance:`, revertBalanceError);
+    }
+    
+    return {
+      success: false,
+      error: 'Failed to record refund transaction - refund rolled back',
+      previousBalance,
+      attemptedNewBalance: newBalance,
+      refundAmount
+    };
+  }
 
   return {
     success: true,
@@ -2532,7 +2565,7 @@ async function handleCancelOrder(user, data, headers) {
     }
 
     // Update order status
-    await supabaseAdmin
+    const { data: updatedOrder, error: updateError } = await supabaseAdmin
       .from('orders')
       .update({
         status: 'canceled',
@@ -2543,7 +2576,26 @@ async function handleCancelOrder(user, data, headers) {
         last_status_sync: cancellationTime,
         remains: 0
       })
-      .eq('id', orderId);
+      .eq('id', orderId)
+      .select();
+
+    if (updateError) {
+      console.error(`[CANCEL] Failed to update order status for ${orderId}:`, updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ 
+          error: 'Failed to update order status',
+          details: updateError.message
+        })
+      };
+    }
+
+    console.log(`[CANCEL] Order ${orderId} successfully cancelled and updated:`, {
+      previousStatus: order.status,
+      newStatus: 'canceled',
+      refundAmount: refundResult.refundAmount
+    });
 
     return {
       statusCode: 200,
@@ -2667,49 +2719,93 @@ function buildRefundTransactionId(orderId) {
 }
 
 async function recordRefundTransaction(order, amount, options = {}) {
+  const orderId = order?.id;
+  const userId = order?.user_id;
+  
   try {
-    if (!order || !order.user_id) {
-      return;
+    if (!order || !userId) {
+      console.error('[REFUND TRANSACTION] Missing order or user_id:', { orderId, userId });
+      return null;
     }
 
     const numericAmount = Number(amount);
     if (!Number.isFinite(numericAmount) || numericAmount === 0) {
+      console.warn('[REFUND TRANSACTION] Invalid amount:', { numericAmount, orderId });
       return null;
     }
 
+    const refundCode = buildRefundTransactionId(order.id || order.order_number);
+    
     const payload = {
-      transaction_id: buildRefundTransactionId(order.id || order.order_number),
+      refund_code: refundCode,
       order_id: order.id || order.order_id || null,
-      user_id: order.user_id,
-      amount: -Math.abs(Number(numericAmount.toFixed(5))),
-      method: 'refund',
+      user_id: userId,
+      amount: Math.abs(Number(numericAmount.toFixed(5))),
       status: options.status || 'refunded',
-      memo: options.memo || `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`,
-      gateway_response: {
-        source: options.source || 'orders-service',
-        reason: options.reason || 'refund',
-        order_id: order.id,
+      reason: options.reason || 'refund',
+      source: options.source || 'orders-service',
+      metadata: {
         order_number: order.order_number || null,
+        order_reference: order.order_reference || null,
+        public_id: order.public_id || null,
         provider_order_id: order.provider_order_id || null,
+        memo: options.memo || `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`,
         ...options.context
       }
     };
 
+    console.log(`[REFUND TRANSACTION] Attempting to insert refund record:`, {
+      orderId,
+      userId,
+      refundCode,
+      amount: payload.amount,
+      status: payload.status,
+      table: 'refunds'
+    });
+
     const { data, error } = await supabaseAdmin
-      .from('payments')
-      .insert(payload)
-      .select('id, transaction_id, amount, created_at')
-      .single();
+      .from('refunds')
+      .insert([payload])
+      .select('id, refund_code, amount, created_at, order_id, user_id, status');
 
     if (error) {
-      throw error;
+      console.error('[REFUND TRANSACTION] Insert FAILED:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        orderId,
+        userId,
+        payload
+      });
+      return null;
     }
 
-    return data;
+    if (!data || data.length === 0) {
+      console.error('[REFUND TRANSACTION] No data returned from insert:', {
+        orderId,
+        userId,
+        payload
+      });
+      return null;
+    }
+
+    const refundRecord = data[0];
+    console.log(`[REFUND TRANSACTION] Refund record created successfully:`, {
+      refundId: refundRecord.id,
+      refundCode: refundRecord.refund_code,
+      amount: refundRecord.amount,
+      orderId,
+      userId
+    });
+
+    return refundRecord;
   } catch (error) {
-    console.error('[ORDER] Failed to record refund payment:', error, {
-      orderId: order?.id,
-      userId: order?.user_id
+    console.error('[REFUND TRANSACTION] Exception caught:', {
+      errorMessage: error?.message,
+      errorStack: error?.stack,
+      orderId,
+      userId
     });
     return null;
   }
@@ -2721,35 +2817,66 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   const statusesToSync = ['pending', 'processing', 'in progress', 'refilling'];
   const providerFilter = providerId ? String(providerId) : null;
 
-  let ordersQuery = supabaseAdmin
-    .from('orders')
-    .select('id, service_id, provider_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
+  // Sync in batches of 200 to avoid timeout
+  // If > 200 orders, fetch and process 200 at a time
+  const FETCH_BATCH_SIZE = 200;
+  const MAX_FETCH_BATCHES = 2; // Process up to 400 orders (2 batches of 200)
+  const allOrdersData = [];
+  
+  for (let batchNum = 0; batchNum < MAX_FETCH_BATCHES; batchNum++) {
+    let ordersQuery = supabaseAdmin
+      .from('orders')
+      .select('id, service_id, provider_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
 
-  if (orderIds && orderIds.length > 0) {
-    ordersQuery = ordersQuery.in('id', orderIds);
-  } else {
-    // Sync orders that are:
-    // 1. In active states (pending, processing, refilling, in progress) - these can still change
-    // 2. Completed on provider but customer_status not yet updated (status=completed, customer_status!=completed)
-    // 3. Do NOT sync: completed+completed, canceled+canceled, partial+partial (final states already synced)
-    ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
+    if (orderIds && orderIds.length > 0) {
+      ordersQuery = ordersQuery.in('id', orderIds);
+    } else {
+      // Sync orders that are:
+      // 1. In active states (pending, processing, refilling, in progress) - these can still change
+      // 2. Completed on provider but customer_status not yet updated (status=completed, customer_status!=completed)
+      // 3. Do NOT sync: completed+completed, canceled+canceled, partial+partial (final states already synced)
+      ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
+    }
+
+    const { data: batchOrdersData, error: ordersError } = await ordersQuery
+      .range(batchNum * FETCH_BATCH_SIZE, (batchNum + 1) * FETCH_BATCH_SIZE - 1);
+
+    if (ordersError) {
+      console.error('[ORDER SYNC] Failed to load orders batch', batchNum, ':', ordersError);
+      if (batchNum === 0) {
+        // If first batch fails, return error
+        return {
+          success: false,
+          updated: 0,
+          results: [],
+          error: `Failed to load orders for sync: ${ordersError.message}`
+        };
+      }
+      // If subsequent batch fails, continue with what we have
+      break;
+    }
+
+    if (!batchOrdersData || batchOrdersData.length === 0) {
+      console.log(`[ORDER SYNC] Batch ${batchNum} is empty, stopping fetch`);
+      break;
+    }
+
+    console.log(`[ORDER SYNC] Fetched batch ${batchNum}: ${batchOrdersData.length} orders`);
+    allOrdersData.push(...batchOrdersData);
+    
+    // If less than full batch, we've reached the end
+    if (batchOrdersData.length < FETCH_BATCH_SIZE) {
+      break;
+    }
   }
 
-  const { data: ordersData, error: ordersError } = await ordersQuery.limit(limit);
+  const ordersData = allOrdersData;
 
-  if (ordersError) {
-    console.error('[ORDER SYNC] Failed to load orders for sync:', ordersError);
-    return {
-      success: false,
-      updated: 0,
-      results: [],
-      error: `Failed to load orders for sync: ${ordersError.message}`
-    };
-  }
-
-  if (!ordersData || ordersData.length === 0) {
+  if (ordersData.length === 0) {
     return { success: true, updated: 0, results: [] };
   }
+
+  console.log(`[ORDER SYNC] Total orders to sync: ${ordersData.length}`);
 
   const derivedIdUpdates = [];
   const resolvableOrders = [];
@@ -2874,7 +3001,12 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     };
   }
 
-  for (const order of ordersToSync) {
+  // Process orders in parallel batches to avoid timeout
+  // 155 orders × 1-2 sec sequential = 155-310 sec (timeout!)
+  // 155 orders in batches of 10, 10 concurrent = ~15-20 sec (success!)
+  const CONCURRENT_BATCH_SIZE = 10;
+  
+  async function processSingleOrderSync(order) {
     // Skip if order is in final state and customer_status matches
     const isFinalState = (order.status === 'completed' && order.customer_status === 'completed') ||
                          (order.status === 'canceled' && order.customer_status === 'canceled') ||
@@ -2882,7 +3014,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     
     if (isFinalState) {
       console.log(`[ORDER SYNC] Skipping order ${order.order_number} - already in final state (${order.status})`);
-      continue;
+      return null;
     }
 
     const service = order.service_id ? servicesMap.get(order.service_id) : null;
@@ -2891,13 +3023,12 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     const provider = providerId ? providerMap.get(providerId) : null;
 
     if (!service || !provider || !provider.api_url || !provider.api_key) {
-      results.push({
+      return {
         orderId: order.id,
         providerOrderId: order.provider_order_id,
         success: false,
         error: 'Provider configuration missing'
-      });
-      continue;
+      };
     }
 
     try {
@@ -3055,16 +3186,15 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
       if (updateError) {
         console.error('[ORDER SYNC] Failed to update order', order.id, updateError);
-        results.push({
+        return {
           orderId: order.id,
           providerOrderId: order.provider_order_id,
           success: false,
           error: updateError.message
-        });
-        continue;
+        };
       }
 
-      results.push({
+      return {
         orderId: order.id,
         providerOrderId: order.provider_order_id,
         success: true,
@@ -3075,7 +3205,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         providerCost: providerChargeFromResponse,
         refunded: refundResult?.success || false,
         refundAmount: refundResult?.refundAmount || null
-      });
+      };
     } catch (syncError) {
       console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
       
@@ -3098,19 +3228,43 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         console.error('[ORDER SYNC] Failed to mark order as failed:', order.id, updateError);
       }
       
-      results.push({
+      return {
         orderId: order.id,
         providerOrderId: order.provider_order_id,
         success: false,
         error: errorMessage
-      });
+      };
     }
   }
+
+  // Process orders in concurrent batches
+  console.log(`[ORDER SYNC] Processing ${ordersToSync.length} orders in batches of ${CONCURRENT_BATCH_SIZE}`);
+  const startTime = Date.now();
+  
+  for (let i = 0; i < ordersToSync.length; i += CONCURRENT_BATCH_SIZE) {
+    const batch = ordersToSync.slice(i, i + CONCURRENT_BATCH_SIZE);
+    console.log(`[ORDER SYNC] Processing batch ${Math.floor(i / CONCURRENT_BATCH_SIZE) + 1}/${Math.ceil(ordersToSync.length / CONCURRENT_BATCH_SIZE)} (${batch.length} orders)`);
+    
+    const batchResults = await Promise.all(
+      batch.map(order => processSingleOrderSync(order))
+    );
+    
+    // Filter out null results (skipped orders)
+    batchResults.forEach(result => {
+      if (result !== null) {
+        results.push(result);
+      }
+    });
+  }
+  
+  const elapsedTime = Date.now() - startTime;
+  console.log(`[ORDER SYNC] Completed ${results.length} updates in ${(elapsedTime / 1000).toFixed(2)} seconds`);
 
   return {
     success: true,
     updated: results.filter((r) => r.success).length,
-    results
+    results,
+    processingTime: elapsedTime
   };
 }
 
@@ -3125,7 +3279,7 @@ async function handleSyncOrderStatuses(user, data, headers) {
 
   try {
     const orderIds = Array.isArray(data.orderIds) ? data.orderIds : null;
-    const limit = Number.isFinite(data.limit) ? data.limit : 100;
+    const limit = Number.isFinite(data.limit) ? data.limit : 200;  // Max 200 to avoid timeout (200 orders ≈ 27s at 1.34s/batch, safe within 26s limit with 4s buffer)
     const providerId = data.providerId ?? data.provider_id ?? null;
     const result = await performOrderStatusSync({ orderIds, providerId, limit });
 

@@ -4,7 +4,7 @@ exports.handler = async (event = {}) => {
   const headers = { 'Content-Type': 'application/json' };
   const runAt = event.headers?.['x-netlify-schedule-run-at'] || new Date().toISOString();
   const qsLimit = event.queryStringParameters && event.queryStringParameters.limit;
-  const limit = Number.isFinite(Number(qsLimit)) ? Number(qsLimit) : 200;  // Increased from 150 to 200
+  const limit = Number.isFinite(Number(qsLimit)) ? Number(qsLimit) : 200;  // Max 200 to avoid timeout (≈27s processing time safely within 26s limit with buffer)
   const providerFilter = event.queryStringParameters && (event.queryStringParameters.providerId || event.queryStringParameters.provider_id);
 
   console.log(`[SCHEDULED] Order status sync invoked at ${runAt} with limit ${limit}`);

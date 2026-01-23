@@ -635,8 +635,8 @@ async function syncProviderServices(provider, options = {}) {
       // Log price changes - use original currency comparison to avoid false positives from exchange rates
       // Only log when ACTUAL provider price changed (not just exchange rate fluctuation)
       // Use tolerance for floating point comparison to avoid false positives from precision errors
-      const tolerance = 0.0001;
-      const retailChanged = Math.abs((newRetailRate || 0) - (prevRetailRate || 0)) > tolerance;
+      const tolerance = 0.01; // 1 cent tolerance for floating point precision issues
+      const retailChanged = prevRetailRate !== null && newRetailRate !== null && Math.abs(newRetailRate - prevRetailRate) > tolerance;
       
       if ((providerPriceChanged || retailChanged) && newProviderRate !== null && newRetailRate !== null) {
         // Determine which strategy was applied
