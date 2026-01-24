@@ -3210,7 +3210,13 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       console.error('[ORDER SYNC] Provider sync failed for order', order.id, syncError);
       
       // Provider hatasını kaydet ve siparişi failed olarak işaretle
-      const errorMessage = syncError.message || 'Provider sync failed';
+      let errorMessage = 'Provider sync failed';
+      if (syncError?.message) {
+        errorMessage = syncError.message;
+      } else if (syncError) {
+        errorMessage = typeof syncError === 'object' ? JSON.stringify(syncError) : String(syncError);
+      }
+      
       const failurePayload = {
         // Preserve canceled status if already canceled; otherwise mark failed
         status: (order.status === 'canceled' || order.status === 'cancelled') ? order.status : 'failed',
@@ -3413,7 +3419,10 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
       }
 
       if (response.data.error) {
-        throw new Error(`Provider status error: ${response.data.error}`);
+        const errorMsg = typeof response.data.error === 'object' 
+          ? JSON.stringify(response.data.error) 
+          : String(response.data.error);
+        throw new Error(`Provider status error: ${errorMsg}`);
       }
 
       // Prefer nested payloads if present (many providers wrap under `data` or `result`)
