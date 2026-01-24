@@ -3217,28 +3217,38 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         errorMessage = typeof syncError === 'object' ? JSON.stringify(syncError) : String(syncError);
       }
       
-      const failurePayload = {
-        // Preserve canceled status if already canceled; otherwise mark failed
-        status: (order.status === 'canceled' || order.status === 'cancelled') ? order.status : 'failed',
-        customer_status: (order.customer_status === 'canceled') ? 'canceled' : 'pending',
-        provider_error: errorMessage,
-        last_status_sync: nowIso
-      };
+      // Check if this is a rate limit error - if so, don't mark as failed, just return error
+      const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests') || errorMessage.includes('Rate limited');
       
-      try {
-        await supabaseAdmin
-          .from('orders')
-          .update(failurePayload)
-          .eq('id', order.id);
-      } catch (updateError) {
-        console.error('[ORDER SYNC] Failed to mark order as failed:', order.id, updateError);
+      if (!isRateLimit) {
+        // Only mark as failed if it's NOT a rate limit error
+        const failurePayload = {
+          // Preserve canceled status if already canceled; otherwise mark failed
+          status: (order.status === 'canceled' || order.status === 'cancelled') ? order.status : 'failed',
+          customer_status: (order.customer_status === 'canceled') ? 'canceled' : 'pending',
+          provider_error: errorMessage,
+          last_status_sync: nowIso
+        };
+        
+        try {
+          await supabaseAdmin
+            .from('orders')
+            .update(failurePayload)
+            .eq('id', order.id);
+        } catch (updateError) {
+          console.error('[ORDER SYNC] Failed to mark order as failed:', order.id, updateError);
+        }
+      } else {
+        // Rate limit - just log the error, don't mark as failed
+        console.warn(`[ORDER SYNC] Rate limit encountered for order ${order.id}, will retry in next sync cycle`);
       }
       
       return {
         orderId: order.id,
         providerOrderId: order.provider_order_id,
         success: false,
-        error: errorMessage
+        error: errorMessage,
+        isRateLimit
       };
     }
   }
