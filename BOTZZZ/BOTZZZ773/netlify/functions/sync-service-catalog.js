@@ -406,7 +406,8 @@ async function syncProviderServices(provider, options = {}) {
         
         // Detect actual provider price change (in original currency, ignore exchange rate changes)
         // IMPORTANT: Compare original amounts in SAME currency to ignore exchange rate fluctuations
-        const tolerance = 0.001;
+        // Tolerance: 0.001 default (0.1 cent), but 0.01 (1 cent) for smmzz.com to ignore exchange rate noise
+        const tolerance = provider.name?.toLowerCase().includes('smmzz') ? 0.01 : 0.001;
         
         // Check if both have conversion metadata AND same original currency
         if (prevConversion && currencyConversion && 
@@ -1038,8 +1039,24 @@ ${allChanges.length > 10 ? `\n... and ${allChanges.length - 10} more changes` : 
     // Send bulk price change alert
     let priceChangeAlert = { sent: false, reason: 'No price changes' };
     if (allChanges.length > 0) {
+      // Deduplicate: keep only the latest change for each service
+      const deduplicatedChanges = [];
+      const seenServices = new Map();
+      
+      for (let i = allChanges.length - 1; i >= 0; i--) {
+        const change = allChanges[i];
+        const key = `${change.provider_id}-${change.service_id}`;
+        
+        if (!seenServices.has(key)) {
+          seenServices.set(key, true);
+          deduplicatedChanges.unshift(change);  // Add to beginning to maintain order
+        }
+      }
+      
+      console.log(`[PRICE ALERT] Deduplicated ${allChanges.length} changes → ${deduplicatedChanges.length} unique changes`);
+      
       const adminEmail = await loadAdminEmail();
-      priceChangeAlert = await sendPriceChangeAlert(allChanges, smtpSettings, adminEmail);
+      priceChangeAlert = await sendPriceChangeAlert(deduplicatedChanges, smtpSettings, adminEmail);
     }
 
     return {

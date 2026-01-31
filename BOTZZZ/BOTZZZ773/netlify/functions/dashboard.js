@@ -1,6 +1,7 @@
 // Dashboard Stats API - Get Dashboard Statistics
 const { supabaseAdmin } = require('./utils/supabase');
 const jwt = require('jsonwebtoken');
+const { getExchangeRates } = require('./utils/currency-converter');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -47,7 +48,7 @@ exports.handler = async (event) => {
 
   try {
     if (user.role === 'admin') {
-      return await handleAdminStats(headers);
+      return await handleAdminStats(headers, event);
     } else {
       return await handleUserStats(user, headers);
     }
@@ -61,8 +62,48 @@ exports.handler = async (event) => {
   }
 };
 
-async function handleAdminStats(headers) {
+async function handleAdminStats(headers, event) {
   try {
+    // Parse date range from query params (default: last 7 days)
+    const dateRange = event?.queryStringParameters?.dateRange || '7days';
+    console.log('[DASHBOARD] Admin stats for dateRange:', dateRange);
+    
+    let startDate = new Date();
+    let dayLabel = 'Last 7 days';
+    
+    // Calculate start date based on range
+    switch(dateRange) {
+      case '30days':
+        startDate.setDate(startDate.getDate() - 30);
+        dayLabel = 'Last 30 days';
+        break;
+      case '90days':
+        startDate.setDate(startDate.getDate() - 90);
+        dayLabel = 'Last 90 days';
+        break;
+      case 'this_month':
+        startDate.setDate(1);
+        dayLabel = 'This month';
+        break;
+      case 'last_month':
+        startDate = new Date(startDate.getFullYear(), startDate.getMonth() - 1, 1);
+        dayLabel = 'Last month';
+        break;
+      case 'ytd':
+        startDate = new Date(startDate.getFullYear(), 0, 1);
+        dayLabel = 'Year to date';
+        break;
+      case '7days':
+      default:
+        startDate.setDate(startDate.getDate() - 7);
+        dayLabel = 'Last 7 days';
+    }
+    
+    const endDate = new Date();
+    console.log('[DASHBOARD] startDate:', startDate.toISOString());
+    console.log('[DASHBOARD] endDate:', endDate.toISOString());
+    console.log('[DASHBOARD] dayLabel:', dayLabel);
+    
     // Get total revenue
     const { data: revenueData } = await supabaseAdmin
       .from('payments')
@@ -102,16 +143,34 @@ async function handleAdminStats(headers) {
     
     const ordersData = allOrdersData;
 
-    // Currency conversion rates to USD (simple fallback - should be updated from external API)
-    const conversionRates = {
+    // Get real exchange rates from API (with fallback to hardcoded rates)
+    let conversionRates = {
       'USD': 1,
       'EUR': 1.10,
       'GBP': 1.27,
       'TRY': 0.032,
       'INR': 0.012,
       'RUB': 0.011,
-      'CNY': 0.14
+      'CNY': 0.14,
+      'BRL': 0.190476
     };
+
+    try {
+      const rates = await getExchangeRates();
+      if (rates) {
+        // Convert from Open Exchange Rates format (rates TO USD)
+        // to our format (rates FROM USD to other currencies)
+        conversionRates = {};
+        Object.entries(rates).forEach(([currency, rate]) => {
+          // Rate is "how many of this currency per 1 USD"
+          // We want "how many USD per 1 of this currency"
+          conversionRates[currency] = 1 / rate;
+        });
+        console.log('[DASHBOARD] Using real exchange rates from API');
+      }
+    } catch (error) {
+      console.warn('[DASHBOARD] Failed to get exchange rates, using fallback:', error.message);
+    }
 
     const getConversionRate = (currency) => {
       return conversionRates[currency?.toUpperCase()] || 1;
@@ -155,68 +214,255 @@ async function handleAdminStats(headers) {
       .order('created_at', { ascending: false })
       .limit(10);
 
-    // Get revenue by day (last 7 days)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
+    // Get revenue by day (based on selected date range)
     const { data: recentRevenue } = await supabaseAdmin
       .from('payments')
       .select('amount, created_at')
       .eq('status', 'completed')
-      .gte('created_at', sevenDaysAgo.toISOString());
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .limit(10000);
 
-    const { data: recentOrdersByDate } = await supabaseAdmin
-      .from('orders')
-      .select('created_at')
-      .gte('created_at', sevenDaysAgo.toISOString());
+    // Get orders by date (with pagination to handle large datasets)
+    let allOrdersByDate = [];
+    pageNum = 0;  // Reset pageNum for orders by date loop
+    let hasMoreOrders = true;
+    
+    while (hasMoreOrders) {
+      const { data: pageData } = await supabaseAdmin
+        .from('orders')
+        .select('created_at')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreOrders = false;
+      } else {
+        allOrdersByDate = allOrdersByDate.concat(pageData);
+        pageNum++;
+      }
+    }
+    
+    console.log('[DASHBOARD] recentOrdersByDate count:', allOrdersByDate?.length || 0);
+    console.log('[DASHBOARD] recentOrdersByDate sample:', allOrdersByDate?.slice(0, 5));
 
-    const { data: recentUsersByDate } = await supabaseAdmin
-      .from('users')
-      .select('created_at')
-      .gte('created_at', sevenDaysAgo.toISOString());
+    let allUsersByDate = [];
+    let userPageNum = 0;
+    let hasMoreUsers = true;
+    
+    while (hasMoreUsers) {
+      const { data: pageData } = await supabaseAdmin
+        .from('users')
+        .select('created_at')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(userPageNum * pageSize, (userPageNum + 1) * pageSize - 1);
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreUsers = false;
+      } else {
+        allUsersByDate = allUsersByDate.concat(pageData);
+        userPageNum++;
+      }
+    }
+    
+    const recentUsersByDate = allUsersByDate;
 
-    const { data: recentTicketsByDate } = await supabaseAdmin
-      .from('tickets')
-      .select('created_at')
-      .gte('created_at', sevenDaysAgo.toISOString());
+    let allTicketsByDate = [];
+    let ticketPageNum = 0;
+    let hasMoreTickets = true;
+    
+    while (hasMoreTickets) {
+      const { data: pageData } = await supabaseAdmin
+        .from('tickets')
+        .select('created_at')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(ticketPageNum * pageSize, (ticketPageNum + 1) * pageSize - 1);
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreTickets = false;
+      } else {
+        allTicketsByDate = allTicketsByDate.concat(pageData);
+        ticketPageNum++;
+      }
+    }
+    
+    const recentTicketsByDate = allTicketsByDate;
 
-    // Group by day
+    // Group by day - Initialize all days
     const revenueByDay = {};
     const ordersByDay = {};
     const usersByDay = {};
     const ticketsByDay = {};
-    for (let i = 6; i >= 0; i--) {
+    const profitByDay = {};
+    
+    // Calculate day count for initialization
+    let dayCount = 7;
+    if (dateRange === '30days') dayCount = 30;
+    else if (dateRange === '90days') dayCount = 90;
+    else if (dateRange === 'this_month') dayCount = new Date().getDate();
+    else if (dateRange === 'last_month') {
+      dayCount = new Date(new Date().getFullYear(), new Date().getMonth(), 0).getDate();
+    }
+    else if (dateRange === 'ytd') {
+      dayCount = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)) + 1;
+    }
+    
+    // Initialize day tracking
+    for (let i = dayCount - 1; i >= 0; i--) {
       const date = new Date();
-      date.setDate(date.getDate() - i);
+      
+      if (dateRange === 'this_month') {
+        date.setDate(i + 1);
+      } else if (dateRange === 'last_month') {
+        date.setMonth(date.getMonth() - 1);
+        date.setDate(i + 1);
+      } else if (dateRange === 'ytd') {
+        date.setMonth(0);
+        date.setDate(i + 1);
+      } else {
+        date.setDate(date.getDate() - i);
+      }
+      
       const dateStr = date.toISOString().split('T')[0];
       revenueByDay[dateStr] = 0;
       ordersByDay[dateStr] = 0;
       usersByDay[dateStr] = 0;
       ticketsByDay[dateStr] = 0;
+      profitByDay[dateStr] = 0;
     }
 
-    recentRevenue?.forEach(payment => {
-      const date = payment.created_at.split('T')[0];
-      if (revenueByDay[date] !== undefined) {
-        revenueByDay[date] += parseFloat(payment.amount);
+    // Calculate daily profit from orders (with pagination)
+    let allOrdersForProfit = [];
+    let profitPageNum = 0;
+    let hasMoreProfit = true;
+    
+    while (hasMoreProfit) {
+      const { data: pageData } = await supabaseAdmin
+        .from('orders')
+        .select('created_at, charge, original_charge, provider_cost, provider_currency, status, user_id')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false })
+        .range(profitPageNum * pageSize, (profitPageNum + 1) * pageSize - 1);
+      
+      if (!pageData || pageData.length === 0) {
+        hasMoreProfit = false;
+      } else {
+        allOrdersForProfit = allOrdersForProfit.concat(pageData);
+        profitPageNum++;
+      }
+    }
+    
+    const ordersForProfit = allOrdersForProfit;
+    console.log('[DASHBOARD] ordersForProfit count:', ordersForProfit?.length || 0);
+
+    ordersForProfit?.forEach(order => {
+      const date = order.created_at.split('T')[0];
+      if (profitByDay[date] !== undefined) {
+        const income = parseFloat(order.charge || order.original_charge || 0);
+        const outcome = parseFloat(order.provider_cost || 0);
+        const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
+        let dailyProfit = income - outcomeUSD;
+        
+        // Cancelled order ise profiti negatif yap (geri al)
+        if (order.status === 'cancelled') {
+          dailyProfit = -dailyProfit;
+        }
+        
+        profitByDay[date] += dailyProfit;
       }
     });
+    
+    console.log('[DASHBOARD] profitByDay after calculation:', profitByDay);
 
-    recentOrdersByDate?.forEach(order => {
+    // Calculate detailed users by day (with spending and profit)
+    const usersByDayDetailed = {};
+    
+    // Initialize dates
+    const currentDate = new Date(startDate);
+    while (currentDate <= endDate) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      usersByDayDetailed[dateStr] = {};
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Get user username to user_id mapping from users table
+    let userUsernameMap = {};
+    try {
+      const { data: usersMap, error: usersMapError } = await supabaseAdmin
+        .from('users')
+        .select('id, username');
+      
+      if (usersMapError) {
+        console.error('[DASHBOARD] Error fetching users map:', usersMapError);
+      } else if (usersMap) {
+        usersMap.forEach(u => {
+          userUsernameMap[u.id] = u.username;
+        });
+      }
+    } catch (err) {
+      console.error('[DASHBOARD] Error building user username map:', err);
+    }
+    
+    // Aggregate orders by user and date
+    ordersForProfit?.forEach(order => {
+      try {
+        const date = order.created_at?.split('T')[0];
+        if (!date || !usersByDayDetailed[date]) return;
+        
+        const userId = order.user_id;
+        const username = userUsernameMap[userId] || 'Unknown';
+        
+        if (!usersByDayDetailed[date][username]) {
+          usersByDayDetailed[date][username] = { username, total_charge: 0, profit: 0 };
+        }
+        
+        const income = parseFloat(order.charge || order.original_charge || 0);
+        const outcome = parseFloat(order.provider_cost || 0);
+        const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
+        let dailyProfit = income - outcomeUSD;
+        
+        // Cancelled order ise profiti negatif yap
+        if (order.status === 'cancelled') {
+          dailyProfit = -dailyProfit;
+        }
+        
+        usersByDayDetailed[date][username].total_charge += income;
+        usersByDayDetailed[date][username].profit += dailyProfit;
+      } catch (err) {
+        console.error('[DASHBOARD] Error processing order for user stats:', err, order);
+      }
+    });
+    
+    // Convert to array format for easier processing in frontend
+    const usersByDayArray = {};
+    Object.entries(usersByDayDetailed).forEach(([date, usersObj]) => {
+      usersByDayArray[date] = Object.values(usersObj);
+    });
+    
+    console.log('[DASHBOARD] usersByDayArray:', usersByDayArray);
+
+    allOrdersByDate?.forEach(order => {
       const date = order.created_at.split('T')[0];
       if (ordersByDay[date] !== undefined) {
         ordersByDay[date] += 1;
       }
     });
 
-    recentUsersByDate?.forEach(user => {
+    allUsersByDate?.forEach(user => {
       const date = user.created_at.split('T')[0];
       if (usersByDay[date] !== undefined) {
         usersByDay[date] += 1;
       }
     });
 
-    recentTicketsByDate?.forEach(ticket => {
+    allTicketsByDate?.forEach(ticket => {
       const date = ticket.created_at.split('T')[0];
       if (ticketsByDay[date] !== undefined) {
         ticketsByDay[date] += 1;
@@ -238,15 +484,18 @@ async function handleAdminStats(headers) {
         revenueChart: revenueByDay,
         ordersChart: ordersByDay,
         usersChart: usersByDay,
-        ticketsChart: ticketsByDay
+        ticketsChart: ticketsByDay,
+        profitChart: profitByDay,
+        usersByDay: usersByDayArray
       })
     };
   } catch (error) {
-    console.error('Admin stats error:', error);
+    console.error('[DASHBOARD] Admin stats error:', error.message);
+    console.error('[DASHBOARD] Error stack:', error.stack);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: 'Internal server error' })
+      body: JSON.stringify({ error: error.message || 'Internal server error' })
     };
   }
 }

@@ -1663,12 +1663,60 @@ async function handleCreateOrder(user, data, headers) {
 
     if (balanceError) {
       console.error('[ORDER] Balance deduction error:', balanceError);
-      // Rollback: delete order
-      await supabaseAdmin.from('orders').delete().eq('id', order.id);
+      
+      // Rollback: delete order - AND CHECK RESULT
+      const { error: deleteError } = await supabaseAdmin
+        .from('orders')
+        .delete()
+        .eq('id', order.id);
+      
+      if (deleteError) {
+        // CRITICAL: Order created but both balance update AND rollback failed!
+        console.error('[CRITICAL] Order created but balance deduction AND rollback FAILED!', {
+          orderId: order.id,
+          userId: user.userId,
+          username: user.username,
+          orderCharge: totalCost,
+          balanceError: {
+            code: balanceError.code,
+            message: balanceError.message
+          },
+          deleteError: {
+            code: deleteError.code,
+            message: deleteError.message
+          },
+          timestamp: new Date().toISOString()
+        });
+        
+        // Log to admin alerts
+        try {
+          await supabaseAdmin
+            .from('admin_alerts')
+            .insert({
+              type: 'critical_order_balance_rollback_fail',
+              severity: 'critical',
+              message: `Order ${order.id} created but balance update failed AND rollback failed. User ${user.username} lost $${totalCost}`,
+              details: {
+                orderId: order.id,
+                userId: user.userId,
+                username: user.username,
+                charge: totalCost,
+                balanceError: balanceError.message,
+                deleteError: deleteError.message
+              }
+            });
+        } catch (alertErr) {
+          console.error('[ORDER] Failed to log admin alert:', alertErr);
+        }
+      }
+      
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to process payment' })
+        body: JSON.stringify({ 
+          error: 'Failed to process payment - balance deduction failed',
+          details: balanceError.message 
+        })
       };
     }
 
@@ -2798,6 +2846,50 @@ async function recordRefundTransaction(order, amount, options = {}) {
       orderId,
       userId
     });
+
+    // ALSO record in payments table for historical tracking (but kept separate from admin payments view)
+    try {
+      const paymentPayload = {
+        user_id: userId,
+        order_id: order.id || order.order_id || null,
+        amount: Math.abs(Number(numericAmount.toFixed(5))),
+        method: 'refund',
+        status: 'completed',
+        gateway: 'internal',
+        transaction_id: refundCode,
+        gateway_response: {
+          refund_id: refundRecord.id,
+          refund_code: refundRecord.refund_code,
+          order_number: order.order_number || null,
+          reason: options.reason || 'refund',
+          memo: options.memo || null
+        },
+        memo: options.memo || `Refund issued for ${order.order_number || order.order_reference || order.public_id || order.id}`,
+        created_at: new Date().toISOString()
+      };
+
+      const { data: paymentData, error: paymentError } = await supabaseAdmin
+        .from('payments')
+        .insert([paymentPayload])
+        .select('id, transaction_id, amount, method, created_at');
+
+      if (paymentError) {
+        console.warn('[REFUND TRANSACTION] Warning - Failed to record refund in payments table:', {
+          code: paymentError.code,
+          message: paymentError.message,
+          orderId,
+          userId
+        });
+      } else if (paymentData && paymentData.length > 0) {
+        console.log(`[REFUND TRANSACTION] Refund also recorded in payments table (for archival):`, {
+          paymentId: paymentData[0].id,
+          transactionId: paymentData[0].transaction_id,
+          amount: paymentData[0].amount
+        });
+      }
+    } catch (paymentError) {
+      console.warn('[REFUND TRANSACTION] Exception while recording payment:', paymentError?.message);
+    }
 
     return refundRecord;
   } catch (error) {

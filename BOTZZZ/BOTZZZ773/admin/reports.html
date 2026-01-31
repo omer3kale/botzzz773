@@ -159,12 +159,12 @@
             <h1>Reports & Analytics</h1>
             <div class="page-actions">
                 <select class="filter-select" id="dateRange" onchange="updateCharts()">
-                    <option value="this-month">This month</option>
-                    <option value="last-month">Last month</option>
-                    <option value="last-7-days">Last 7 days</option>
-                    <option value="last-30-days">Last 30 days</option>
-                    <option value="last-90-days">Last 90 days</option>
-                    <option value="this-year">This year</option>
+                    <option value="7days">Last 7 days</option>
+                    <option value="30days">Last 30 days</option>
+                    <option value="90days">Last 90 days</option>
+                    <option value="this_month">This month</option>
+                    <option value="last_month">Last month</option>
+                    <option value="ytd">Year to date</option>
                 </select>
                 <button class="btn-secondary" onclick="exportReport('pdf')">
                     <i class="fas fa-file-pdf"></i> Export PDF
@@ -178,15 +178,10 @@
         <!-- Report Tabs -->
         <div class="chart-card">
             <div class="chart-header">
-                <h3 class="chart-title">Analytics Overview</h3>
+                <h3 class="chart-title">Analytics</h3>
                 <div class="chart-tabs">
-                    <button class="chart-tab active" onclick="switchReportTab('payments')">Payments</button>
-                    <button class="chart-tab" onclick="switchReportTab('orders')">Orders</button>
-                    <button class="chart-tab" onclick="switchReportTab('tickets')">Tickets</button>
-                    <button class="chart-tab" onclick="switchReportTab('profits')">Profits</button>
-                    <button class="chart-tab" onclick="switchReportTab('services')">Services</button>
+                    <button class="chart-tab active" onclick="switchReportTab('profits')">Profits</button>
                     <button class="chart-tab" onclick="switchReportTab('users')">Users</button>
-                    <button class="chart-tab" onclick="switchReportTab('providers')">Providers</button>
                 </div>
             </div>
             
@@ -211,34 +206,29 @@
                     <thead>
                         <tr>
                             <th>Date</th>
-                            <th>Total Revenue</th>
-                            <th>Orders</th>
-                            <th>New Users</th>
-                            <th>Tickets</th>
+                            <th>Total Order</th>
+                            <th>Daily Profit</th>
                         </tr>
                     </thead>
                     <tbody id="reportTableBody">
+                        <!-- Dinamik olarak JS tarafından doldurulur -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Users Table View -->
+            <div class="table-view" id="usersTableView" style="display: none;">
+                <table class="admin-table">
+                    <thead>
                         <tr>
-                            <td>Nov 01, 2025</td>
-                            <td>$1,245.50</td>
-                            <td>312</td>
-                            <td>45</td>
-                            <td>12</td>
+                            <th>Date</th>
+                            <th>User Email</th>
+                            <th>Total Spent</th>
+                            <th>Profit Earned</th>
                         </tr>
-                        <tr>
-                            <td>Oct 31, 2025</td>
-                            <td>$2,156.30</td>
-                            <td>428</td>
-                            <td>67</td>
-                            <td>8</td>
-                        </tr>
-                        <tr>
-                            <td>Oct 30, 2025</td>
-                            <td>$1,892.75</td>
-                            <td>385</td>
-                            <td>52</td>
-                            <td>15</td>
-                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <!-- Dinamik olarak JS tarafından doldurulur -->
                     </tbody>
                 </table>
             </div>
@@ -247,43 +237,26 @@
         <!-- Summary Stats -->
         <div class="stats-grid">
             <div class="stat-card">
-                <div class="stat-icon blue">
+                <div class="stat-icon green">
                     <i class="fas fa-dollar-sign"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-label">Total Revenue</div>
-                    <div class="stat-value">$12,458.50</div>
-                    <div class="stat-change positive">+12.5% from last period</div>
+                    <div class="stat-label">Total Profit</div>
+                    <div class="stat-value" data-stat="total-profit">$0.00</div>
+                    <div class="stat-change positive">Last 7 days</div>
                 </div>
             </div>
             <div class="stat-card">
-                <div class="stat-icon green">
-                    <i class="fas fa-shopping-cart"></i>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">Total Orders</div>
-                    <div class="stat-value">8,309</div>
-                    <div class="stat-change positive">+8.2% from last period</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon purple">
-                    <i class="fas fa-users"></i>
-                </div>
-                <div class="stat-content">
-                    <div class="stat-label">New Users</div>
-                    <div class="stat-value">1,109</div>
-                    <div class="stat-change positive">+15.3% from last period</div>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon pink">
+                <div class="stat-icon blue">
                     <i class="fas fa-chart-line"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-label">Avg Order Value</div>
-                    <div class="stat-value">$1.50</div>
-                    <div class="stat-change positive">+3.8% from last period</div>
+                    <div class="stat-label">Daily Average</div>
+                    <div class="stat-value" data-stat="daily-avg-profit">$0.00</div>
+                    <div class="stat-change positive">Based on 7-day average</div>
+                </div>
+            </div>
+        </div>
                 </div>
             </div>
         </div>

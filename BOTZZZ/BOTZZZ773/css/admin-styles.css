@@ -4486,13 +4486,21 @@ tr[data-status="error"]:hover {
     border: 1px solid var(--admin-border);
     border-radius: 8px;
     padding: 16px 20px;
-    transition: border-color 0.2s ease, background 0.2s ease;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
     min-height: 56px;
+    cursor: move;
 }
 
 .provider-list-item:hover {
     border-color: var(--admin-primary);
     background: rgba(255, 20, 148, 0.03);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 20, 148, 0.1);
+}
+
+.provider-list-item[draggable="true"]:active {
+    opacity: 0.5;
+    cursor: grabbing;
 }
 
 .provider-name {

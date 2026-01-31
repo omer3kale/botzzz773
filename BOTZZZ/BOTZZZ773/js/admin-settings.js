@@ -198,6 +198,8 @@ function showSettingsSection(section, navEvent) {
     }
     if (section === 'providers') {
         updateSettingsProvidersSummary();
+        // Refresh provider list to show latest order
+        refreshProvidersList();
     }
     if (typeof applyStoredSettingsToSection === 'function') {
         applyStoredSettingsToSection(section);
@@ -1527,6 +1529,18 @@ function displayProviders(providers) {
     const providersGrid = document.getElementById('providersGrid');
     if (!providersGrid) return;
     settingsProvidersCache = Array.isArray(providers) ? providers : [];
+    
+    // Sort by sort_order (or by name if sort_order is not set)
+    settingsProvidersCache.sort((a, b) => {
+        const aOrder = a.sort_order !== null && a.sort_order !== undefined ? a.sort_order : 999999;
+        const bOrder = b.sort_order !== null && b.sort_order !== undefined ? b.sort_order : 999999;
+        if (aOrder !== bOrder) {
+            return aOrder - bOrder;
+        }
+        // Fallback to name if sort_order is same
+        return (a.name || '').localeCompare(b.name || '');
+    });
+    
     updateSettingsProvidersSummary();
     if (settingsProvidersCache.length === 0) {
         providersGrid.innerHTML = `
@@ -1540,9 +1554,10 @@ function displayProviders(providers) {
     }
     providersGrid.innerHTML = `
         <div class="providers-list">
-            ${settingsProvidersCache.map(provider => `
-                <div class="provider-list-item">
-                    <div class="provider-name">
+            ${settingsProvidersCache.map((provider, idx) => `
+                <div class="provider-list-item" draggable="true" data-provider-id="${provider.id}" data-provider-index="${idx}" ondragstart="dragStartProvider(event)" ondragover="dragOverProvider(event)" ondrop="dragDropProvider(event)" ondragend="dragEndProvider(event)">
+                    <div class="provider-name" style="cursor: move; user-select: none; padding-right: 10px;">
+                        <i class="fas fa-grip-vertical" style="color: #FF1494; margin-right: 5px;"></i>
                         <i class="fas fa-plug"></i>
                         <span>${escapeHtml(provider.name)}</span>
                     </div>
@@ -1572,7 +1587,41 @@ function displayProviders(providers) {
             `).join('')}
         </div>
     `;
+    initProviderDragDrop();
 }
+
+// Refresh provider list from database
+async function refreshProvidersList() {
+    try {
+        const response = await fetch('/.netlify/functions/providers', {
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        const data = await response.json();
+        if (data.success && data.providers) {
+            settingsProvidersCache = Array.isArray(data.providers) ? data.providers : [];
+            // Sort by sort_order (or by name if sort_order is not set)
+            settingsProvidersCache.sort((a, b) => {
+                const aOrder = a.sort_order !== null && a.sort_order !== undefined ? a.sort_order : 999999;
+                const bOrder = b.sort_order !== null && b.sort_order !== undefined ? b.sort_order : 999999;
+                if (aOrder !== bOrder) {
+                    return aOrder - bOrder;
+                }
+                // Fallback to name if sort_order is same
+                return (a.name || '').localeCompare(b.name || '');
+            });
+            displayProviders(settingsProvidersCache);
+            console.log('[PROVIDERS] List refreshed with', settingsProvidersCache.length, 'providers');
+        } else {
+            console.error('[PROVIDERS] Failed to refresh list:', data.error);
+        }
+    } catch (error) {
+        console.error('[PROVIDERS] Error refreshing list:', error);
+    }
+}
+
 // Helper function to escape HTML
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -2202,4 +2251,93 @@ async function testNotificationEmail() {
         console.error('[testNotificationEmail] Error:', error);
         showNotification('Error sending test email: ' + error.message, 'error');
     }
+}
+
+// Provider Drag & Drop functionality
+let draggedProviderElement = null;
+
+function dragStartProvider(event) {
+    draggedProviderElement = event.currentTarget;
+    event.currentTarget.style.opacity = '0.5';
+    event.dataTransfer.effectAllowed = 'move';
+}
+
+function dragOverProvider(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    
+    const afterElement = getDragAfterElement(event.currentTarget.parentElement, event.clientY);
+    const draggingElement = draggedProviderElement;
+    
+    if (afterElement == null) {
+        event.currentTarget.parentElement.appendChild(draggingElement);
+    } else {
+        event.currentTarget.parentElement.insertBefore(draggingElement, afterElement);
+    }
+}
+
+function dragDropProvider(event) {
+    event.preventDefault();
+    saveProviderOrder();
+}
+
+function dragEndProvider(event) {
+    event.currentTarget.style.opacity = '1';
+    draggedProviderElement = null;
+}
+
+function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.provider-list-item:not(.is-dragging)')];
+    
+    return draggableElements.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        
+        if (offset < 0 && offset > closest.offset) {
+            return { offset: offset, element: child };
+        } else {
+            return closest;
+        }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+async function saveProviderOrder() {
+    try {
+        const items = document.querySelectorAll('.provider-list-item');
+        const order = Array.from(items).map((item, idx) => ({
+            provider_id: item.getAttribute('data-provider-id'),
+            sort_order: idx
+        }));
+        
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/update-provider-order', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ providers: order })
+        });
+        
+        const result = await response.json();
+        if (result.success) {
+            console.log('[PROVIDERS] Order saved successfully');
+            showNotification('Provider order saved', 'success');
+        } else {
+            showNotification('Failed to save provider order', 'error');
+        }
+    } catch (error) {
+        console.error('[PROVIDERS] Error saving order:', error);
+        showNotification('Error saving provider order: ' + error.message, 'error');
+    }
+}
+
+function initProviderDragDrop() {
+    const items = document.querySelectorAll('.provider-list-item');
+    items.forEach(item => {
+        item.addEventListener('dragstart', dragStartProvider);
+        item.addEventListener('dragover', dragOverProvider);
+        item.addEventListener('drop', dragDropProvider);
+        item.addEventListener('dragend', dragEndProvider);
+    });
 }
