@@ -337,6 +337,32 @@ async function handleAdminStats(headers, event) {
       profitByDay[dateStr] = 0;
     }
 
+    // Fetch revenue from payments (deposits, not refunds) - DASHBOARD ONLY
+    try {
+      const { data: paymentsData } = await supabaseAdmin
+        .from('payments')
+        .select('created_at, amount, method')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .neq('method', 'refund')  // Exclude refunds
+        .order('created_at', { ascending: false });
+      
+      if (paymentsData && paymentsData.length > 0) {
+        paymentsData.forEach(payment => {
+          try {
+            const date = payment.created_at?.split('T')[0];
+            if (date && revenueByDay.hasOwnProperty(date)) {
+              revenueByDay[date] += parseFloat(payment.amount || 0);
+            }
+          } catch (err) {
+            console.error('[DASHBOARD] Error processing payment:', err);
+          }
+        });
+      }
+    } catch (paymentsError) {
+      console.error('[DASHBOARD] Error fetching payments for revenue:', paymentsError);
+    }
+
     // Calculate daily profit from orders (with pagination)
     let allOrdersForProfit = [];
     let profitPageNum = 0;
@@ -446,10 +472,26 @@ async function handleAdminStats(headers, event) {
       usersByDayArray[date] = Object.values(usersObj);
     });
     
-    console.log('[DASHBOARD] usersByDayArray:', usersByDayArray);
-
-    allOrdersByDate?.forEach(order => {
+    // Calculate daily order values (total charge per day) - Use ordersForProfit data
+    const chargeByDay = {};
+    
+    // Initialize all dates from ordersForProfit same way as profitByDay
+    Object.keys(profitByDay).forEach(date => {
+      chargeByDay[date] = 0;
+    });
+    
+    // Accumulate charges from the same ordersForProfit data
+    ordersForProfit?.forEach(order => {
       const date = order.created_at.split('T')[0];
+      if (chargeByDay.hasOwnProperty(date)) {
+        const charge = parseFloat(order.charge || order.original_charge || 0);
+        chargeByDay[date] += charge;
+      }
+    });
+
+    ordersForProfit?.forEach(order => {
+      const date = order.created_at.split('T')[0];
+      // Also count orders
       if (ordersByDay[date] !== undefined) {
         ordersByDay[date] += 1;
       }
@@ -483,6 +525,7 @@ async function handleAdminStats(headers, event) {
         recentOrders: recentOrders || [],
         revenueChart: revenueByDay,
         ordersChart: ordersByDay,
+        chargeByDay: chargeByDay,
         usersChart: usersByDay,
         ticketsChart: ticketsByDay,
         profitChart: profitByDay,

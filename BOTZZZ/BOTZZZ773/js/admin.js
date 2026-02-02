@@ -437,6 +437,7 @@ async function fetchDashboardStats() {
             tickets: data.stats?.openTickets || data.stats?.pendingTickets || 0,
             revenueChart: data.revenueChart || {},
             ordersChart: data.ordersChart || {},
+            chargeByDay: data.chargeByDay || {},
             usersChart: data.usersChart || {},
             ticketsChart: data.ticketsChart || {}
         };
@@ -451,6 +452,7 @@ async function fetchDashboardStats() {
             tickets: 0,
             revenueChart: {},
             ordersChart: {},
+            chargeByDay: {},
             usersChart: {},
             ticketsChart: {}
         };
@@ -576,7 +578,7 @@ if (window.location.pathname.includes('admin/index.html') || window.location.pat
         const stats = await fetchDashboardStats();
         updateDashboardStats(stats);
         populateRecentOrders();
-        initDashboardChart(stats.revenueChart);
+        initDashboardChart(stats.revenueChart, stats.ordersChart, stats.profitChart, stats.chargeByDay);
         
         // Fix hover issues by adding proper event delegation
         fixHoverIssues();
@@ -604,7 +606,7 @@ function fixHoverIssues() {
 // Initialize dashboard chart
 let dashboardChart = null;
 
-function initDashboardChart(revenueChartData = {}) {
+function initDashboardChart(revenueChartData = {}, ordersChartData = {}, profitChartData = {}, chargeByDayData = {}) {
     const canvas = document.getElementById('revenueChart');
     if (!canvas) return;
     
@@ -618,9 +620,9 @@ function initDashboardChart(revenueChartData = {}) {
     });
     const paymentsData = dates.map(d => parseFloat(revenueChartData[d]) || 0);
     
-    // Generate placeholder data for orders and profits (proportional to payments)
-    const ordersData = paymentsData.map(p => Math.round(p / 10)); // Roughly 10% of payment value
-    const profitsData = paymentsData.map(p => p * 0.3); // 30% profit margin estimate
+    // Get orders and profits data from backend (not placeholder)
+    const ordersData = dates.map(d => parseFloat(ordersChartData[d]) || 0);
+    const profitsData = dates.map(d => parseFloat(profitChartData[d]) || 0);
     
     const data = {
         labels: labels.length > 0 ? labels : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
@@ -641,9 +643,12 @@ function initDashboardChart(revenueChartData = {}) {
     
     // Store chart data for tab switching
     window.chartDataStore = {
+        dates: dates,
         payments: paymentsData.length > 0 ? paymentsData : [500, 650, 750, 820, 900, 1100, 1250],
         orders: ordersData.length > 0 ? ordersData : [45, 52, 58, 63, 71, 85, 92],
-        profits: profitsData.length > 0 ? profitsData : [120, 180, 210, 245, 280, 330, 375]
+        profits: profitsData.length > 0 ? profitsData : [120, 180, 210, 245, 280, 330, 375],
+        revenueByDay: revenueChartData,
+        chargeByDay: chargeByDayData
     };
 
     if (typeof Chart !== 'undefined') {
@@ -669,6 +674,18 @@ function initDashboardChart(revenueChartData = {}) {
                         displayColors: false,
                         callbacks: {
                             label: function(context) {
+                                // Check if this is Orders tab
+                                const currentTab = document.querySelector('.chart-tab.active')?.textContent.trim();
+                                if (currentTab === 'Orders') {
+                                    const orderCount = context.parsed.y;
+                                    const dateIndex = context.dataIndex;
+                                    const date = window.chartDataStore?.dates?.[dateIndex];
+                                    const totalCharge = date ? window.chartDataStore?.chargeByDay?.[date] || 0 : 0;
+                                    return [
+                                        'Orders: ' + Math.round(orderCount),
+                                        'Price: ' + formatCurrencyDynamic(totalCharge)
+                                    ];
+                                }
                                 return context.dataset.label + ': ' + formatCurrencyDynamic(context.parsed.y);
                             }
                         }

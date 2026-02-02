@@ -2166,13 +2166,16 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
-        if (serviceRecord.status !== 'active') {
-          return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({ error: 'Selected service is not active' })
-          };
-        }
+        // For admin updates, don't validate service status - allow admins to keep orders 
+        // even if the service becomes inactive later. This is important for canceling orders.
+        // Service status validation is only for creating new orders via the customer API.
+        // if (serviceRecord.status !== 'active') {
+        //   return {
+        //     statusCode: 400,
+        //     headers,
+        //     body: JSON.stringify({ error: 'Selected service is not active' })
+        //   };
+        // }
 
         updates.service_id = serviceRecord.id;
         updates.service_name = serviceRecord.name;
@@ -2848,13 +2851,14 @@ async function recordRefundTransaction(order, amount, options = {}) {
     });
 
     // ALSO record in payments table for historical tracking (but kept separate from admin payments view)
+    // THIS IS CRITICAL - without this, admin refunds panel won't show the refund
     try {
       const paymentPayload = {
         user_id: userId,
         order_id: order.id || order.order_id || null,
-        amount: Math.abs(Number(numericAmount.toFixed(5))),
+        amount: -Math.abs(Number(numericAmount.toFixed(5))),  // Negative for refund (outflow)
         method: 'refund',
-        status: 'completed',
+        status: 'refunded',  // Match the example record status
         gateway: 'internal',
         transaction_id: refundCode,
         gateway_response: {
@@ -2868,34 +2872,62 @@ async function recordRefundTransaction(order, amount, options = {}) {
         created_at: new Date().toISOString()
       };
 
+      console.log('[REFUND TRANSACTION] Attempting to insert payment record for admin refunds panel:', {
+        user_id: paymentPayload.user_id,
+        order_id: paymentPayload.order_id,
+        amount: paymentPayload.amount,
+        method: paymentPayload.method,
+        transaction_id: paymentPayload.transaction_id
+      });
+
       const { data: paymentData, error: paymentError } = await supabaseAdmin
         .from('payments')
         .insert([paymentPayload])
         .select('id, transaction_id, amount, method, created_at');
 
       if (paymentError) {
-        console.warn('[REFUND TRANSACTION] Warning - Failed to record refund in payments table:', {
+        console.error('[REFUND TRANSACTION] CRITICAL - Failed to record refund in payments table (admin panel won\'t show it):', {
           code: paymentError.code,
           message: paymentError.message,
+          details: paymentError.details,
+          hint: paymentError.hint,
           orderId,
-          userId
+          userId,
+          payload: paymentPayload
         });
+        // Still return the refund record - payment logging failure shouldn't block the refund
+        return refundRecord;
       } else if (paymentData && paymentData.length > 0) {
-        console.log(`[REFUND TRANSACTION] Refund also recorded in payments table (for archival):`, {
+        console.log(`[REFUND TRANSACTION] ✅ Refund recorded in payments table (visible in admin panel):`, {
           paymentId: paymentData[0].id,
           transactionId: paymentData[0].transaction_id,
-          amount: paymentData[0].amount
+          amount: paymentData[0].amount,
+          method: paymentData[0].method,
+          created_at: paymentData[0].created_at
         });
       }
     } catch (paymentError) {
-      console.warn('[REFUND TRANSACTION] Exception while recording payment:', paymentError?.message);
+      console.error('[REFUND TRANSACTION] Exception while recording payment:', {
+        error: paymentError?.message,
+        orderId,
+        userId
+      });
+      // Return refund record anyway - payment recording shouldn't block the refund
+      return refundRecord;
     }
+
+    console.log(`[REFUND TRANSACTION] Refund transaction complete:`, {
+      refundId: refundRecord.id,
+      refundCode: refundRecord.refund_code,
+      amount: refundRecord.amount,
+      orderId,
+      userId
+    });
 
     return refundRecord;
   } catch (error) {
-    console.error('[REFUND TRANSACTION] Exception caught:', {
-      errorMessage: error?.message,
-      errorStack: error?.stack,
+    console.error('[REFUND TRANSACTION] Top-level error in recordRefundTransaction:', {
+      error: error?.message,
       orderId,
       userId
     });

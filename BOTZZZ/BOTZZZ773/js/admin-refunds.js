@@ -81,18 +81,24 @@ function bindRefundSelectionEvents() {
 }
 
 function renderRefundsTable(refunds) {
+    console.log('[ADMIN REFUNDS] renderRefundsTable called with count:', refunds?.length || 0);
     const tbody = document.getElementById('refundsTableBody');
-    if (!tbody) return;
+    if (!tbody) {
+        console.error('[ADMIN REFUNDS] ERROR: refundsTableBody element not found!');
+        return;
+    }
 
     if (!refunds || refunds.length === 0) {
+        console.log('[ADMIN REFUNDS] No refunds to render');
         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #888;">No refunds found</td></tr>';
         updateRefundsSelectionSummary();
         return;
     }
 
+    console.log('[ADMIN REFUNDS] Rendering', refunds.length, 'refunds...');
     tbody.innerHTML = '';
 
-    refunds.forEach(refund => {
+    refunds.forEach((refund, idx) => {
         const userMeta = refundsUserLookup[refund.user_id] || {};
         const userLabel = userMeta.username || userMeta.email || 'Unknown';
 
@@ -142,10 +148,15 @@ function renderRefundsTable(refunds) {
         `;
 
         tbody.insertAdjacentHTML('beforeend', row);
+        
+        if (idx === 0 || idx % 100 === 0) {
+            console.log(`[ADMIN REFUNDS] Inserted ${idx + 1} rows... (Order: ${orderNumber})`);
+        }
     });
 
     bindRefundSelectionEvents();
     updateRefundsSelectionSummary();
+    console.log('[ADMIN REFUNDS] ✅ Table render complete! Refunds now visible in DOM');
 }
 
 async function loadRefunds() {
@@ -153,6 +164,7 @@ async function loadRefunds() {
     if (!tbody) return;
 
     refundsLoading = true;
+    console.log('[ADMIN REFUNDS] Starting loadRefunds...');
     tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading refunds...</td></tr>';
 
     try {
@@ -161,6 +173,7 @@ async function loadRefunds() {
             throw new Error('Not authenticated');
         }
 
+        console.log('[ADMIN REFUNDS] Sending refunds-history request...');
         const response = await fetch('/.netlify/functions/payments', {
             method: 'POST',
             headers: {
@@ -170,11 +183,14 @@ async function loadRefunds() {
             body: JSON.stringify({ action: 'refunds-history' })
         });
 
+        console.log('[ADMIN REFUNDS] Response status:', response.status);
         if (!response.ok) {
             throw new Error(`Failed to load refunds: ${response.status}`);
         }
 
         const data = await response.json();
+        console.log('[ADMIN REFUNDS] Received refunds count:', data.refunds?.length || 0);
+        console.log('[ADMIN REFUNDS] Sample refund:', data.refunds?.[0] || 'none');
         refundsCache = Array.isArray(data.refunds) ? data.refunds : [];
 
         // Hydrate user map

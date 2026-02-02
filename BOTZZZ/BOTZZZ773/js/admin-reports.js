@@ -358,7 +358,23 @@ function fillProfitTable() {
         tableBody.appendChild(row);
     });
     
-    console.log('[TABLO] Profit tablosu dolduruldu:', dates.length, 'gün');
+    // Add total row
+    const totalOrders = dates.reduce((sum, dateStr) => sum + (orderData[dateStr] || 0), 0);
+    const totalProfit = dates.reduce((sum, dateStr) => sum + (profitData[dateStr] || 0), 0);
+    
+    const totalRow = document.createElement('tr');
+    totalRow.style.fontWeight = 'bold';
+    totalRow.style.borderTop = '2px solid #FF1494';
+    totalRow.style.borderBottom = '2px solid #FF1494';
+    totalRow.style.backgroundColor = 'rgba(255, 20, 148, 0.05)';
+    totalRow.innerHTML = `
+        <td style="padding: 12px 8px;">TOTAL</td>
+        <td>${totalOrders}</td>
+        <td>${formatCurrencyDynamic(totalProfit)}</td>
+    `;
+    tableBody.appendChild(totalRow);
+    
+    console.log('[TABLO] Profit tablosu dolduruldu:', dates.length, 'gün, Total:', totalOrders, 'orders,', formatCurrencyDynamic(totalProfit), 'profit');
 }
 
 // Chart ve table arasında geçiş yap

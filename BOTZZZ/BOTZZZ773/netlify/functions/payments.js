@@ -494,21 +494,67 @@ async function handleGetHistory(user, headers) {
 
 async function handleGetRefundHistory(headers) {
   try {
-    const { data: refunds, error } = await supabaseAdmin
+    // Fetch from both payments table (for payment-recorded refunds) 
+    // AND refunds table (for all refunds, including those that failed to record in payments)
+    const { data: paymentRefunds, error: paymentError } = await supabaseAdmin
       .from('payments')
       .select('*')
       .eq('method', 'refund')
       .order('created_at', { ascending: false })
       .limit(500);
 
-    if (error) {
-      console.error('Get refund history error:', error);
+    const { data: allRefunds, error: refundsError } = await supabaseAdmin
+      .from('refunds')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (paymentError && refundsError) {
+      console.error('Get refund history error - both tables failed:', paymentError, refundsError);
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({ error: 'Failed to fetch refund history' })
       };
     }
+
+    // Merge refunds from both sources, prioritize payments table (complete data)
+    // then add any refunds from refunds table that aren't in payments
+    const refundsMap = new Map();
+    
+    // First add from payments table
+    (paymentRefunds || []).forEach(refund => {
+      refundsMap.set(refund.id, refund);
+    });
+    
+    // Then add from refunds table (fill gaps)
+    (allRefunds || []).forEach(refund => {
+      if (!refundsMap.has(refund.id)) {
+        // Transform refunds table format to match payments table format for consistency
+        refundsMap.set(refund.id, {
+          id: refund.id,
+          transaction_id: refund.refund_code,
+          user_id: refund.user_id,
+          order_id: refund.order_id,
+          amount: -Math.abs(Number(refund.amount)),  // Make negative for consistency
+          method: 'refund',
+          status: refund.status,
+          gateway_response: {
+            reason: refund.reason,
+            source: refund.source,
+            order_number: refund.metadata?.order_number || null
+          },
+          memo: refund.metadata?.memo || null,
+          created_at: refund.created_at
+        });
+      }
+    });
+    
+    const refunds = Array.from(refundsMap.values())
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 500);
+
+    console.log(`[REFUND HISTORY] Loaded ${paymentRefunds?.length || 0} from payments + ${allRefunds?.length || 0} from refunds = ${refunds.length} total`);
 
     const orderIds = Array.from(new Set((refunds || []).map(refund => refund.order_id).filter(Boolean)));
     const orderMap = {};
