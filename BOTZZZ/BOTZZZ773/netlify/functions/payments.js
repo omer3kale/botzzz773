@@ -498,14 +498,14 @@ async function handleGetRefundHistory(headers) {
     // AND refunds table (for all refunds, including those that failed to record in payments)
     const { data: paymentRefunds, error: paymentError } = await supabaseAdmin
       .from('payments')
-      .select('*')
+      .select('id, transaction_id, user_id, order_id, amount, method, status, gateway_response, memo, created_at')
       .eq('method', 'refund')
       .order('created_at', { ascending: false })
       .limit(500);
 
     const { data: allRefunds, error: refundsError } = await supabaseAdmin
       .from('refunds')
-      .select('*')
+      .select('id, refund_code, user_id, order_id, amount, status, reason, source, metadata, created_at')
       .order('created_at', { ascending: false })
       .limit(500);
 
@@ -562,7 +562,7 @@ async function handleGetRefundHistory(headers) {
     if (orderIds.length > 0) {
       const { data: orders, error: ordersError } = await supabaseAdmin
         .from('orders')
-        .select('id, order_number, order_reference, customer_order_number, public_id, canceled_at, refund_applied_at')
+        .select('id, order_number, order_reference')
         .in('id', orderIds);
 
       if (ordersError) {
