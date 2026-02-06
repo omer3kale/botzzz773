@@ -6,12 +6,13 @@ exports.handler = async (event) => {
   try {
     console.log('[REFILL_STATUS_SYNC] Starting refill status sync...');
     
-    // Get all pending/in progress refills with provider_refill_id
+    // Get all pending/in progress refills WITH provider_refill_id
+    // (Skip manual refills without provider_refill_id - they don't need sync)
     const { data: refills, error } = await supabaseAdmin
       .from('refill_requests')
       .select('refill_id, provider_refill_id, order_number, status')
       .in('status', ['pending', 'in progress'])  // Only pending/in progress
-      .not('provider_refill_id', 'is', null);    // Only those with provider_refill_id
+      .not('provider_refill_id', 'is', null);    // ONLY those with provider_refill_id (skip manual ones)
 
     if (error) {
       console.error('[REFILL_STATUS_SYNC] Error fetching refills:', error.message);
@@ -77,8 +78,8 @@ exports.handler = async (event) => {
             if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
             if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
             if (s === 'processing' || s === 'started') return 'processing';
-            if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
-            if (s.includes('reject')) return 'rejected';
+            if (s === 'completed' || s === 'success' || s === 'done') return 'completed';
+            if (s === 'rejected' || s === 'failed') return 'rejected';
             return null;
           };
 

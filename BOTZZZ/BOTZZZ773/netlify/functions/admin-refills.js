@@ -98,105 +98,32 @@ async function listRefills(headers) {
 
     console.log('[LIST_REFILLS] Success - found refills:', refillsList?.length);
 
-    // Add provider info to each refill
+    // Batch load order/provider info instead of sequential queries
     if (refillsList && Array.isArray(refillsList) && refillsList.length > 0) {
-      for (const refill of refillsList) {
-        try {
-          // Get order and provider info for ALL refills
-          const { data: order, error: orderError } = await supabaseAdmin
-            .from('orders')
-            .select('service:services(provider:providers(name, api_url, api_key))')
-            .eq('order_number', refill.order_number)
-            .single();
-          
-          if (!orderError && order?.service?.provider) {
-            // Attach provider info to refill object
-            refill.orders = order;
-            refill.provider_name = order.service?.provider?.name || 'Unknown';
-          }
-        } catch (err) {
-          console.warn('[LIST_REFILLS] Failed to get provider info for refill:', { refill_id: refill.refill_id, error: err.message });
-          refill.provider_name = 'Unknown';
-        }
-      }
-    }
+      const orderNumbers = [...new Set(refillsList.map(r => r.order_number).filter(Boolean))];
+      
+      if (orderNumbers.length > 0) {
+        const { data: orders, error: ordersError } = await supabaseAdmin
+          .from('orders')
+          .select('order_number, service:services(provider:providers(name, api_url, api_key))')
+          .in('order_number', orderNumbers);
 
-    // For each refill with provider_refill_id, query provider for status update
-    if (refillsList && Array.isArray(refillsList) && refillsList.length > 0) {
-      for (const refill of refillsList) {
-        if (refill.provider_refill_id && refill.order_number && refill.status !== 'completed' && refill.status !== 'rejected') {
-          try {
-            console.log('[LIST_REFILLS] Checking provider status for refill:', { refill_id: refill.refill_id, provider_refill_id: refill.provider_refill_id });
-            
-            // Get order and provider info
-            const { data: order, error: orderError } = await supabaseAdmin
-              .from('orders')
-              .select('service:services(provider:providers(*))')
-              .eq('order_number', refill.order_number)
-              .single();
-            
-            if (orderError || !order?.service?.provider?.api_url) {
-              console.warn('[LIST_REFILLS] Order or provider not found:', { refill_id: refill.refill_id, order_number: refill.order_number, error: orderError?.message });
-              continue;
+        if (!ordersError && orders) {
+          const orderMap = {};
+          orders.forEach(order => {
+            orderMap[order.order_number] = order;
+          });
+
+          // Attach provider info to refills
+          refillsList.forEach(refill => {
+            const order = orderMap[refill.order_number];
+            if (order?.service?.provider) {
+              refill.orders = order;
+              refill.provider_name = order.service.provider.name || 'Unknown';
+            } else {
+              refill.provider_name = 'Unknown';
             }
-            
-            const provider = order.service.provider;
-              
-              try {
-                // Query provider for refill status
-                const statusRes = await axios.post(
-                  provider.api_url,
-                  new URLSearchParams({
-                    key: provider.api_key,
-                    action: 'refill_status',
-                    refill: refill.provider_refill_id
-                  }),
-                  { timeout: 5000 }
-                );
-
-                console.log('[LIST_REFILLS] Provider response:', { refill_id: refill.refill_id, status: statusRes.data?.status });
-
-                // Parse and normalize provider status
-                const providerStatus = statusRes.data?.status || statusRes.data?.status_text || statusRes.data?.statusText || null;
-                const normalizeProviderStatus = (raw) => {
-                  if (!raw) return null;
-                  const s = String(raw).trim().toLowerCase();
-                  if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
-                  if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
-                  if (s === 'processing' || s === 'started') return 'processing';
-                  if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
-                  if (s.includes('reject')) return 'rejected';
-                  return null;
-                };
-
-                const dbStatus = normalizeProviderStatus(providerStatus);
-
-                // Only update if status changed
-                if (dbStatus && dbStatus !== refill.status) {
-                  const { error: updateError } = await supabaseAdmin
-                    .from('refill_requests')
-                    .update({
-                      provider_response: statusRes.data,
-                      status: dbStatus,
-                      updated_at: new Date().toISOString()
-                    })
-                    .eq('refill_id', refill.refill_id);
-
-                  if (updateError) {
-                    console.warn('[LIST_REFILLS] Failed to update refill status:', { refill_id: refill.refill_id, error: updateError.message });
-                  } else {
-                    console.log('[LIST_REFILLS] Updated refill status:', { refill_id: refill.refill_id, new_status: dbStatus });
-                    // Update local object for response
-                    refill.status = dbStatus;
-                    refill.provider_response = statusRes.data;
-                  }
-                }
-              } catch (providerErr) {
-                console.warn('[LIST_REFILLS] Provider query failed:', { refill_id: refill.refill_id, error: providerErr.message });
-              }
-          } catch (err) {
-            console.warn('[LIST_REFILLS] Error checking provider status:', { refill_id: refill.refill_id, error: err.message });
-          }
+          });
         }
       }
     }

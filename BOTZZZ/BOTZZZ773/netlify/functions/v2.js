@@ -950,6 +950,7 @@ exports.handler = async (event) => {
             }
             
             // Try to query provider if we have provider_refill_id
+            // If NO provider_refill_id, this is a manual refill - return DB status
             if (rs.provider_refill_id && rs.order_number) {
                try {
                   // Get order to find provider info
@@ -991,8 +992,8 @@ exports.handler = async (event) => {
                            if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
                            if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
                            if (s === 'processing' || s === 'started') return 'processing';
-                           if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
-                           if (s.includes('reject')) return 'rejected';
+                           if (s === 'completed' || s === 'success' || s === 'done') return 'completed';
+                           if (s === 'rejected' || s === 'failed') return 'rejected';
                            return 'pending';
                         };
                         
@@ -1031,11 +1032,14 @@ exports.handler = async (event) => {
                   console.warn('[V2 REFILL_STATUS] Could not query provider:', err.message);
                   // Fall through to return DB status
                }
+            } else {
+               // No provider_refill_id = Manual refill handled by admin
+               console.log('[V2 REFILL_STATUS] Manual refill (no provider_refill_id), returning DB status:', rs.status);
             }
             
-            // Return status from database if no provider_refill_id or provider query failed
+            // Return status from database (manual refill or provider sync didn't get updated yet)
             const statusMap = { 'pending': 'Pending', 'awaiting': 'Awaiting', 'completed': 'Completed', 'rejected': 'Rejected', 'in progress': 'In Progress' };
-            console.log('[V2 REFILL_STATUS] No provider info, returning DB status:', { dbStatus: rs.status });
+            console.log('[V2 REFILL_STATUS] Returning DB status:', { dbStatus: rs.status });
             return { statusCode: 200, headers, body: JSON.stringify({ status: statusMap[rs.status] || 'Awaiting' }) };
          }
          
@@ -1078,8 +1082,8 @@ exports.handler = async (event) => {
                            if (['pending', 'in queue', 'queue', 'waiting'].includes(s)) return 'pending';
                            if (s === 'in progress' || s === 'inprogress' || s === 'in_progress') return 'in progress';
                            if (s === 'processing' || s === 'started') return 'processing';
-                           if (s.includes('completed') || s.includes('success') || s.includes('done')) return 'completed';
-                           if (s.includes('reject')) return 'rejected';
+                           if (s === 'completed' || s === 'success' || s === 'done') return 'completed';
+                           if (s === 'rejected' || s === 'failed') return 'rejected';
                            return 'pending';
                         };
                         
