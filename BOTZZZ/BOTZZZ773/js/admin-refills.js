@@ -78,6 +78,7 @@
                         <th style="width: 30px;"><input type="checkbox" id="selectAllRefills" onchange="window.toggleSelectAll()"></th>
                         <th>Refill ID</th>
                         <th>P. Refill ID<br><small>Provider</small></th>
+                        <th>P. Order ID<br><small>Provider Order</small></th>
                         <th>Order Number</th>
                         <th>Username</th>
                         <th>Service ID</th>
@@ -113,6 +114,7 @@
                         <span class="provider-id">#${refill.provider_refill_id || '-'}</span>
                         <br><small style="color: #666;">${refill.provider_name || refill.orders?.service?.provider?.name || 'Unknown'}</small>
                     </td>
+                    <td><span class="provider-order-id">#${refill.provider_order_id || '-'}</span></td>
                     <td>${refill.order_number}</td>
                     <td>${refill.user_email || 'Unknown'}</td>
                     <td>${refill.service_id}</td>
@@ -154,7 +156,8 @@
             const matchesStatus = !statusFilter || refill.status === statusFilter;
             const matchesSearch = !searchInput || 
                 String(refill.order_number).includes(searchInput) ||
-                String(refill.refill_id).includes(searchInput);
+                String(refill.refill_id).includes(searchInput) ||
+                String(refill.service_id).includes(searchInput);
             
             return matchesStatus && matchesSearch;
         });
@@ -457,6 +460,9 @@
         
         bulkBar.innerHTML = `
             <span>${selectedCount} selected</span>
+            <button onclick="window.copyProviderOrderIds()" style="padding: 8px 16px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                <i class="fas fa-copy"></i> Copy Order IDs
+            </button>
             <button onclick="window.bulkCompleteRefills()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                 <i class="fas fa-check"></i> Complete All
             </button>
@@ -544,6 +550,30 @@
         showNotification(`${successCount} rejected, ${errorCount} failed`, successCount > 0 ? 'success' : 'error');
         window.clearRefillSelection();
         loadRefills();
+    };
+
+    // Copy provider order IDs to clipboard
+    window.copyProviderOrderIds = function() {
+        const orderIds = [];
+        for (const refillId of window.selectedRefills) {
+            const refill = allRefills.find(r => r.id === refillId);
+            if (refill && refill.provider_order_id) {
+                orderIds.push(refill.provider_order_id);
+            }
+        }
+        
+        if (orderIds.length === 0) {
+            showNotification('No provider order IDs to copy', 'warning');
+            return;
+        }
+        
+        const text = orderIds.join(',');
+        navigator.clipboard.writeText(text).then(() => {
+            showNotification(`Copied ${orderIds.length} provider order IDs: ${text}`, 'success');
+        }).catch(err => {
+            showNotification('Failed to copy to clipboard', 'error');
+            console.error('Copy failed:', err);
+        });
     };
 
     // Clear selection
