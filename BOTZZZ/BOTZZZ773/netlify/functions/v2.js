@@ -741,9 +741,12 @@ exports.handler = async (event) => {
                    let refillId = refillRecord?.refill_id;
                    
                    // If refill_id is still NULL or provider-like (< 15000), generate our own
-                   if (!refillId || refillId < 15000) {
+                   const refillIdNum = refillId ? parseInt(String(refillId)) : 0;
+                   if (!refillId || refillIdNum < 15000) {
                        const randomIncrement = Math.floor(Math.random() * 5) + 1;
-                       refillId = 15090 + randomIncrement;
+                       refillId = String(15090 + randomIncrement);
+                   } else {
+                       refillId = String(refillId);  // Ensure it's a string
                    }
                    
                    const { error: updateError } = await supabaseAdmin.from('orders').update({ refill_id: String(refillId), refill_requested_at: new Date().toISOString() }).eq('id', rOrder.id);
@@ -858,9 +861,12 @@ exports.handler = async (event) => {
                    let refillId = refillRecord?.refill_id;
                    
                    // If refill_id is still NULL or provider-like (< 15000), generate our own
-                   if (!refillId || refillId < 15000) {
+                   const refillIdNum = refillId ? parseInt(String(refillId)) : 0;
+                   if (!refillId || refillIdNum < 15000) {
                        const randomIncrement = Math.floor(Math.random() * 5) + 1;
-                       refillId = 15090 + randomIncrement;
+                       refillId = String(15090 + randomIncrement);
+                   } else {
+                       refillId = String(refillId);  // Ensure it's a string
                    }
                    
                    const apiResponseToUser = { order: String(orderNum), refill: String(refillId) };
@@ -934,11 +940,11 @@ exports.handler = async (event) => {
          // Single refill status response
          if (statusRefills.length === 1) {
             const refillId = statusRefills[0];
-            console.log('[V2 REFILL_STATUS] Query:', { refillId, refillIdInt: parseInt(refillId) });
+            console.log('[V2 REFILL_STATUS] Query:', { refillId, refillIdString: String(refillId) });
             const { data: rs, error: statusError } = await supabaseAdmin
                .from('refill_requests')
                .select('refill_id, status, provider_refill_id, order_number, id')
-               .eq('refill_id', parseInt(refillId))
+               .eq('refill_id', String(refillId))
                .single();
             
             console.log('[V2 REFILL_STATUS] Result:', { rs, statusError });
@@ -1049,7 +1055,7 @@ exports.handler = async (event) => {
             const { data: rs } = await supabaseAdmin
                .from('refill_requests')
                .select('refill_id, status, provider_refill_id, order_number, id')
-               .eq('refill_id', parseInt(refillId))
+               .eq('refill_id', String(refillId))
                .single();
             
             if (rs) {
