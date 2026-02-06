@@ -80,7 +80,7 @@ async function listRefills(headers) {
     if (error) {
       console.log('[LIST_REFILLS] RPC failed, trying fallback query');
       
-      // Fallback: just get refills without user email if the function doesn't exist
+      // Fallback: get refills and manually join with user emails
       const { data: refillsOnly, error: fallbackError } = await supabaseAdmin
         .from('refill_requests')
         .select(`
@@ -92,6 +92,30 @@ async function listRefills(headers) {
       console.log('[LIST_REFILLS] Fallback query - error:', fallbackError, 'data count:', refillsOnly?.length);
 
       if (fallbackError) throw fallbackError;
+
+      // Fetch user emails for these refills
+      if (refillsOnly && refillsOnly.length > 0) {
+        const userIds = [...new Set(refillsOnly.map(r => r.user_id).filter(Boolean))];
+        
+        if (userIds.length > 0) {
+          const { data: users, error: usersError } = await supabaseAdmin
+            .from('users')
+            .select('id, email, username')
+            .in('id', userIds);
+
+          if (!usersError && users) {
+            const userMap = {};
+            users.forEach(user => {
+              userMap[user.id] = user.username || user.email || 'Unknown';
+            });
+
+            // Attach username to refills
+            refillsOnly.forEach(refill => {
+              refill.email = userMap[refill.user_id] || 'Unknown';
+            });
+          }
+        }
+      }
 
       refillsList = refillsOnly;
     }
@@ -105,7 +129,7 @@ async function listRefills(headers) {
       if (orderNumbers.length > 0) {
         const { data: orders, error: ordersError } = await supabaseAdmin
           .from('orders')
-          .select('order_number, service:services(provider:providers(name, api_url, api_key))')
+          .select('order_number, provider_order_id, service:services(provider:providers(name, api_url, api_key))')
           .in('order_number', orderNumbers);
 
         if (!ordersError && orders) {
@@ -120,6 +144,7 @@ async function listRefills(headers) {
             if (order?.service?.provider) {
               refill.orders = order;
               refill.provider_name = order.service.provider.name || 'Unknown';
+              refill.provider_order_id = order.provider_order_id;
             } else {
               refill.provider_name = 'Unknown';
             }
