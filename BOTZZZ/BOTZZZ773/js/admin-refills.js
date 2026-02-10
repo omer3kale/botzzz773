@@ -21,6 +21,19 @@
         }
     }
 
+    function escapeHtml(value) {
+        return String(value ?? '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttribute(value) {
+        return escapeHtml(value);
+    }
+
     // Load refills
     async function loadRefills() {
         try {
@@ -77,8 +90,8 @@
                     <tr>
                         <th style="width: 30px;"><input type="checkbox" id="selectAllRefills" onchange="window.toggleSelectAll()"></th>
                         <th>Refill ID</th>
-                        <th>P. Refill ID<br><small>Provider</small></th>
-                        <th>P. Order ID<br><small>Provider Order</small></th>
+                        <th>P. Refill ID</th>
+                        <th>P. Order ID</th>
                         <th>Order Number</th>
                         <th>Username</th>
                         <th>Service ID</th>
@@ -94,6 +107,11 @@
             const status = refill.status || 'pending';
             const requestedDate = new Date(refill.requested_at).toLocaleDateString();
             const isSelected = window.selectedRefills?.has(refill.id) ? 'checked' : '';
+            const orderNumberValue = refill.order_number ? String(refill.order_number) : '';
+            const orderNumberLabel = orderNumberValue || '-';
+            const orderNumberCell = orderNumberValue
+                ? `<button type="button" class="refill-order-link" data-order-number="${escapeAttribute(orderNumberValue)}">${escapeHtml(orderNumberLabel)}</button>`
+                : '<span class="refill-order-missing">-</span>';
             
             let actionButtons = '';
             
@@ -111,11 +129,11 @@
                     <td style="width: 30px;"><input type="checkbox" class="refill-checkbox" data-refill-id="${refill.id}" onchange="window.updateRefillSelection()" ${isSelected}></td>
                     <td><span class="refill-id">#${refill.refill_id || '-'}</span></td>
                     <td>
-                        <span class="provider-id">#${refill.provider_refill_id || '-'}</span>
+                        <span class="provider-id">${refill.provider_refill_id || '-'}</span>
                         <br><small style="color: var(--admin-gray-text);">${refill.provider_name || refill.orders?.service?.provider?.name || 'Unknown'}</small>
                     </td>
-                    <td><span class="provider-order-id">#${refill.provider_order_id || '-'}</span></td>
-                    <td>${refill.order_number}</td>
+                    <td><span class="provider-order-id">${refill.provider_order_id || '-'}</span></td>
+                    <td>${orderNumberCell}</td>
                     <td>${refill.user_email || 'Unknown'}</td>
                     <td>${refill.service_id}</td>
                     <td>${refill.quantity}</td>
@@ -127,6 +145,21 @@
         
         html += `</tbody></table>`;
         container.innerHTML = html;
+
+        if (!container.dataset.orderLinkBound) {
+            container.addEventListener('click', event => {
+                const link = event.target.closest('.refill-order-link');
+                if (!link) {
+                    return;
+                }
+                const orderNumber = link.dataset.orderNumber;
+                if (!orderNumber) {
+                    return;
+                }
+                window.openOrderFromRefill(orderNumber);
+            });
+            container.dataset.orderLinkBound = 'true';
+        }
         
         // Show bulk actions bar if items selected
         updateBulkActionsBar();
@@ -203,6 +236,15 @@
 
         const modal = document.getElementById('detailsModal');
         if (modal) modal.classList.add('show');
+    };
+
+    window.openOrderFromRefill = function(orderNumber) {
+        const normalized = String(orderNumber || '').trim();
+        if (!normalized) {
+            return;
+        }
+        const target = `orders.html?search=${encodeURIComponent(normalized)}`;
+        window.location.href = target;
     };
 
     window.closeDetailsModal = function() {

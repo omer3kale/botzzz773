@@ -1799,13 +1799,52 @@ body.sidebar-collapsed .admin-main {
 .order-id-primary {
     font-weight: 700;
     font-size: 15px;
-    color: #ff1494;
-    background: linear-gradient(135deg, #ff1494 0%, #ff6ec7 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--admin-accent);
     letter-spacing: 0.03em;
     white-space: nowrap;
+}
+
+.order-id-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+}
+
+.order-id-link:hover {
+    color: var(--admin-primary);
+}
+
+.order-id-link:focus-visible {
+    outline: 2px solid var(--admin-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.refill-order-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--admin-accent);
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+
+.refill-order-link:hover {
+    color: var(--admin-primary);
+    text-decoration: underline;
+}
+
+.refill-order-link:focus-visible {
+    outline: 2px solid var(--admin-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.refill-order-missing {
+    color: var(--admin-gray-text);
 }
 
 .order-id-provider-display {
@@ -1883,7 +1922,7 @@ body.sidebar-collapsed .admin-main {
 }
 
 .order-id-provider strong {
-    color: var(--primary-pink);
+    color: var(--admin-accent);
     font-weight: 600;
 }
 

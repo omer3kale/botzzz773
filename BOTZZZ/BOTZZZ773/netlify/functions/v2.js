@@ -188,6 +188,11 @@ function parseRequest(event) {
   return params;
 }
 
+function generateRefillId() {
+  const randomSuffix = Math.floor(Math.random() * 900) + 100;
+  return `${Date.now()}${randomSuffix}`;
+}
+
 // --- 5. HTML DOCUMENTATION ---
 const HTML_DOCS = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>API v2 Integration</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;padding:40px;max-width:800px;margin:0 auto}h1{color:#38bdf8}pre{background:#1e293b;padding:15px;border-radius:5px;overflow-x:auto}code{color:#f472b6}</style></head><body><h1>🚀 API Integration</h1><p>Endpoint: <code>POST /api</code></p><h3>Check Balance</h3><pre>key=API_KEY&action=balance</pre><h3>Add Order</h3><pre>key=API_KEY&action=add&service=1&link=url&quantity=100</pre></body></html>`;
 
@@ -672,13 +677,15 @@ exports.handler = async (event) => {
              
              // Query using order_number (string in DB)
              const { data: mOrders } = await supabaseAdmin.from('orders')
-               .select('order_number, customer_status, charge, quantity, start_count, remains')
+               .select('order_number, customer_status, customer_status_lock, charge, quantity, start_count, remains')
                 .in('order_number', ids)
                 .eq('user_id', user.id);
 
              let res = {};
              if(mOrders) mOrders.forEach(o => {
-               const status = o.customer_status || 'pending';
+               const status = o.customer_status_lock === 'admin'
+                 ? 'in progress'
+                 : (o.customer_status || 'pending');
                let chargeOut = o.charge;
                if (status === 'canceled' || status === 'cancelled') {
                  chargeOut = 0;
@@ -701,14 +708,16 @@ exports.handler = async (event) => {
          if (!params.order) return errorResponse('Missing order ID');
          
          const { data: oData } = await supabaseAdmin.from('orders')
-            .select('customer_status, charge, quantity, start_count, remains')
+          .select('customer_status, customer_status_lock, charge, quantity, start_count, remains')
             .eq('order_number', params.order)
             .eq('user_id', user.id)
             .single();
 
          if (!oData) return errorResponse('Order not found');
          {
-           const status = oData.customer_status || 'pending';
+           const status = oData.customer_status_lock === 'admin'
+             ? 'in progress'
+             : (oData.customer_status || 'pending');
            let chargeOut = oData.charge;
            if (status === 'canceled' || status === 'cancelled') {
              chargeOut = 0;
@@ -747,7 +756,9 @@ exports.handler = async (event) => {
                        order_number: rOrder.order_number
                    });
                    
-                   const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                     const refillId = generateRefillId();
+                     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                       refill_id: refillId,
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -766,31 +777,6 @@ exports.handler = async (event) => {
                    
                    console.log('[V2 REFILL] Pending refill created, now requesting from provider');
                    
-                   // Get the generated refill_id
-                   const { data: refillRecord, error: selectError } = await supabaseAdmin
-                       .from('refill_requests')
-                       .select('refill_id')
-                       .eq('order_number', rOrder.order_number)
-                       .eq('user_id', user.id)
-                       .order('refill_requested_at', { ascending: false })
-                       .limit(1)
-                       .single();
-                   
-                   if (selectError) {
-                       console.error('[V2 REFILL] Select error:', JSON.stringify(selectError));
-                       return errorResponse('Failed to retrieve refill_id');
-                   }
-                   
-                   let refillId = refillRecord?.refill_id;
-                   
-                   // If refill_id is still NULL or provider-like (< 15000), generate our own
-                   const refillIdNum = refillId ? parseInt(String(refillId)) : 0;
-                   if (!refillId || refillIdNum < 15000) {
-                       const randomIncrement = Math.floor(Math.random() * 5) + 1;
-                       refillId = String(15090 + randomIncrement);
-                   } else {
-                       refillId = String(refillId);  // Ensure it's a string
-                   }
                    
                    const { error: updateError } = await supabaseAdmin.from('orders').update({ refill_id: String(refillId), refill_requested_at: new Date().toISOString() }).eq('id', rOrder.id);
                    
@@ -874,7 +860,9 @@ exports.handler = async (event) => {
             if (rOrder && rOrder.service && rOrder.service.provider) {
                 try {
                    // First, create pending refill record immediately
-                   const { error: insertError } = await supabaseAdmin.from('refill_requests').insert({
+                     const refillId = generateRefillId();
+                     const { error: insertError } = await supabaseAdmin.from('refill_requests').insert({
+                       refill_id: refillId,
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -889,27 +877,6 @@ exports.handler = async (event) => {
                    if (insertError) {
                        results.push({ order: String(orderNum), refill: { error: 'Database error' } });
                        continue;
-                   }
-                   
-                   // Get the generated refill_id
-                   const { data: refillRecord } = await supabaseAdmin
-                       .from('refill_requests')
-                       .select('refill_id')
-                       .eq('order_number', rOrder.order_number)
-                       .eq('user_id', user.id)
-                       .order('refill_requested_at', { ascending: false })
-                       .limit(1)
-                       .single();
-                   
-                   let refillId = refillRecord?.refill_id;
-                   
-                   // If refill_id is still NULL or provider-like (< 15000), generate our own
-                   const refillIdNum = refillId ? parseInt(String(refillId)) : 0;
-                   if (!refillId || refillIdNum < 15000) {
-                       const randomIncrement = Math.floor(Math.random() * 5) + 1;
-                       refillId = String(15090 + randomIncrement);
-                   } else {
-                       refillId = String(refillId);  // Ensure it's a string
                    }
                    
                    const apiResponseToUser = { order: String(orderNum), refill: String(refillId) };

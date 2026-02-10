@@ -230,6 +230,110 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     flex-direction: column;
 }
 
+.order-link-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.comments-trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid rgba(43, 195, 164, 0.35);
+    background: rgba(43, 195, 164, 0.12);
+    color: rgba(255, 255, 255, 0.85);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.comments-trigger:hover {
+    border-color: rgba(255, 138, 74, 0.6);
+    background: rgba(255, 138, 74, 0.2);
+    color: #fff;
+}
+
+/* ==========================================
+   ORDER COMMENTS MODAL
+   ========================================== */
+.comments-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.comments-modal.show {
+    display: flex;
+}
+
+.comments-modal-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.75);
+    backdrop-filter: blur(6px);
+}
+
+.comments-modal-content {
+    position: relative;
+    width: min(720px, calc(100% - 32px));
+    max-height: 80vh;
+    background: rgba(15, 23, 42, 0.98);
+    border: 1px solid rgba(43, 195, 164, 0.25);
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.comments-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(43, 195, 164, 0.18);
+    color: var(--text-white);
+}
+
+.comments-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.comments-modal-close {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 1.5rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.comments-modal-close:hover {
+    color: #fff;
+}
+
+.comments-modal-body {
+    padding: 18px 20px 22px;
+    overflow: auto;
+}
+
+.comments-modal-text {
+    margin: 0;
+    font-family: "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.95rem;
+    color: #e2e8f0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* Top Bar */
 .dashboard-topbar {
     background: var(--bg-darker);

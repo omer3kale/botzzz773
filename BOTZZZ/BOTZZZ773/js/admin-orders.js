@@ -30,6 +30,19 @@ function createSafeTextNode(message) {
     return document.createTextNode(escapeHtml(message));
 }
 
+function extractOrderComments(order) {
+    if (!order || typeof order !== 'object') {
+        return '';
+    }
+    const raw = order.comments
+        ?? order.comment
+        ?? order.custom_comments
+        ?? order.custom_comment
+        ?? order.notes
+        ?? '';
+    return typeof raw === 'string' ? raw : String(raw || '');
+}
+
 let servicesCache = [];
 const ADMIN_SERVICES_ENDPOINT = '/.netlify/functions/services?audience=admin';
 let ordersCache = [];
@@ -240,7 +253,7 @@ function getOrdersByIds(idString) {
 
 function getOrderDisplayName(order) {
     if (!order) return '';
-    const orderId = order.id !== undefined && order.id !== null ? `#${order.id}` : '';
+    const orderId = order.id !== undefined && order.id !== null ? String(order.id) : '';
     const providerRef = formatProviderOrderId(order.provider_order_id);
     if (orderId && providerRef) {
         return `${orderId} → ${providerRef}`;
@@ -260,11 +273,11 @@ function formatOrderLabel(order) {
     }
 
     if (order.order_number !== undefined && order.order_number !== null) {
-        return `#${order.order_number}`;
+        return String(order.order_number);
     }
 
     if (order.id !== undefined && order.id !== null) {
-        return `#${order.id}`;
+        return String(order.id);
     }
 
     if (order.link) {
@@ -277,7 +290,7 @@ function formatOrderLabel(order) {
 function generateInternalOrderReference() {
     const base = Math.max(highestOrderIdHint, DEFAULT_ORDER_REFERENCE_BASE);
     const randomOffset = Math.floor(Math.random() * 9000) + 1000;
-    return `#${base + randomOffset}`;
+    return String(base + randomOffset);
 }
 
 function buildOrderSelectionKey(order, index = 0) {
@@ -523,7 +536,7 @@ function formatProviderOrderId(value) {
     if (value === undefined || value === null) return null;
     const normalized = String(value).trim();
     if (!normalized) return null;
-    return normalized.startsWith('#') ? normalized : `#${normalized}`;
+    return normalized;
 }
 
 function getStatusKey(status) {
@@ -924,9 +937,9 @@ function resolveOrderIdentifiers(order) {
     function formatWithHash(value) {
         const trimmed = String(value).trim();
         if (!trimmed) {
-            return '#—';
+            return '—';
         }
-        return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+        return trimmed;
     }
 
     // PRIORITY 1: Use order_number (37M range) if available
@@ -977,7 +990,7 @@ function resolveOrderIdentifiers(order) {
 
     // Ensure we never show nothing
     if (!normalizedCustomer) {
-        normalizedCustomer = '#—';
+        normalizedCustomer = '—';
     }
 
     const normalizedProvider = providerOrderDisplay
@@ -1011,8 +1024,8 @@ function resolveOrderIdentifiers(order) {
         : null;
 
     return {
-        primaryLabel: primaryLabel || '#—',
-        primaryTitle: primaryTitle || '#—',
+        primaryLabel: primaryLabel || '—',
+        primaryTitle: primaryTitle || '—',
         secondaryLabel,
         secondaryTitle: secondaryLabel,
         providerLabel,
@@ -2046,6 +2059,18 @@ function closeModal() {
     }
 }
 
+function showOrderComments(orderLabel, encodedComments) {
+    const decoded = encodedComments ? decodeURIComponent(encodedComments) : '';
+    const safeComments = decoded && decoded.trim().length > 0 ? escapeHtml(decoded) : 'No comments available.';
+    const content = `
+        <div style="padding: 8px 0 4px;">
+            <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; color: #e2e8f0; font-family: 'Courier New', monospace; font-size: 0.95rem;">${safeComments}</pre>
+        </div>
+    `;
+    const actions = `<button type="button" class="btn-primary" onclick="closeModal()">Close</button>`;
+    createModal(`Order ${escapeHtml(orderLabel || '')} Comments`, content, actions);
+}
+
 // Filter orders by status
 async function filterOrders(status) {
     console.log('[ORDERS] filterOrders called with status:', status);
@@ -2917,30 +2942,47 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         
         // Check if this is a comma-separated search (bulk order lookup)
         const isCommaSeparatedSearch = searchQuery.includes(',');
+        const rawCommaIds = isCommaSeparatedSearch
+            ? searchQuery.split(',').map(id => id.trim()).filter(Boolean)
+            : [];
+        const normalizedCommaIds = rawCommaIds.map(id => id.replace(/^#/, '').trim()).filter(Boolean);
+        const numericCommaIds = normalizedCommaIds.filter(id => /^\d+$/.test(id));
+        const useNumbersFilter = isCommaSeparatedSearch
+            && numericCommaIds.length > 0
+            && numericCommaIds.length === normalizedCommaIds.length;
+
         let searchQueryToUse = searchQuery;
         let limitToUse = window.ordersPerPage;
         let offsetToUse = (window.ordersCurrentPage - 1) * window.ordersPerPage;
         
-        if (isCommaSeparatedSearch) {
+        if (useNumbersFilter) {
+            console.log('[ORDERS] COMMA SEARCH (numbers) detected:', numericCommaIds.join(', '));
+            limitToUse = Math.min(Math.max(numericCommaIds.length, 1), 500);
+            offsetToUse = 0;
+            searchQueryToUse = '';
+        } else if (isCommaSeparatedSearch) {
             console.log('[ORDERS] COMMA SEARCH DETECTED:', searchQuery);
             console.log('[ORDERS] isCommaSeparatedSearch =', isCommaSeparatedSearch);
-            // For comma-separated searches, fetch many more orders to ensure we get all matches
-            // (they might be spread across multiple pages)
-            limitToUse = 10000;  // Fetch up to 10k orders
-            offsetToUse = 0;     // Always start from beginning for bulk search
-            searchQueryToUse = '';  // No API-side search filter
+            // For non-numeric comma searches, fetch more orders to ensure we get all matches
+            limitToUse = 10000;
+            offsetToUse = 0;
+            searchQueryToUse = '';
         }
         
         // When searching or filtering by status, fetch all matching orders
-        if (statusFilter || searchQuery) {
+        if (!useNumbersFilter && (statusFilter || searchQuery)) {
             limitToUse = 10000;  // Fetch up to 10k orders
             offsetToUse = 0;     // Always start from beginning for search/filter
-        }        // Build API URL with pagination and search
+        }
+        // Build API URL with pagination and search
         const apiUrl = new URL('/.netlify/functions/orders', window.location.origin);
         apiUrl.searchParams.append('limit', limitToUse);
         apiUrl.searchParams.append('offset', offsetToUse);
         if (searchQueryToUse) {
             apiUrl.searchParams.append('search', searchQueryToUse);
+        }
+        if (useNumbersFilter) {
+            apiUrl.searchParams.append('numbers', numericCommaIds.join(','));
         }
         if (statusFilter) {
             apiUrl.searchParams.append('status', statusFilter);
@@ -2971,7 +3013,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         ordersCache = Array.isArray(data.orders) ? data.orders : [];
         
         // For comma-separated searches, fetch ALL pages until we have everything
-        if (isCommaSeparatedSearch && data.pagination && data.pagination.totalPages > 1) {
+        if (!useNumbersFilter && isCommaSeparatedSearch && data.pagination && data.pagination.totalPages > 1) {
             console.log('[ORDERS] Comma search - fetching all pages. Total pages:', data.pagination.totalPages);
             let allOrders = [...ordersCache];
             
@@ -3026,7 +3068,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         }
         
         // Filter for comma-separated searches client-side
-        if (isCommaSeparatedSearch && ordersCache.length > 0) {
+        if (!useNumbersFilter && isCommaSeparatedSearch && ordersCache.length > 0) {
             console.log('[ORDERS] FILTERING COMMA SEARCH');
             console.log('[ORDERS] Search query:', searchQuery);
             console.log('[ORDERS] Total orders to filter:', ordersCache.length);
@@ -3051,7 +3093,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
             });
             
             console.log('[ORDERS] Filtering complete - before:', beforeCount, 'after:', ordersCache.length, 'matches:', matchCount, 'errors:', errorCount);
-        } else if (isCommaSeparatedSearch) {
+        } else if (!useNumbersFilter && isCommaSeparatedSearch) {
             console.log('[ORDERS] COMMA SEARCH but no orders from API!');
         }
         
@@ -3141,6 +3183,8 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                 const errorRetryCount = order.failure_log?.retry_count || 0;
 
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
+                const orderNumberString = order.order_number !== undefined && order.order_number !== null ? String(order.order_number) : '';
+                const orderViewTarget = orderIdString || orderNumberString;
                 const identifierMeta = resolveOrderIdentifiers(order);
                 const formattedProviderOrderId = identifierMeta.providerOrderDisplay;
                 const orderPrimaryTitle = identifierMeta.primaryTitle ? escapeHtml(identifierMeta.primaryTitle) : '';
@@ -3159,9 +3203,21 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
+                const commentText = extractOrderComments(order);
+                const hasComments = Boolean(commentText && commentText.trim().length > 0);
+                const commentsPayload = hasComments ? escapeHtml(encodeURIComponent(commentText)) : '';
+                const commentsButton = hasComments
+                    ? `<button type="button" class="btn-icon" onclick="event.stopPropagation(); showOrderComments('${escapeHtml(orderViewTarget)}', '${commentsPayload}')" title="View comments"><i class="fas fa-file-lines"></i></button>`
+                    : '';
                 const linkMarkup = order.link
                     ? `<a href="${linkHref}" class="link-preview" target="_blank" rel="noopener">${escapeHtml(linkLabel)}</a>`
                     : '<span class="cell-secondary cell-muted">No link</span>';
+                const linkCellMarkup = `
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${linkMarkup}
+                        ${commentsButton}
+                    </div>
+                `;
 
                 const startCountValue = toNumberOrNull(order.start_count);
                 const remainsValue = toNumberOrNull(order.remains);
@@ -3248,10 +3304,10 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                                 ${profitMarkup}
                             </div>
                         </td>
-                        <td>${linkMarkup}</td>
+                        <td>${linkCellMarkup}</td>
                         <td>${escapeHtml(String(startCount))}</td>
                         <td>${escapeHtml(String(quantity))}</td>
-                        <td><span class="service-label">#${escapeHtml(orderService?.public_id || '?')} · ${escapeHtml(orderService?.name || 'Unknown Service')}</span></td>
+                        <td><span class="service-label">${escapeHtml(orderService?.public_id || '?')} · ${escapeHtml(orderService?.name || 'Unknown Service')}</span></td>
                         <td>
                             <div class="cell-stack">
                                 ${isFailedOrder && errorReason ? `
@@ -3556,15 +3612,30 @@ async function loadFailedOrders() {
                 const identifierMeta = resolveOrderIdentifiers(order);
                 
                 const orderPrimaryLabel = escapeHtml(identifierMeta?.primaryLabel || order.id || 'Unknown');
+                const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
+                const orderNumberString = order.order_number !== undefined && order.order_number !== null ? String(order.order_number) : '';
+                const orderViewTarget = orderIdString || orderNumberString;
                 const orderSecondaryMarkup = identifierMeta?.secondaryLabel
                     ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
                     : '';
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
+                const commentText = extractOrderComments(order);
+                const hasComments = Boolean(commentText && commentText.trim().length > 0);
+                const commentsPayload = hasComments ? escapeHtml(encodeURIComponent(commentText)) : '';
+                const commentsButton = hasComments
+                    ? `<button type="button" class="btn-icon" onclick="event.stopPropagation(); showOrderComments('${escapeHtml(orderViewTarget)}', '${commentsPayload}')" title="View comments"><i class="fas fa-file-lines"></i></button>`
+                    : '';
                 const linkMarkup = order.link
                     ? `<a href="${linkHref}" class="link-preview" target="_blank" rel="noopener">${escapeHtml(linkLabel)}</a>`
                     : '<span class="cell-secondary cell-muted">No link</span>';
+                const linkCellMarkup = `
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${linkMarkup}
+                        ${commentsButton}
+                    </div>
+                `;
 
                 const quantity = toNumberOrNull(order.quantity) || 'N/A';
                 const chargeValue = toNumberOrNull(order.charge || order.retail_charge || order.customer_charge || order.amount);
@@ -3621,7 +3692,7 @@ async function loadFailedOrders() {
                 </td>
                 <td>${userName}</td>
                 <td>${charge}</td>
-                <td>${linkMarkup}</td>
+                <td>${linkCellMarkup}</td>
                 <td>—</td>
                 <td>${escapeHtml(quantity)}</td>
                 <td>${serviceName}</td>
@@ -4278,7 +4349,7 @@ async function loadProviderErrors() {
             const providerName = provider.name || 'Unknown';
             const servicePublicId = service.public_id || 'N/A';
             const serviceName = service.name || 'Unknown Service';
-            const serviceDisplay = `#${escapeHtml(servicePublicId)} · ${escapeHtml(serviceName)}`;
+            const serviceDisplay = `${escapeHtml(servicePublicId)} · ${escapeHtml(serviceName)}`;
             const customerEmail = user.email || user.username || 'Unknown';
             const errorTime = err.error_timestamp ? new Date(err.error_timestamp).toLocaleString() : 'N/A';
             const retryCount = err.retry_count || 0;

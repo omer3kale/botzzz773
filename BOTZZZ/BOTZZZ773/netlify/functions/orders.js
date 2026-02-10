@@ -22,6 +22,47 @@ const axios = require('axios');
 const JWT_SECRET = process.env.JWT_SECRET;
 const logger = createLogger('orders');
 
+function normalizeMetaObject(meta) {
+  if (!meta) {
+    return {};
+  }
+  if (typeof meta === 'object') {
+    return meta;
+  }
+  try {
+    const parsed = JSON.parse(meta);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function isCustomerStatusLocked(order) {
+  if (order?.customer_status_lock === 'admin') {
+    return true;
+  }
+  const meta = normalizeMetaObject(order?.meta);
+  return meta.customer_status_lock === 'admin';
+}
+
+function isCustomCommentsService(service) {
+  if (!service) {
+    return false;
+  }
+  const raw = service.type ?? service.service_type ?? service.order_type ?? '';
+  return String(raw).toLowerCase().includes('custom');
+}
+
+function normalizeCustomComments(raw) {
+  if (typeof raw !== 'string') {
+    return [];
+  }
+  return raw
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.length > 0);
+}
+
 function logOrderError(message, error, meta) {
   logger.error(message, { error: serializeError(error), ...meta });
 }
@@ -37,6 +78,30 @@ async function markOrderFailure(orderId, {
     return null;
   }
 
+  let customerStatusLocked = false;
+  try {
+    const { data: lockCheck, error: lockCheckError } = await supabaseAdmin
+      .from('orders')
+      .select('customer_status, customer_status_lock, meta')
+      .eq('id', orderId)
+      .single();
+
+    if (!lockCheckError && lockCheck) {
+      customerStatusLocked = isCustomerStatusLocked(lockCheck);
+      if (customerStatusLocked) {
+        extra = {
+          ...extra,
+          customer_status: lockCheck.customer_status || 'pending'
+        };
+      }
+    }
+  } catch (error) {
+    logger.warn('Failed to check customer status lock before marking failure', {
+      orderId,
+      error: serializeError(error)
+    });
+  }
+
   const payload = {
     status: 'failed',
     customer_status: 'pending',
@@ -48,6 +113,10 @@ async function markOrderFailure(orderId, {
     last_status_sync: new Date().toISOString(),
     ...extra
   };
+
+  if (customerStatusLocked) {
+    delete payload.customer_status;
+  }
 
   const { error } = await supabaseAdmin
     .from('orders')
@@ -106,6 +175,11 @@ function normalizeCurrency(value, fallback = 'USD') {
   }
 
   return str.toUpperCase().slice(0, 10);
+}
+
+function generateRefillId() {
+  const randomSuffix = Math.floor(Math.random() * 900) + 100;
+  return `${Date.now()}${randomSuffix}`;
 }
 
 function calculateProviderRate(service) {
@@ -442,7 +516,11 @@ function resolveProviderOrderIdFromRecord(order) {
 }
 
 function buildStatusSummary(order) {
-  const customerRaw = order?.customer_status
+  const lockedCustomerStatus = isCustomerStatusLocked(order)
+    ? 'in progress'
+    : null;
+  const customerRaw = lockedCustomerStatus
+    ?? order?.customer_status
     ?? order?.customerStatus
     ?? order?.status
     ?? order?.order_status
@@ -820,10 +898,9 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     const idsFilter = idsFilterRaw ? idsFilterRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : null;
     const numbersFilter = numbersFilterRaw ? numbersFilterRaw.split(',').map(s => s.trim()).filter(s => s.length > 0) : null;
     const numbersFilterNormalized = numbersFilter
-      ? Array.from(new Set(numbersFilter.flatMap(v => {
-          const n = Number(v);
-          return Number.isFinite(n) ? [v, String(n), n] : [v];
-        })))
+      ? Array.from(new Set(numbersFilter
+          .map(v => String(v).replace(/^#/, '').trim())
+          .filter(v => v.length > 0)))
       : null;
     
     // DEBUG: Log what we're actually querying
@@ -944,8 +1021,11 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       countQuery = countQuery.in('id', idVals);
     }
     if (numbersFilterNormalized && numbersFilterNormalized.length > 0) {
-      query = query.in('order_number', numbersFilterNormalized);
-      countQuery = countQuery.in('order_number', numbersFilterNormalized);
+      const orderNumberOrClauses = numbersFilterNormalized
+        .map(value => `order_number.eq.${value}`)
+        .join(',');
+      query = query.or(orderNumberOrClauses);
+      countQuery = countQuery.or(orderNumberOrClauses);
     }
 
     // Non-admins can only see their own orders
@@ -1212,7 +1292,7 @@ async function handleCreateOrder(user, data, headers) {
   let orderIdentifierColumnUsed = 'order_number';
 
   try {
-    const { serviceId, quantity, link } = data;
+    const { serviceId, quantity, link, comments } = data;
 
     // ============= STEP 1: VALIDATE INPUT =============
     logger.info('Create order attempt', {
@@ -1221,30 +1301,19 @@ async function handleCreateOrder(user, data, headers) {
       serviceId
     });
 
-    if (!serviceId || !quantity || !link) {
+    if (!serviceId || !link) {
       logger.warn('Order missing required fields', { serviceId, quantityProvided: !!quantity, linkProvided: !!link });
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({ 
-          error: 'Service ID, quantity, and link are required',
+          error: 'Service ID and link are required',
           details: {
             serviceId: !serviceId ? 'missing' : 'provided',
             quantity: !quantity ? 'missing' : 'provided',
             link: !link ? 'missing' : 'provided'
           }
         })
-      };
-    }
-
-    // Validate quantity is a number
-    const qty = parseInt(quantity);
-    if (isNaN(qty) || qty <= 0) {
-      logger.warn('Order quantity invalid', { quantity });
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ error: 'Quantity must be a positive number' })
       };
     }
 
@@ -1294,31 +1363,6 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Validate quantity within service limits
-    if (qty < service.min_quantity) {
-      logger.warn('Order quantity below minimum', { qty, min: service.min_quantity });
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ 
-          error: `Quantity must be at least ${service.min_quantity}`,
-          min_quantity: service.min_quantity
-        })
-      };
-    }
-
-    if (qty > service.max_quantity) {
-      logger.warn('Order quantity above maximum', { qty, max: service.max_quantity });
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ 
-          error: `Quantity cannot exceed ${service.max_quantity}`,
-          max_quantity: service.max_quantity
-        })
-      };
-    }
-
     // Validate provider exists and is active
     if (!service.provider) {
       logger.warn('Service missing provider', { serviceId });
@@ -1353,6 +1397,64 @@ async function handleCreateOrder(user, data, headers) {
         statusCode: 400,
         headers,
         body: JSON.stringify({ error: 'Service not properly configured' })
+      };
+    }
+
+    const isCustomComments = isCustomCommentsService(service);
+    const normalizedComments = isCustomComments ? normalizeCustomComments(comments) : [];
+    const qty = isCustomComments ? normalizedComments.length : parseInt(quantity);
+
+    if (isCustomComments && normalizedComments.length === 0) {
+      logger.warn('Custom comments order missing comments', { serviceId });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Comments are required for this service' })
+      };
+    }
+
+    if (!isCustomComments) {
+      if (!quantity) {
+        logger.warn('Order missing required quantity', { serviceId });
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Quantity is required' })
+        };
+      }
+    }
+
+    if (isNaN(qty) || qty <= 0) {
+      logger.warn('Order quantity invalid', { quantity, serviceId });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Quantity must be a positive number' })
+      };
+    }
+
+    // Validate quantity within service limits
+    if (qty < service.min_quantity) {
+      logger.warn('Order quantity below minimum', { qty, min: service.min_quantity });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: `Quantity must be at least ${service.min_quantity}`,
+          min_quantity: service.min_quantity
+        })
+      };
+    }
+
+    if (qty > service.max_quantity) {
+      logger.warn('Order quantity above maximum', { qty, max: service.max_quantity });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ 
+          error: `Quantity cannot exceed ${service.max_quantity}`,
+          max_quantity: service.max_quantity
+        })
       };
     }
 
@@ -1488,7 +1590,10 @@ async function handleCreateOrder(user, data, headers) {
       start_count: 0,
       remains: qty,
       status: 'pending',
-      customer_status: 'pending' // Customer sees pending until provider confirms
+      customer_status: 'pending', // Customer sees pending until provider confirms
+      comments: isCustomComments && normalizedComments.length > 0
+        ? normalizedComments.join('\n')
+        : null
     };
     
     // Add link_id now that migration is applied
@@ -1731,7 +1836,10 @@ async function handleCreateOrder(user, data, headers) {
       const providerResponse = await submitOrderToProviderWithRetry(service.provider, {
         service: service.provider_service_id,
         link: linkStr,
-        quantity: qty
+        quantity: qty,
+        comments: isCustomComments && normalizedComments.length > 0
+          ? normalizedComments.join('\n')
+          : undefined
       });
 
       if (!providerResponse || !providerResponse.order) {
@@ -2136,6 +2244,31 @@ async function handleUpdateOrder(user, data, headers) {
 
       const updates = {};
       let normalizedCustomerStatusOverride = null;
+      const baseMeta = normalizeMetaObject(order.meta);
+      let nextMeta = null;
+
+      const setCustomerStatusLock = (locked, reason) => {
+        if (locked) {
+          updates.customer_status_lock = 'admin';
+          updates.customer_status_lock_reason = reason || 'admin_override';
+          updates.customer_status_lock_at = new Date().toISOString();
+        } else {
+          updates.customer_status_lock = null;
+          updates.customer_status_lock_reason = null;
+          updates.customer_status_lock_at = null;
+        }
+
+        nextMeta = { ...baseMeta };
+        if (locked) {
+          nextMeta.customer_status_lock = 'admin';
+          nextMeta.customer_status_lock_reason = reason || 'admin_override';
+          nextMeta.customer_status_lock_at = new Date().toISOString();
+        } else {
+          delete nextMeta.customer_status_lock;
+          delete nextMeta.customer_status_lock_reason;
+          delete nextMeta.customer_status_lock_at;
+        }
+      };
 
       if (typeof customerStatus === 'string') {
         const rawCustomerStatus = customerStatus.trim().toLowerCase();
@@ -2244,7 +2377,16 @@ async function handleUpdateOrder(user, data, headers) {
             updates.customer_status = normalizedStatus;
           } else if (normalizedStatus === 'canceled' || normalizedStatus === 'cancelled') {
             updates.customer_status = 'canceled';
+          } else if (normalizedStatus === 'in progress') {
+            updates.customer_status = 'in progress';
           }
+        }
+
+        if (normalizedStatus === 'in progress') {
+          setCustomerStatusLock(true, 'admin_in_progress');
+          updates.customer_status = 'in progress';
+        } else {
+          setCustomerStatusLock(false);
         }
 
         // Process refund if status is being changed to cancelled and wasn't already cancelled
@@ -2269,6 +2411,16 @@ async function handleUpdateOrder(user, data, headers) {
 
       if (normalizedCustomerStatusOverride) {
         updates.customer_status = normalizedCustomerStatusOverride;
+        if (normalizedCustomerStatusOverride === 'in progress') {
+          setCustomerStatusLock(true, 'admin_customer_status');
+          updates.customer_status = 'in progress';
+        } else {
+          setCustomerStatusLock(false);
+        }
+      }
+
+      if (nextMeta) {
+        updates.meta = nextMeta;
       }
 
       if (Object.keys(updates).length === 0) {
@@ -2950,7 +3102,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   for (let batchNum = 0; batchNum < MAX_FETCH_BATCHES; batchNum++) {
     let ordersQuery = supabaseAdmin
       .from('orders')
-      .select('id, service_id, provider_id, provider_order_id, status, customer_status, provider_response, meta, external_order_id, order_number, public_id');
+      .select('id, service_id, provider_id, provider_order_id, status, customer_status, customer_status_lock, provider_response, meta, external_order_id, order_number, public_id');
 
     if (orderIds && orderIds.length > 0) {
       ordersQuery = ordersQuery.in('id', orderIds);
@@ -3190,29 +3342,31 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
 
       if (normalizedStatus) {
         updatePayload.status = normalizedStatus;
-        
-        // Sync customer_status with provider status based on rules:
-        // - completed → customer sees completed
-        // - partial → customer sees partial
-        // - cancelled → customer sees cancelled
-        // - failed/error → customer sees pending (admin sees failed)
-        // - in progress → customer sees in progress
-        // - processing → customer sees processing
-        // - pending → customer sees pending
-        if (normalizedStatus === 'completed') {
-          updatePayload.customer_status = 'completed';
-        } else if (normalizedStatus === 'partial') {
-          updatePayload.customer_status = 'partial';
-        } else if (normalizedStatus === 'canceled') {
-          updatePayload.customer_status = 'canceled';
-        } else if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
-          updatePayload.customer_status = 'pending';
-        } else if (normalizedStatus === 'in progress') {
-          updatePayload.customer_status = 'in progress';
-        } else if (normalizedStatus === 'processing') {
-          updatePayload.customer_status = 'processing';
-        } else if (normalizedStatus === 'pending') {
-          updatePayload.customer_status = 'pending';
+
+        if (!isCustomerStatusLocked(order)) {
+          // Sync customer_status with provider status based on rules:
+          // - completed → customer sees completed
+          // - partial → customer sees partial
+          // - cancelled → customer sees cancelled
+          // - failed/error → customer sees pending (admin sees failed)
+          // - in progress → customer sees in progress
+          // - processing → customer sees processing
+          // - pending → customer sees pending
+          if (normalizedStatus === 'completed') {
+            updatePayload.customer_status = 'completed';
+          } else if (normalizedStatus === 'partial') {
+            updatePayload.customer_status = 'partial';
+          } else if (normalizedStatus === 'canceled') {
+            updatePayload.customer_status = 'canceled';
+          } else if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+            updatePayload.customer_status = 'pending';
+          } else if (normalizedStatus === 'in progress') {
+            updatePayload.customer_status = 'in progress';
+          } else if (normalizedStatus === 'processing') {
+            updatePayload.customer_status = 'processing';
+          } else if (normalizedStatus === 'pending') {
+            updatePayload.customer_status = 'pending';
+          }
         }
       }
 
@@ -3266,7 +3420,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
           
           if (refundResult.success) {
             console.log(`[ORDER SYNC] Refund processed for order ${order.id}:`, refundResult);
-            updatePayload.customer_status = 'canceled';
+            if (!isCustomerStatusLocked(order)) {
+              updatePayload.customer_status = 'canceled';
+            }
           } else {
             console.warn(`[ORDER SYNC] Refund failed for order ${order.id}:`, refundResult.error);
           }
@@ -3296,7 +3452,9 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
           
           if (refundResult.success) {
             console.log(`[ORDER SYNC] Partial refund processed for order ${order.id}:`, refundResult);
-            updatePayload.customer_status = 'partial';
+            if (!isCustomerStatusLocked(order)) {
+              updatePayload.customer_status = 'partial';
+            }
           } else {
             console.warn(`[ORDER SYNC] Partial refund failed for order ${order.id}:`, refundResult.error);
           }
@@ -3353,6 +3511,10 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
           provider_error: errorMessage,
           last_status_sync: nowIso
         };
+
+        if (isCustomerStatusLocked(order)) {
+          delete failurePayload.customer_status;
+        }
         
         try {
           await supabaseAdmin
@@ -3704,6 +3866,9 @@ async function submitOrderToProvider(provider, orderData) {
     params.append('service', orderData.service);
     params.append('link', orderData.link);
     params.append('quantity', orderData.quantity);
+    if (orderData.comments) {
+      params.append('comments', orderData.comments);
+    }
     
     console.log(`[PROVIDER] Calling ${provider.api_url}`);
 
@@ -4765,8 +4930,10 @@ async function handleResendOrder(user, body, headers) {
 
         if (normalizedStatus) {
           updatePayload.status = normalizedStatus;
-          updatePayload.customer_status =
-            normalizedStatus === 'processing' ? 'pending' : normalizedStatus;
+          if (!isCustomerStatusLocked(order)) {
+            updatePayload.customer_status =
+              normalizedStatus === 'processing' ? 'pending' : normalizedStatus;
+          }
         }
 
         if (providerChargeFromResponse !== null) {
@@ -5163,7 +5330,9 @@ async function handleRefillOrder(user, body, headers) {
       order_number: order.order_number
     });
 
+    const refillId = generateRefillId();
     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+      refill_id: refillId,
       user_id: user.userId,
       order_number: order.order_number,
       provider_refill_id: null, // Initially null
@@ -5188,36 +5357,6 @@ async function handleRefillOrder(user, body, headers) {
     }
 
     logger.info('Pending refill created, now requesting from provider', { orderId });
-
-    // Get our generated refill_id
-    const { data: refillRecord, error: selectError } = await supabaseAdmin
-      .from('refill_requests')
-      .select('refill_id')
-      .eq('order_number', order.order_number)
-      .eq('user_id', user.userId)
-      .order('refill_requested_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (selectError) {
-      logger.error('Failed to retrieve refill_id', { orderId, error: selectError });
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Failed to retrieve refill_id from database'
-        })
-      };
-    }
-
-    let refillId = refillRecord?.refill_id;
-
-    // If refill_id is still NULL or provider-like (< 15000), generate our own
-    if (!refillId || refillId < 15000) {
-      const randomIncrement = Math.floor(Math.random() * 5) + 1;
-      refillId = 15090 + randomIncrement;
-    }
 
     // Update order refill status with our refill_id (keep original order status)
     const { error: updateError } = await supabaseAdmin.from('orders')

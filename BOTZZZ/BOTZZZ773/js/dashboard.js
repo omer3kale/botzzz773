@@ -726,6 +726,7 @@
                             provider_order_id: providerOrderReference,
                             provider_service_id: providerServiceReference,
                             name: service.name,
+                            type: service.type || service.service_type || service.order_type || '',
                             price: parseFloat(service.rate ?? service.price ?? 0),
                             min: minQuantity,
                             max: maxQuantity,
@@ -771,6 +772,8 @@
     const serviceSelect = document.getElementById('service');
     const serviceInfo = document.getElementById('serviceInfo');
     const quantityInput = document.getElementById('quantity');
+    const commentsGroup = document.getElementById('customCommentsGroup');
+    const commentsInput = document.getElementById('customComments');
     const chargeAmount = document.getElementById('chargeAmount');
     const averageTimeEl = document.getElementById('averageTime');
     const orderForm = document.getElementById('orderForm');
@@ -788,6 +791,45 @@
             return null;
         }
         return Number(raw);
+    }
+
+    function isCustomCommentsType(type) {
+        return String(type || '').toLowerCase().includes('custom');
+    }
+
+    function getCustomCommentLines(rawValue) {
+        const text = rawValue === undefined || rawValue === null ? '' : String(rawValue);
+        return text
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+    }
+
+    function syncQuantityFromComments() {
+        if (!commentsInput || !quantityInput || !selectedService || !isCustomCommentsType(selectedService.type)) {
+            return;
+        }
+        const lines = getCustomCommentLines(commentsInput.value);
+        const count = lines.length;
+        quantityInput.value = count > 0 ? String(count) : '';
+        calculateCharge();
+    }
+
+    function updateCustomCommentsState() {
+        if (!commentsGroup || !commentsInput || !quantityInput) {
+            return;
+        }
+        const isCustom = Boolean(selectedService && isCustomCommentsType(selectedService.type));
+        commentsGroup.style.display = isCustom ? '' : 'none';
+        commentsInput.required = isCustom;
+        commentsInput.disabled = !isCustom;
+        quantityInput.readOnly = isCustom;
+        quantityInput.setAttribute('aria-readonly', isCustom ? 'true' : 'false');
+        if (!isCustom) {
+            commentsInput.value = '';
+            commentsInput.setCustomValidity('');
+        }
+        syncQuantityFromComments();
     }
 
     function coerceQuantityInput({ clampToLimits = false } = {}) {
@@ -852,6 +894,7 @@
         option.dataset.serviceName = service.name;
         option.dataset.currency = service.currency;
         option.dataset.capabilities = JSON.stringify(service.capabilities || {});
+        option.dataset.type = service.type || '';
         
         const providerRef = service.provider_order_id || service.provider_service_id;
         if (providerRef) {
@@ -914,7 +957,8 @@
                     publicId: option.dataset.publicId ? Number(option.dataset.publicId) : null,
                     providerReference: option.dataset.providerId || '',
                     currency: option.dataset.currency ? option.dataset.currency.toUpperCase() : 'USD',
-                    capabilities: option.dataset.capabilities ? JSON.parse(option.dataset.capabilities) : {}
+                    capabilities: option.dataset.capabilities ? JSON.parse(option.dataset.capabilities) : {},
+                    type: option.dataset.type || ''
                 };
 
                 // Update quantity limits
@@ -960,6 +1004,7 @@
                     serviceInfo.classList.add('show');
                 }
 
+                updateCustomCommentsState();
                 calculateCharge();
             } else {
                 resetOrderCalculation();
@@ -1000,6 +1045,34 @@
         });
     }
 
+    if (commentsInput) {
+        commentsInput.addEventListener('input', () => {
+            if (commentsInput.validity.customError) {
+                commentsInput.setCustomValidity('');
+            }
+            syncQuantityFromComments();
+        });
+        commentsInput.addEventListener('blur', syncQuantityFromComments);
+        commentsInput.addEventListener('invalid', () => {
+            if (!selectedService || !isCustomCommentsType(selectedService.type)) {
+                commentsInput.setCustomValidity('');
+                return;
+            }
+            const lines = getCustomCommentLines(commentsInput.value);
+            if (lines.length === 0) {
+                commentsInput.setCustomValidity('Please add at least one comment line.');
+                return;
+            }
+            const maxLimit = Number.isFinite(selectedService.max) ? selectedService.max : Infinity;
+            if (lines.length < selectedService.min || (Number.isFinite(maxLimit) && lines.length > maxLimit)) {
+                const maxLabel = Number.isFinite(maxLimit) ? maxLimit : 'Unlimited';
+                commentsInput.setCustomValidity(`Please enter between ${selectedService.min} and ${maxLabel} comment lines.`);
+                return;
+            }
+            commentsInput.setCustomValidity('');
+        });
+    }
+
     function calculateCharge() {
         if (!selectedService || !quantityInput) return;
         
@@ -1030,6 +1103,7 @@
             quantityInput.max = 30000;
             quantityInput.placeholder = 'Min: 100 - Max: 30,000';
         }
+        updateCustomCommentsState();
     }
 
     // ==========================================
@@ -1086,6 +1160,7 @@
                             id: String(svc.id ?? svc.service ?? publicId),
                             publicId: Number.isFinite(publicId) ? publicId : null,
                             name: svc.name || 'Untitled Service',
+                            type: svc.type || svc.service_type || svc.order_type || '',
                             price: parseFloat(svc.rate ?? svc.price ?? 0),
                             min: minQuantity,
                             max: maxQuantity,
@@ -1156,13 +1231,35 @@
             }
 
             const orderLink = document.getElementById('orderLink').value;
-            const quantity = coerceQuantityInput({ clampToLimits: true });
+            const isCustom = isCustomCommentsType(selectedService.type);
+            let quantity = null;
+            let commentsPayload = '';
+
+            if (isCustom) {
+                const lines = getCustomCommentLines(commentsInput ? commentsInput.value : '');
+                quantity = lines.length;
+                commentsPayload = lines.join('\n');
+                if (quantityInput) {
+                    quantityInput.value = quantity > 0 ? String(quantity) : '';
+                }
+            } else {
+                quantity = coerceQuantityInput({ clampToLimits: true });
+            }
 
             // Validate quantity
             const maxLimit = Number.isFinite(selectedService.max) ? selectedService.max : Infinity;
             if (!Number.isFinite(quantity) || quantity < selectedService.min || (Number.isFinite(maxLimit) && quantity > maxLimit)) {
                 const maxLabel = Number.isFinite(maxLimit) ? maxLimit : 'Unlimited';
-                showToast(`Quantity must be between ${selectedService.min} and ${maxLabel}`, 'error');
+                if (isCustom) {
+                    showToast(`Comment lines must be between ${selectedService.min} and ${maxLabel}`, 'error');
+                } else {
+                    showToast(`Quantity must be between ${selectedService.min} and ${maxLabel}`, 'error');
+                }
+                return;
+            }
+
+            if (isCustom && quantity === 0) {
+                showToast('Please add at least one comment line.', 'error');
                 return;
             }
 
@@ -1181,6 +1278,10 @@
                 link: orderLink,
                 quantity
             };
+
+            if (isCustom) {
+                orderData.comments = commentsPayload;
+            }
 
             try {
                 const response = await fetch('/.netlify/functions/orders', {
@@ -1337,6 +1438,10 @@
     }
 
     function buildCustomerFacingStatus(order = {}) {
+        if (order?.customer_status_lock === 'admin') {
+            return coerceCustomerFacingStatusDescriptor('in progress', 'In Progress');
+        }
+
         // Check if order was cancelled by admin - these show as cancelled
         const cancelled = order?.cancelled || order?.canceled || false;
         if (cancelled) {
@@ -2023,6 +2128,22 @@
                 ? `${orderLink.substring(0, 30)}${orderLink.length > 30 ? '…' : ''}`
                 : 'No link provided';
             const safeOrderLink = orderLink ? escapeHtml(orderLink) : '';
+            const commentText = extractOrderComments(order);
+            const hasComments = Boolean(commentText && commentText.trim().length > 0);
+            const commentsPayload = hasComments ? escapeHtml(encodeURIComponent(commentText)) : '';
+            const commentsTrigger = hasComments
+                ? `
+                    <button type="button" class="comments-trigger" data-comments="${commentsPayload}" data-order-label="${escapeHtml(orderLabel)}" title="View comments" aria-label="View comments">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                            <polyline points="14 2 14 8 20 8" />
+                            <line x1="8" y1="12" x2="16" y2="12" />
+                            <line x1="8" y1="16" x2="16" y2="16" />
+                            <line x1="8" y1="20" x2="13" y2="20" />
+                        </svg>
+                    </button>
+                `
+                : '';
 
             const currencyGuess = order.currency
                 || order.retail_currency
@@ -2101,9 +2222,13 @@
                 <tr>
                     <td>${orderIdCell}</td>
                     <td>${createdAt}</td>
-                    <td>${orderLink
-                        ? `<a href="${safeOrderLink}" target="_blank" rel="noopener" style="color: var(--primary-pink);">${escapeHtml(linkLabel)}</a>`
-                        : '<span style="color: var(--text-muted, #94a3b8); font-style: italic;">No link</span>'}
+                    <td>
+                        <div class="order-link-cell">
+                            ${orderLink
+                                ? `<a href="${safeOrderLink}" target="_blank" rel="noopener" style="color: var(--primary-pink);">${escapeHtml(linkLabel)}</a>`
+                                : '<span style="color: var(--text-muted, #94a3b8); font-style: italic;">No link</span>'}
+                            ${commentsTrigger}
+                        </div>
                     </td>
                     <td>${chargeDisplay}</td>
                     <td>${escapeHtml(order.start_count || 0)}</td>
@@ -2121,6 +2246,74 @@
             `;
         }).join('');
     }
+
+    function extractOrderComments(order) {
+        if (!order || typeof order !== 'object') {
+            return '';
+        }
+        const raw = order.comments
+            ?? order.comment
+            ?? order.custom_comments
+            ?? order.custom_comment
+            ?? order.notes
+            ?? '';
+        return typeof raw === 'string' ? raw : String(raw || '');
+    }
+
+    const orderCommentsModal = document.getElementById('orderCommentsModal');
+    const orderCommentsBody = document.getElementById('orderCommentsBody');
+    const orderCommentsTitle = document.getElementById('orderCommentsTitle');
+
+    function openOrderCommentsModal(commentText, orderLabel) {
+        if (!orderCommentsModal || !orderCommentsBody) {
+            return;
+        }
+        orderCommentsBody.textContent = commentText || 'No comments available.';
+        if (orderCommentsTitle) {
+            orderCommentsTitle.textContent = orderLabel ? `Order ${orderLabel} Comments` : 'Order Comments';
+        }
+        orderCommentsModal.classList.add('show');
+        orderCommentsModal.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeOrderCommentsModal() {
+        if (!orderCommentsModal) {
+            return;
+        }
+        orderCommentsModal.classList.remove('show');
+        orderCommentsModal.setAttribute('aria-hidden', 'true');
+        if (orderCommentsBody) {
+            orderCommentsBody.textContent = '';
+        }
+    }
+
+    if (orderCommentsModal) {
+        orderCommentsModal.addEventListener('click', (event) => {
+            if (event.target.closest('[data-comments-modal-close]')) {
+                closeOrderCommentsModal();
+            }
+        });
+    }
+
+    if (ordersView) {
+        ordersView.addEventListener('click', (event) => {
+            const trigger = event.target.closest('.comments-trigger');
+            if (!trigger) {
+                return;
+            }
+            event.preventDefault();
+            const encoded = trigger.dataset.comments || '';
+            const decoded = encoded ? decodeURIComponent(encoded) : '';
+            const label = trigger.dataset.orderLabel || '';
+            openOrderCommentsModal(decoded, label);
+        });
+    }
+
+    window.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeOrderCommentsModal();
+        }
+    });
 
     // Order filters
     const filterBtns = document.querySelectorAll('.filter-btn');
