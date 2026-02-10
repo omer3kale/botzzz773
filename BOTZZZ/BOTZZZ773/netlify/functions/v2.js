@@ -91,6 +91,20 @@ async function getServices(user = null) {
   
   return services.map(s => {
     try {
+      const formatServiceType = (rawType) => {
+        const normalized = String(rawType ?? '').trim();
+        if (!normalized) return 'Default';
+        const lowered = normalized.toLowerCase();
+        if (lowered === 'default') return 'Default';
+        if (lowered.includes('custom')) return 'Custom Comments';
+        return normalized
+          .replace(/[_-]+/g, ' ')
+          .split(' ')
+          .filter(Boolean)
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+      };
+
       // Use public_id for external exposure
       let exposedId = s.public_id ? s.public_id : s.id;
       let serviceId = parseInt(String(exposedId).replace(/\D/g, ''), 10) || 0;
@@ -133,7 +147,7 @@ async function getServices(user = null) {
       return {
         service: serviceId, 
         name: s.name, 
-        type: 'Default', 
+        type: formatServiceType(s.type), 
         category: s.category || 'General',
         rate: rateValue,
         min: parseInt(s.min_quantity || 1), 
@@ -257,7 +271,27 @@ exports.handler = async (event) => {
              }
         }
 
-        if (!params.service || !params.link || !params.quantity) return errorResponse('Missing parameters');
+        const rawComments = params.comments ?? params.comment ?? params.custom_comments ?? params.custom_comment ?? params.customComment;
+        const hasCommentsField = rawComments !== undefined && rawComments !== null;
+        let normalizedComments = null;
+        let commentLines = [];
+
+        if (hasCommentsField) {
+          const rawCommentText = String(rawComments).trim();
+          if (!rawCommentText) {
+            return { statusCode: 400, headers, body: JSON.stringify({ error: 'Comments are required for custom comment orders.' }) };
+          }
+          commentLines = rawCommentText
+            .split(/\r?\n/)
+            .map(line => line.trim())
+            .filter(line => line.length > 0);
+          if (commentLines.length === 0) {
+            return { statusCode: 400, headers, body: JSON.stringify({ error: 'Comments are required for custom comment orders.' }) };
+          }
+          normalizedComments = commentLines.join('\n');
+        }
+
+        if (!params.service || !params.link || (!params.quantity && !hasCommentsField)) return errorResponse('Missing parameters');
         
         // Fetch Service & Provider info with nested provider relationship
         const { data: sData } = await supabaseAdmin
@@ -266,6 +300,12 @@ exports.handler = async (event) => {
           .eq('public_id', params.service)
           .single();
         if (!sData) return errorResponse('Service not found');
+
+        const serviceTypeRaw = String(sData.type ?? '').trim().toLowerCase();
+        const isCustomCommentsService = serviceTypeRaw.includes('custom');
+        if (isCustomCommentsService && !hasCommentsField) {
+          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Comments are required for this service.' }) };
+        }
         
         // DEBUG: Log full service data to understand provider structure
         console.log('[V2] Service full data:', JSON.stringify({
@@ -276,7 +316,7 @@ exports.handler = async (event) => {
         }));
 
         // Quantity Check
-        const qty = parseInt(params.quantity);
+        const qty = hasCommentsField ? commentLines.length : parseInt(params.quantity);
         if (qty < (sData.min_quantity || 1) || qty > (sData.max_quantity || 1000)) return errorResponse('Quantity error');
 
         // Duplicate Link Protection: allow only if previous order is COMPLETED
@@ -483,7 +523,10 @@ exports.handler = async (event) => {
             const pParams = new URLSearchParams({ 
               key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: qty 
             });
-            console.log('[V2 PROVIDER] Request params:', { service: providerServiceId, link: params.link, quantity: qty });
+            if (normalizedComments) {
+              pParams.append('comments', normalizedComments);
+            }
+            console.log('[V2 PROVIDER] Request params:', { service: providerServiceId, link: params.link, quantity: qty, hasComments: !!normalizedComments });
             const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
             console.log('[V2 PROVIDER] Response:', pRes.data);
             if (pRes.data && pRes.data.order) {

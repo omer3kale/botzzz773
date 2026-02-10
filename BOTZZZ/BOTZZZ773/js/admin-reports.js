@@ -168,8 +168,8 @@ function initializeChart() {
             datasets: [{
                 label: 'Daily Profit',
                 data: data,
-                backgroundColor: '#10b981',
-                borderColor: '#059669',
+                backgroundColor: '#fbbf24',
+                borderColor: '#b45309',
                 borderWidth: 1,
                 borderRadius: 4
             }]
@@ -364,9 +364,9 @@ function fillProfitTable() {
     
     const totalRow = document.createElement('tr');
     totalRow.style.fontWeight = 'bold';
-    totalRow.style.borderTop = '2px solid #FF1494';
-    totalRow.style.borderBottom = '2px solid #FF1494';
-    totalRow.style.backgroundColor = 'rgba(255, 20, 148, 0.05)';
+    totalRow.style.borderTop = '2px solid var(--admin-accent)';
+    totalRow.style.borderBottom = '2px solid var(--admin-accent)';
+    totalRow.style.backgroundColor = 'rgba(var(--admin-accent-rgb), 0.08)';
     totalRow.innerHTML = `
         <td style="padding: 12px 8px;">TOTAL</td>
         <td>${totalOrders}</td>

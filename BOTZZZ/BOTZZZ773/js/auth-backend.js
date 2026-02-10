@@ -621,20 +621,46 @@ function updateNavigation(isLoggedIn, user = null) {
     if (authNavItem) {
         if (isLoggedIn && user) {
             // Replace Sign In button with user account dropdown
+            const displayName = escapeHtml(user.username || user.email || 'Account');
             authNavItem.innerHTML = `
                 <div class="user-account-nav">
-                    <a href="dashboard.html" class="nav-link" style="display: flex; align-items: center; gap: 8px;">
+                    <button type="button" class="nav-link user-account-toggle" aria-expanded="false">
                         <i class="fas fa-user-circle"></i>
-                        <span>${escapeHtml(user.username || user.username || user.email)}</span>
-                    </a>
+                        <span>${displayName}</span>
+                    </button>
                     <div class="user-dropdown">
                         <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
                         <a href="addfunds.html"><i class="fas fa-wallet"></i> Add Funds</a>
                         <a href="tickets.html"><i class="fas fa-ticket-alt"></i> Tickets</a>
-                        <a href="#" onclick="handleLogout(); return false;"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                        <a href="#" class="logout-link"><i class="fas fa-sign-out-alt"></i> Logout</a>
                     </div>
                 </div>
             `;
+
+            const userMenuBtn = authNavItem.querySelector('.user-account-toggle');
+            const userMenu = authNavItem.querySelector('.user-account-nav');
+            if (userMenuBtn && userMenu) {
+                userMenuBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const isOpen = userMenu.classList.toggle('open');
+                    userMenuBtn.setAttribute('aria-expanded', String(isOpen));
+                });
+
+                document.addEventListener('click', (e) => {
+                    if (userMenu && !userMenu.contains(e.target)) {
+                        userMenu.classList.remove('open');
+                        userMenuBtn.setAttribute('aria-expanded', 'false');
+                    }
+                });
+            }
+
+            const logoutLink = authNavItem.querySelector('.logout-link');
+            if (logoutLink) {
+                logoutLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    handleLogout();
+                });
+            }
         } else {
             // Show Sign Up + Sign In buttons
             authNavItem.innerHTML = `

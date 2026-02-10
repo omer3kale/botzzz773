@@ -989,7 +989,7 @@ async function addService() {
                                 <select name="type" required>
                                     <option value="service" selected>Standard</option>
                                     <option value="subscription">Subscription</option>
-                                    <option value="custom">Custom</option>
+                                    <option value="custom_comments">Custom Comments</option>
                                 </select>
                             </div>
                         </div>
@@ -1324,6 +1324,11 @@ async function editService(serviceId) {
     const minValue = toNumeric(service.min_quantity);
     const maxValue = toNumeric(service.max_quantity);
 
+    const normalizedType = String(service.type || 'service').trim().toLowerCase();
+    const resolvedType = normalizedType.includes('custom')
+        ? 'custom_comments'
+        : (normalizedType.includes('subscription') ? 'subscription' : 'service');
+
     const content = `
         <form id="editServiceForm" onsubmit="submitEditService(event, '${serviceId}')" class="admin-form">
             <div class="add-service-layout">
@@ -1348,10 +1353,12 @@ async function editService(serviceId) {
                             </div>
                             <div class="form-group">
                                 <label>Type</label>
-                                <select name="type" disabled>
-                                    <option value="${service.type || 'service'}" selected>${service.type === 'subscription' ? 'Subscription' : service.type === 'custom' ? 'Custom' : 'Standard'}</option>
+                                <select name="type">
+                                    <option value="service"${resolvedType === 'service' ? ' selected' : ''}>Standard</option>
+                                    <option value="subscription"${resolvedType === 'subscription' ? ' selected' : ''}>Subscription</option>
+                                    <option value="custom_comments"${resolvedType === 'custom_comments' ? ' selected' : ''}>Custom Comments</option>
                                 </select>
-                                <small style="color: #94a3b8;">Cannot be changed after creation</small>
+                                <small style="color: #94a3b8;">Use Custom Comments for comment-per-line orders.</small>
                             </div>
                         </div>
                     </div>
@@ -2186,6 +2193,7 @@ async function submitEditService(event, serviceId) {
         serviceId: numericServiceId,
         name: serviceData.serviceName,
         category: serviceData.category,
+        type: serviceData.type || 'service',
         min_quantity: Number.isFinite(minQuantityValue) ? minQuantityValue : null,
         max_quantity: Number.isFinite(maxQuantityValue) ? maxQuantityValue : null,
         description: serviceData.description || '',

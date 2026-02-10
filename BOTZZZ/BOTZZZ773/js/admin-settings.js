@@ -377,6 +377,11 @@ async function applyStoredSettingsToSection(section) {
         if (!values) {
             return;
         }
+        if (config.storageKey === 'general') {
+            if (!values.brandColor || values.brandColor.toUpperCase() === '#FF1494') {
+                values.brandColor = '#FBBF24';
+            }
+        }
         const form = document.getElementById(config.formId);
         populateFormValues(form, values);
     } catch (error) {
@@ -464,7 +469,7 @@ function generateGeneralSettings() {
                 <h3><i class="fas fa-palette"></i> Appearance</h3>
                 <div class="form-group">
                     <label>Brand Color</label>
-                    <input type="color" name="brandColor" value="#FF1494">
+                    <input type="color" name="brandColor" value="#FBBF24">
                 </div>
                 <div class="form-group">
                     <label>Logo URL</label>
@@ -1557,7 +1562,7 @@ function displayProviders(providers) {
             ${settingsProvidersCache.map((provider, idx) => `
                 <div class="provider-list-item" draggable="true" data-provider-id="${provider.id}" data-provider-index="${idx}" ondragstart="dragStartProvider(event)" ondragover="dragOverProvider(event)" ondrop="dragDropProvider(event)" ondragend="dragEndProvider(event)">
                     <div class="provider-name" style="cursor: move; user-select: none; padding-right: 10px;">
-                        <i class="fas fa-grip-vertical" style="color: #FF1494; margin-right: 5px;"></i>
+                        <i class="fas fa-grip-vertical" style="color: var(--admin-accent); margin-right: 5px;"></i>
                         <i class="fas fa-plug"></i>
                         <span>${escapeHtml(provider.name)}</span>
                     </div>
@@ -1663,7 +1668,7 @@ async function editProvider(providerId) {
     // Show loading modal first
     createModal('Edit Provider', `
         <div style="text-align: center; padding: 40px;">
-            <i class="fas fa-spinner fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+            <i class="fas fa-spinner fa-spin" style="font-size: 48px; color: var(--admin-accent); margin-bottom: 20px;"></i>
             <p>Loading provider data...</p>
         </div>
     `);
@@ -1837,10 +1842,10 @@ async function syncProvider(providerId) {
     console.log('[DEBUG] Syncing provider:', providerId);
     const content = `
         <div style="text-align: center; padding: 20px;">
-            <i class="fas fa-sync fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+            <i class="fas fa-sync fa-spin" style="font-size: 48px; color: var(--admin-accent); margin-bottom: 20px;"></i>
             <p>Syncing services from provider...</p>
             <div style="background: rgba(0,0,0,0.3); border-radius: 8px; height: 8px; margin-top: 20px; overflow: hidden;">
-                <div id="syncProgress" style="background: #FF1494; height: 100%; width: 30%; transition: width 0.3s;"></div>
+                <div id="syncProgress" style="background: var(--admin-accent); height: 100%; width: 30%; transition: width 0.3s;"></div>
             </div>
             <p id="syncStatus" style="color: #888; margin-top: 12px;">Connecting to provider API...</p>
         </div>
@@ -1916,7 +1921,7 @@ async function testProvider(providerId) {
     console.log('[DEBUG] Testing provider:', providerId);
     const content = `
         <div style="text-align: center; padding: 20px;">
-            <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: #FF1494; margin-bottom: 20px;"></i>
+            <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: var(--admin-accent); margin-bottom: 20px;"></i>
             <p>Testing connection to provider...</p>
             <p id="testStatus" style="color: #888; margin-top: 12px;">Connecting to API...</p>
         </div>
@@ -2097,7 +2102,7 @@ async function refreshProviderBalances() {
         }
         const content = `
             <div style="padding: 20px; text-align: center;">
-                <i class="fas fa-sync fa-spin" style="font-size: 36px; color: #FF1494; margin-bottom: 12px;"></i>
+                <i class="fas fa-sync fa-spin" style="font-size: 36px; color: var(--admin-accent); margin-bottom: 12px;"></i>
                 <p id="refreshBalanceStatus" style="margin: 6px 0; color: #ccc;">Starting...</p>
                 <p id="refreshBalanceSummary" style="margin: 6px 0; color: #888; font-size: 14px;">0 completed</p>
             </div>

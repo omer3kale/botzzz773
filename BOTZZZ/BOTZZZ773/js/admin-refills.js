@@ -112,7 +112,7 @@
                     <td><span class="refill-id">#${refill.refill_id || '-'}</span></td>
                     <td>
                         <span class="provider-id">#${refill.provider_refill_id || '-'}</span>
-                        <br><small style="color: #666;">${refill.provider_name || refill.orders?.service?.provider?.name || 'Unknown'}</small>
+                        <br><small style="color: var(--admin-gray-text);">${refill.provider_name || refill.orders?.service?.provider?.name || 'Unknown'}</small>
                     </td>
                     <td><span class="provider-order-id">#${refill.provider_order_id || '-'}</span></td>
                     <td>${refill.order_number}</td>
@@ -443,16 +443,16 @@
                 bottom: 20px;
                 left: 50%;
                 transform: translateX(-50%);
-                background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-                border: 2px solid #3b82f6;
-                border-radius: 10px;
+                background: linear-gradient(135deg, rgba(16, 18, 22, 0.95) 0%, rgba(26, 31, 39, 0.98) 100%);
+                border: 1px solid var(--admin-border);
+                border-radius: 12px;
                 padding: 15px 25px;
-                box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+                box-shadow: 0 12px 28px rgba(0,0,0,0.45);
                 z-index: 1000;
                 display: flex;
                 align-items: center;
                 gap: 15px;
-                color: #f3f4f6;
+                color: var(--admin-light-text);
                 font-weight: 600;
             `;
             document.body.appendChild(bulkBar);
@@ -460,16 +460,16 @@
         
         bulkBar.innerHTML = `
             <span>${selectedCount} selected</span>
-            <button onclick="window.copyProviderOrderIds()" style="padding: 8px 16px; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+            <button onclick="window.copyProviderOrderIds()" style="padding: 8px 16px; background: rgba(var(--admin-primary-rgb), 0.18); color: var(--admin-primary); border: 1px solid rgba(var(--admin-primary-rgb), 0.4); border-radius: 8px; cursor: pointer; font-weight: 600;">
                 <i class="fas fa-copy"></i> Copy Order IDs
             </button>
-            <button onclick="window.bulkCompleteRefills()" style="padding: 8px 16px; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+            <button onclick="window.bulkCompleteRefills()" style="padding: 8px 16px; background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.45); border-radius: 8px; cursor: pointer; font-weight: 600;">
                 <i class="fas fa-check"></i> Complete All
             </button>
-            <button onclick="window.bulkRejectRefills()" style="padding: 8px 16px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+            <button onclick="window.bulkRejectRefills()" style="padding: 8px 16px; background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.45); border-radius: 8px; cursor: pointer; font-weight: 600;">
                 <i class="fas fa-times"></i> Reject All
             </button>
-            <button onclick="window.clearRefillSelection()" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer;">
+            <button onclick="window.clearRefillSelection()" style="padding: 8px 16px; background: var(--admin-darker-bg); color: var(--admin-light-text); border: 1px solid var(--admin-border); border-radius: 8px; cursor: pointer;">
                 Clear
             </button>
         `;

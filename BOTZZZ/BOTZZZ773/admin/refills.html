@@ -21,38 +21,41 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            border: 1px solid transparent;
         }
         .refill-status-badge.pending {
-            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
-            color: #78350f;
+            background: rgba(var(--admin-accent-rgb), 0.18);
+            color: var(--admin-accent);
+            border-color: rgba(var(--admin-accent-rgb), 0.4);
         }
         .refill-status-badge.awaiting {
-            background: linear-gradient(135deg, #a78bfa 0%, #9333ea 100%);
-            color: white;
+            background: rgba(168, 85, 247, 0.15);
+            color: #d8b4fe;
+            border-color: rgba(168, 85, 247, 0.35);
         }
         .refill-status-badge.in-progress {
-            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
-            color: white;
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border-color: rgba(59, 130, 246, 0.35);
         }
         .refill-status-badge.completed {
-            background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-            color: white;
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border-color: rgba(34, 197, 94, 0.35);
         }
         .refill-status-badge.rejected {
-            background: linear-gradient(135deg, #f87171 0%, #ef4444 100%);
-            color: white;
-        }
-        .refill-status-badge.awaiting {
-            background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
-            color: white;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.35);
         }
         .refill-table {
             width: 100%;
             border-collapse: collapse;
-            background: #0f172a;
-            border-radius: 10px;
+            background: var(--admin-dark-bg);
+            border-radius: 12px;
+            border: 1px solid var(--admin-border);
             overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
             font-size: 14px;
         }
         .refill-table-wrapper {
@@ -61,8 +64,8 @@
             -webkit-overflow-scrolling: touch;
         }
         .refill-table thead {
-            background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
-            color: white;
+            background: var(--admin-darker-bg);
+            color: var(--admin-light-text);
             position: sticky;
             top: 0;
             z-index: 10;
@@ -75,20 +78,19 @@
             text-transform: uppercase;
             letter-spacing: 0.8px;
             white-space: nowrap;
-            color: #f3f4f6;
+            color: var(--admin-light-text);
         }
         .refill-table td {
             padding: 14px;
-            border-bottom: 1px solid #1e293b;
+            border-bottom: 1px solid var(--admin-border);
             vertical-align: middle;
-            color: #e5e7eb;
+            color: var(--admin-light-text);
         }
         .refill-table tbody tr {
             transition: all 0.2s ease;
         }
         .refill-table tbody tr:hover {
-            background-color: #1e293b;
-            box-shadow: inset 0 0 8px rgba(102, 126, 234, 0.15);
+            background-color: var(--admin-hover);
         }
         .refill-table tbody tr:last-child td {
             border-bottom: none;
@@ -99,21 +101,21 @@
         .refill-id, .provider-id {
             font-family: 'Courier New', monospace;
             font-weight: 900;
-            color: #ffffff !important;
+            color: var(--admin-light-text) !important;
             padding: 8px 14px;
             border-radius: 6px;
             font-size: 14px;
             display: inline-block;
             letter-spacing: 0.8px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            border: 1px solid transparent;
         }
         .refill-id {
-            background: #3b3fb7;
-            box-shadow: 0 2px 8px rgba(59, 63, 183, 0.5);
+            background: rgba(var(--admin-primary-rgb), 0.18);
+            border-color: rgba(var(--admin-primary-rgb), 0.35);
         }
         .provider-id {
-            background: #c2531f;
-            box-shadow: 0 2px 8px rgba(194, 83, 31, 0.5);
+            background: rgba(var(--admin-accent-rgb), 0.18);
+            border-color: rgba(var(--admin-accent-rgb), 0.35);
         }
         .refill-actions {
             display: flex;
@@ -123,7 +125,7 @@
         }
         .refill-actions__btn {
             padding: 7px 12px;
-            border: none;
+            border: 1px solid var(--admin-border);
             border-radius: 6px;
             cursor: pointer;
             font-size: 12px;
@@ -133,38 +135,44 @@
             align-items: center;
             gap: 5px;
             letter-spacing: 0.3px;
+            background: var(--admin-darker-bg);
+            color: var(--admin-light-text);
         }
         .refill-actions__view {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: white;
+            border-color: rgba(var(--admin-primary-rgb), 0.5);
+            color: var(--admin-primary);
         }
         .refill-actions__view:hover {
+            background: rgba(var(--admin-primary-rgb), 0.16);
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4);
+            box-shadow: 0 6px 12px rgba(var(--admin-primary-rgb), 0.3);
         }
         .refill-actions__progress {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-            color: white;
+            border-color: rgba(var(--admin-accent-rgb), 0.5);
+            color: var(--admin-accent);
         }
         .refill-actions__progress:hover {
+            background: rgba(var(--admin-accent-rgb), 0.16);
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(245, 158, 11, 0.4);
+            box-shadow: 0 6px 12px rgba(var(--admin-accent-rgb), 0.3);
         }
         .refill-actions__accept {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
+            border-color: rgba(34, 197, 94, 0.5);
+            color: #4ade80;
         }
         .refill-actions__accept:hover {
+            background: rgba(34, 197, 94, 0.16);
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(16, 185, 129, 0.4);
+            box-shadow: 0 6px 12px rgba(34, 197, 94, 0.3);
         }
         .refill-actions__reject {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            color: white;
+            border-color: rgba(239, 68, 68, 0.5);
+            color: #f87171;
         }
         .refill-actions__reject:hover {
+            background: rgba(239, 68, 68, 0.16);
             transform: translateY(-2px);
-            box-shadow: 0 6px 12px rgba(239, 68, 68, 0.4);
+            box-shadow: 0 6px 12px rgba(239, 68, 68, 0.3);
         }
         .filters-section {
             display: flex;
@@ -172,26 +180,27 @@
             margin-bottom: 24px;
             flex-wrap: wrap;
             align-items: center;
-            background: white;
+            background: var(--admin-dark-bg);
             padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            border: 1px solid var(--admin-border);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
         }
         .filters-section select,
         .filters-section input {
             padding: 10px 12px;
-            border: 1px solid #d1d5db;
+            border: 1px solid var(--admin-border);
             border-radius: 6px;
             font-size: 14px;
-            background: white;
-            color: #1f2937;
+            background: var(--admin-darker-bg);
+            color: var(--admin-light-text);
             transition: all 0.2s;
         }
         .filters-section select:focus,
         .filters-section input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: var(--admin-primary);
+            box-shadow: 0 0 0 3px rgba(var(--admin-primary-rgb), 0.15);
         }
         .filters-section input {
             flex: 1;
@@ -199,24 +208,25 @@
         }
         .filter-btn {
             padding: 10px 20px;
-            border: 1px solid #d1d5db;
-            background: white;
+            border: 1px solid var(--admin-border);
+            background: var(--admin-darker-bg);
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
             font-size: 13px;
             transition: all 0.2s;
             white-space: nowrap;
+            color: var(--admin-light-text);
         }
         .filter-btn:hover {
-            border-color: #667eea;
-            background: #f9fafb;
+            border-color: var(--admin-primary);
+            background: var(--admin-hover);
         }
         .filter-btn.active {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--admin-gradient);
+            color: #0f172a;
             border-color: transparent;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            box-shadow: 0 4px 12px rgba(var(--admin-accent-rgb), 0.3);
         }
         .loading-state, .empty-state, .error-state {
             text-align: center;
@@ -226,7 +236,7 @@
         .loading-state i {
             font-size: 48px;
             margin-bottom: 16px;
-            color: #667eea;
+            color: var(--admin-accent);
             animation: spin 1s linear infinite;
         }
         @keyframes spin {
@@ -236,10 +246,10 @@
         .empty-state i {
             font-size: 48px;
             margin-bottom: 16px;
-            color: #d1d5db;
+            color: var(--admin-gray-text);
         }
         .error-state {
-            color: #dc2626;
+            color: #f87171;
         }
         .error-state i {
             font-size: 48px;
@@ -248,7 +258,7 @@
         .refill-id {
             font-family: 'Monaco', 'Courier New', monospace;
             font-weight: 600;
-            color: #667eea;
+            color: var(--admin-light-text);
         }
         .modal-overlay {
             display: none;
@@ -268,37 +278,38 @@
             pointer-events: auto;
         }
         .modal-content {
-            background: white;
-            border-radius: 8px;
+            background: var(--admin-darker-bg);
+            border-radius: 12px;
             padding: 24px;
             max-width: 600px;
             width: 90%;
             max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--admin-border);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
         }
         .modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 16px;
-            border-bottom: 1px solid #e5e7eb;
+            border-bottom: 1px solid var(--admin-border);
             padding-bottom: 12px;
         }
         .modal-header h2 {
             margin: 0;
             font-size: 18px;
-            color: #1f2937;
+            color: var(--admin-light-text);
         }
         .modal-close {
             background: none;
             border: none;
             font-size: 24px;
             cursor: pointer;
-            color: #6b7280;
+            color: var(--admin-gray-text);
         }
         .modal-close:hover {
-            color: #1f2937;
+            color: var(--admin-light-text);
         }
         .modal-body {
             margin: 16px 0;
@@ -309,7 +320,7 @@
         .modal-field label {
             display: block;
             font-weight: 600;
-            color: #374151;
+            color: var(--admin-gray-text);
             margin-bottom: 4px;
             font-size: 13px;
             text-transform: uppercase;
@@ -320,10 +331,12 @@
         .modal-field select {
             width: 100%;
             padding: 8px 12px;
-            border: 1px solid #d1d5db;
+            border: 1px solid var(--admin-border);
             border-radius: 4px;
             font-size: 14px;
             font-family: inherit;
+            background: var(--admin-dark-bg);
+            color: var(--admin-light-text);
         }
         .modal-field textarea {
             resize: vertical;
@@ -331,8 +344,8 @@
         }
         .modal-field input:disabled,
         .modal-field textarea:disabled {
-            background-color: #f9fafb;
-            color: #6b7280;
+            background-color: rgba(255, 255, 255, 0.04);
+            color: var(--admin-gray-text);
         }
         .modal-footer {
             display: flex;
@@ -340,7 +353,7 @@
             justify-content: flex-end;
             margin-top: 24px;
             padding-top: 16px;
-            border-top: 1px solid #e5e7eb;
+            border-top: 1px solid var(--admin-border);
         }
         .modal-footer button {
             padding: 8px 16px;
@@ -351,26 +364,28 @@
             transition: all 0.2s;
         }
         .modal-footer .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: var(--admin-gradient);
+            color: #0f172a;
         }
         .modal-footer .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            box-shadow: 0 4px 12px rgba(var(--admin-accent-rgb), 0.35);
         }
         .modal-footer .btn-cancel {
-            background: #e5e7eb;
-            color: #1f2937;
+            background: var(--admin-dark-bg);
+            color: var(--admin-light-text);
+            border: 1px solid var(--admin-border);
         }
         .modal-footer .btn-cancel:hover {
-            background: #d1d5db;
+            background: var(--admin-hover);
         }
         .modal-footer .btn-secondary {
-            background: #6366f1;
-            color: white;
+            background: rgba(var(--admin-primary-rgb), 0.18);
+            color: var(--admin-primary);
+            border: 1px solid rgba(var(--admin-primary-rgb), 0.4);
         }
         .modal-footer .btn-secondary:hover {
-            background: #4f46e5;
+            background: rgba(var(--admin-primary-rgb), 0.3);
         }
         .modal-footer .btn-success {
             background: #10b981;
@@ -456,7 +471,7 @@
             </div>
             <div class="admin-user-menu">
                 <button class="admin-user-button" onclick="toggleUserMenu()">
-                    <img src="https://ui-avatars.com/api/?name=Admin&background=FF1494&color=000000" alt="Admin">
+                    <img src="https://ui-avatars.com/api/?name=Admin&background=FF8A4A&color=000000" alt="Admin">
                     <i class="fas fa-chevron-down"></i>
                 </button>
                 <div class="user-dropdown-menu" id="userDropdownMenu">

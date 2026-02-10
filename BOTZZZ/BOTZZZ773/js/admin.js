@@ -629,11 +629,11 @@ function initDashboardChart(revenueChartData = {}, ordersChartData = {}, profitC
         datasets: [{
             label: 'Payments',
             data: paymentsData.length > 0 ? paymentsData : [500, 650, 750, 820, 900, 1100, 1250],
-            borderColor: '#FF1494',
-            backgroundColor: 'rgba(255, 20, 148, 0.1)',
+            borderColor: '#ff8a4a',
+            backgroundColor: 'rgba(255, 138, 74, 0.12)',
             tension: 0.4,
             fill: true,
-            pointBackgroundColor: '#FF1494',
+            pointBackgroundColor: '#ff8a4a',
             pointBorderColor: '#fff',
             pointBorderWidth: 2,
             pointRadius: 4,
@@ -668,7 +668,7 @@ function initDashboardChart(revenueChartData = {}, ordersChartData = {}, profitC
                         backgroundColor: '#1a1a1a',
                         titleColor: '#fff',
                         bodyColor: '#fff',
-                        borderColor: '#FF1494',
+                        borderColor: '#ff8a4a',
                         borderWidth: 1,
                         padding: 12,
                         displayColors: false,
@@ -732,7 +732,7 @@ function switchChartTab(tab) {
     
     // Chart data for different tabs (using real data from backend)
     const chartConfig = {
-        payments: { label: 'Payments', color: '#FF1494' },
+        payments: { label: 'Payments', color: '#ff8a4a' },
         orders: { label: 'Orders', color: '#22c55e' },
         profits: { label: 'Profits', color: '#3b82f6' }
     };

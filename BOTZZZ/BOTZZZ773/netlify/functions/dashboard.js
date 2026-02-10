@@ -552,13 +552,36 @@ async function handleUserStats(user, headers) {
       .eq('id', user.userId)
       .single();
 
-    // Get user's total spent
-    const { data: orders } = await supabaseAdmin
-      .from('orders')
-      .select('charge')
-      .eq('user_id', user.userId);
+    // Get user's total spent (paginate to avoid 1k row limit)
+    let totalSpent = 0;
+    let pageNum = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-    const totalSpent = orders?.reduce((sum, o) => sum + parseFloat(o.charge), 0) || 0;
+    while (hasMore) {
+      const { data: ordersPage, error: ordersError } = await supabaseAdmin
+        .from('orders')
+        .select('charge')
+        .eq('user_id', user.userId)
+        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
+
+      if (ordersError) {
+        console.error('[DASHBOARD] User stats orders page error:', ordersError);
+        break;
+      }
+
+      if (!ordersPage || ordersPage.length === 0) {
+        hasMore = false;
+      } else {
+        ordersPage.forEach(order => {
+          totalSpent += parseFloat(order.charge || 0);
+        });
+        pageNum++;
+        if (ordersPage.length < pageSize) {
+          hasMore = false;
+        }
+      }
+    }
 
     // Get user's order count
     const { count: orderCount } = await supabaseAdmin

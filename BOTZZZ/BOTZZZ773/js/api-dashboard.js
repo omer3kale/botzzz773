@@ -179,19 +179,41 @@ async function updateDashboardStats() {
         });
         
         const data = await response.json();
+        const stats = data?.stats || (data?.success ? data : null);
         
-        if (data.success) {
-            document.getElementById('totalRequests').textContent = (data.totalRequests || 0).toLocaleString();
-            document.getElementById('totalOrders').textContent = (data.totalOrders || 0).toLocaleString();
+        if (stats) {
+            const totalRequestsEl = document.getElementById('totalRequests');
+            if (totalRequestsEl) {
+                totalRequestsEl.textContent = (stats.totalRequests || 0).toLocaleString();
+            }
+            const totalOrdersEl = document.getElementById('totalOrders');
+            if (totalOrdersEl) {
+                totalOrdersEl.textContent = (stats.totalOrders || 0).toLocaleString();
+            }
             const activeServicesEl = document.getElementById('activeServices');
             if (activeServicesEl) {
-                activeServicesEl.textContent = (data.activeServices || data.activeProviders || 0);
+                activeServicesEl.textContent = (stats.activeServices || stats.activeProviders || 0);
             }
-            document.getElementById('totalSpent').textContent = '$' + (data.totalSpent || 0).toFixed(2);
+            const totalSpentEl = document.getElementById('totalSpent');
+            if (totalSpentEl) {
+                const spentValue = Number(stats.totalSpent);
+                if (Number.isFinite(spentValue)) {
+                    if (typeof window.BOTZZZ_formatBalanceDisplay === 'function') {
+                        totalSpentEl.textContent = window.BOTZZZ_formatBalanceDisplay(spentValue);
+                    } else {
+                        const formatted = spentValue.toFixed(5)
+                            .replace(/(\.\d*?[1-9])0+$/, '$1')
+                            .replace(/\.0+$/, '');
+                        totalSpentEl.textContent = '$' + formatted;
+                    }
+                } else {
+                    totalSpentEl.textContent = '$0.00';
+                }
+            }
             
             // Also update balance if returned from dashboard endpoint
-            if (Number.isFinite(data.balance)) {
-                updateBalanceDisplay(data.balance);
+            if (Number.isFinite(Number(stats.balance))) {
+                updateBalanceDisplay(Number(stats.balance));
             }
         }
     } catch (error) {
