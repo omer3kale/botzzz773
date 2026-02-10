@@ -27,14 +27,16 @@
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.78.0",
-    "axios": "^1.13.1",
+    "axios": "^1.13.5",
     "bcryptjs": "^3.0.2",
+    "body-parser": "^2.2.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.3",
-    "nodemailer": "^7.0.10",
+    "nodemailer": "^7.0.13",
     "pg": "^8.13.1",
+    "qs": "^6.14.1",
     "stripe": "^19.2.0"
   },
   "devDependencies": {
