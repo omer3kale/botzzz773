@@ -779,6 +779,36 @@
     let selectedService = null;
     let lastSearchResults = []; // Track search results for category filtering
 
+    function normalizeQuantityValue(rawValue) {
+        const raw = rawValue === undefined || rawValue === null ? '' : String(rawValue).trim();
+        if (!raw) {
+            return null;
+        }
+        if (!/^[0-9]+$/.test(raw)) {
+            return null;
+        }
+        return Number(raw);
+    }
+
+    function coerceQuantityInput({ clampToLimits = false } = {}) {
+        if (!quantityInput) {
+            return null;
+        }
+        const normalized = normalizeQuantityValue(quantityInput.value);
+        if (normalized === null) {
+            return null;
+        }
+        let finalValue = normalized;
+        if (clampToLimits && selectedService) {
+            const maxLimit = Number.isFinite(selectedService.max) ? selectedService.max : Infinity;
+            finalValue = Math.min(Math.max(finalValue, selectedService.min), maxLimit);
+        }
+        if (String(quantityInput.value) !== String(finalValue)) {
+            quantityInput.value = finalValue;
+        }
+        return finalValue;
+    }
+
     // Helper function to render service option
     function createServiceOption(service) {
         const option = document.createElement('option');
@@ -940,12 +970,40 @@
     // Calculate charge based on quantity
     if (quantityInput) {
         quantityInput.addEventListener('input', calculateCharge);
+        quantityInput.addEventListener('blur', () => {
+            coerceQuantityInput({ clampToLimits: true });
+            calculateCharge();
+        });
+        quantityInput.addEventListener('input', () => {
+            if (quantityInput.validity.customError) {
+                quantityInput.setCustomValidity('');
+            }
+        });
+        quantityInput.addEventListener('invalid', () => {
+            const raw = String(quantityInput.value || '').trim();
+            if (!raw) {
+                quantityInput.setCustomValidity('Please enter a quantity.');
+                return;
+            }
+            const numeric = Number(raw.replace(',', '.'));
+            if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) {
+                const lower = Math.floor(numeric);
+                const upper = Math.ceil(numeric);
+                if (Number.isFinite(lower) && Number.isFinite(upper)) {
+                    quantityInput.setCustomValidity(`Please enter a whole number. The nearest valid values are ${lower} and ${upper}.`);
+                } else {
+                    quantityInput.setCustomValidity('Please enter a whole number.');
+                }
+                return;
+            }
+            quantityInput.setCustomValidity('');
+        });
     }
 
     function calculateCharge() {
         if (!selectedService || !quantityInput) return;
         
-        const quantity = parseInt(quantityInput.value) || 0;
+        const quantity = normalizeQuantityValue(quantityInput.value) || 0;
         
         if (quantity >= selectedService.min && quantity <= selectedService.max) {
             // Price is already discounted in selectedService.price
@@ -980,13 +1038,16 @@
     if (searchInput) {
         searchInput.addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
-            const selectedCategory = categorySelect ? categorySelect.value : '';
             
             if (searchTerm.length < 2) {
                 // Reset search results
                 lastSearchResults = [];
                 serviceSelect.innerHTML = '<option value="" disabled selected>Select a service</option>';
-                // Don't reset category select anymore
+                if (categorySelect) {
+                    categorySelect.value = '';
+                }
+                populateCategoryOptions();
+                resetOrderCalculation();
                 return;
             }
 
@@ -1047,11 +1108,16 @@
             // Store search results for category filtering
             lastSearchResults = results;
 
-            // Filter by selected category if one is chosen
-            let displayResults = results;
-            if (selectedCategory) {
-                displayResults = results.filter(s => s.categorySlug === selectedCategory);
+            // Prefer exact public_id match when search is numeric
+            let exactMatch = null;
+            const numericCandidate = searchTerm.replace(/[^0-9.]/g, '');
+            const numericSearch = numericCandidate ? Number(numericCandidate) : NaN;
+            if (Number.isFinite(numericSearch)) {
+                exactMatch = results.find(service => service.publicId === numericSearch)
+                    || results.find(service => String(service.id) === String(numericSearch));
             }
+
+            const displayResults = results;
 
             // Populate service select with filtered results
             serviceSelect.innerHTML = '';
@@ -1059,14 +1125,17 @@
                 displayResults.forEach(service => {
                     serviceSelect.appendChild(createServiceOption(service));
                 });
-                // Auto-select first result if only one
-                if (displayResults.length === 1) {
+                if (exactMatch) {
+                    if (categorySelect && exactMatch.categorySlug) {
+                        categorySelect.value = exactMatch.categorySlug;
+                        categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    serviceSelect.value = exactMatch.id;
+                    serviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
+                } else if (displayResults.length === 1) {
                     serviceSelect.value = displayResults[0].id;
                     serviceSelect.dispatchEvent(new Event('change', { bubbles: true }));
                 }
-            } else if (results.length > 0) {
-                // Results exist but filtered out by category
-                serviceSelect.innerHTML = '<option value="" disabled selected>No services in this category</option>';
             } else {
                 // No results at all
                 serviceSelect.innerHTML = '<option value="" disabled selected>No services found</option>';
@@ -1087,11 +1156,11 @@
             }
 
             const orderLink = document.getElementById('orderLink').value;
-            const quantity = parseInt(quantityInput.value);
+            const quantity = coerceQuantityInput({ clampToLimits: true });
 
             // Validate quantity
             const maxLimit = Number.isFinite(selectedService.max) ? selectedService.max : Infinity;
-            if (quantity < selectedService.min || (Number.isFinite(maxLimit) && quantity > maxLimit)) {
+            if (!Number.isFinite(quantity) || quantity < selectedService.min || (Number.isFinite(maxLimit) && quantity > maxLimit)) {
                 const maxLabel = Number.isFinite(maxLimit) ? maxLimit : 'Unlimited';
                 showToast(`Quantity must be between ${selectedService.min} and ${maxLabel}`, 'error');
                 return;

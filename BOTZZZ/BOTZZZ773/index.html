@@ -3,6 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            (function() {
+                try {
+                    var token = localStorage.getItem('token');
+                    var user = localStorage.getItem('user');
+                    if (token) {
+                        document.documentElement.classList.add('auth-pending');
+                    }
+                    if (token && user) {
+                        document.documentElement.classList.add('authenticated');
+                    } else {
+                        document.documentElement.classList.add('auth-nav-ready');
+                    }
+                } catch (e) {
+                }
+            })();
+        </script>
+        <style>
+            html.authenticated .nav-auth .nav-link.btn-outline { display: none !important; }
+            .nav-auth,
+            #authNavItem { visibility: hidden !important; }
+            html.auth-nav-ready .nav-auth,
+            html.auth-nav-ready #authNavItem { visibility: visible !important; }
+            html.auth-pending .nav-menu,
+            html.auth-pending .nav-auth { visibility: hidden !important; }
+        </style>
     <title>BOTZZZ773 - Professional SMM Panel Since 2023 | Instagram, TikTok, YouTube Services</title>
     <meta name="description" content="Trusted SMM panel since 2023. Premium social media marketing services with 37M+ orders completed. Fast delivery for Instagram, TikTok, YouTube, Spotify, Telegram followers, likes & views.">
     <meta name="keywords" content="SMM panel, social media marketing, Instagram followers, TikTok likes, YouTube views, cheap SMM services, buy followers, social media growth, SMM reseller panel">
@@ -125,8 +151,7 @@
 <body>
     <!-- Navigation -->
     <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
+        <div class="nav-wrapper">
                 <a href="index.html" class="logo">
                     <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
                 </a>
@@ -138,15 +163,16 @@
                 <ul class="nav-menu" id="navMenu">
                     <li><a href="index.html" class="nav-link active">Home</a></li>
                     <li><a href="services.html" class="nav-link">Services</a></li>
-                    <li><a href="dashboard.html" class="nav-link">Dashboard</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                    <li data-auth="required"><a href="dashboard.html" class="nav-link">Dashboard</a></li>
+                    <li data-auth="required"><a href="addfunds.html" class="nav-link">Add Funds</a></li>
                     <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
+                    <li data-auth="required"><a href="tickets.html" class="nav-link">Tickets</a></li>
                     <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li id="authNavItem">
-                        <a href="signin.html" class="nav-link btn-primary">Sign In</a>
-                    </li>
                 </ul>
+                <div class="nav-auth" id="authNavItem" style="visibility: hidden;" hidden>
+                    <a href="signup.html" class="nav-link btn-outline">Sign Up</a>
+                    <a href="signin.html" class="nav-link btn-primary">Sign In</a>
+                </div>
             </div>
         </div>
     </nav>
@@ -163,12 +189,12 @@
                 <div class="container">
                     <div class="hero-content">
                         <h1 class="hero-title">
-                            <span class="gradient-text">All-in-One SMM Panel for Resellers and Agencies</span><br>
+                            <span class="gradient-text">All-in-One SMM Panel for Resellers</span><br>
                             Fast, Automated Orders on Instagram, TikTok, YouTube & More
                         </h1>
                         <p class="hero-subtitle">Standard API compatible with major SMM platforms. 37M+ orders completed since 2023. Real-time delivery tracking and 24/7 support.</p>
                         <div class="hero-buttons">
-                            <a href="services.html" class="btn btn-primary btn-large">Get Started</a>
+                            <a href="services.html" class="btn btn-primary btn-small">Get Started</a>
                         </div>
                         <div class="hero-stats">
                             <div class="stat-item">
@@ -189,9 +215,9 @@
             </section>
 
             <!-- Trust Elements -->
-            <section class="trust-section" style="background: rgba(255, 20, 148, 0.05); padding: 30px 0; margin: 40px 0;">
+            <section class="trust-section">
                 <div class="container">
-                    <p style="text-align: center; color: #94a3b8; margin-bottom: 20px; font-size: 1.6em; font-weight: bold;">Trusted by resellers worldwide</p>
+                    <p class="trust-title">Trusted by resellers worldwide</p>
                     <div class="features-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px;">
                         <div style="text-align: center;">
                             <div style="font-size: 3.5em; color: #00ff7f; margin-bottom: 5px;" aria-hidden="true">⚡</div>
@@ -247,7 +273,7 @@
             <section class="popular-services">
                 <div class="container">
                     <h2 class="section-title">Popular SMM Services</h2>
-                    <p class="section-subtitle">Most ordered by resellers. <a href="services.html" style="color: #ff1494;">Browse all SMM services →</a></p>
+                    <p class="section-subtitle">Most ordered by resellers. <a href="services.html" class="inline-link-accent">Browse all SMM services →</a></p>
 
                     <div class="services-grid services-grid--icons" id="categoryCardsContainer">
                         <!-- Category cards will be loaded dynamically from database -->
@@ -259,11 +285,11 @@
             </section>
 
             <!-- Social Proof / Testimonials -->
-            <section class="testimonials-section" style="background: linear-gradient(135deg, rgba(255, 20, 148, 0.1) 0%, rgba(0, 255, 127, 0.05) 100%); padding: 60px 0; margin: 40px 0;">
+            <section class="testimonials-section">
                 <div class="container">
-                    <div style="text-align: center; max-width: 800px; margin: 0 auto;">
-                        <p style="color: #94a3b8; font-size: 1.1em; margin-bottom: 20px; font-weight: 600;">Based on 37M+ orders completed</p>
-                        <blockquote style="color: #e2e8f0; font-size: 1.3em; font-style: italic; line-height: 1.8; margin: 0; padding: 20px;">
+                    <div class="testimonials-inner">
+                        <p class="testimonials-meta">Based on 37M+ orders completed</p>
+                        <blockquote class="testimonials-quote">
                             "Best SMM panel for resellers. Fast API, reliable delivery, great support. We never list services that don't work like others."
                         </blockquote>
                     </div>
@@ -274,7 +300,7 @@
             <section class="why-choose">
                 <div class="container">
                     <h2 class="section-title">Why Our SMM Panel</h2>
-                    <p class="section-subtitle">Standard API compatible. Real-time support. <a href="api.html" style="color: #ff1494;">View API docs →</a></p>
+                    <p class="section-subtitle">Standard API compatible. Real-time support. <a href="api.html" class="inline-link-accent">View API docs →</a></p>
                     
                     <div class="features-grid">
                         <div class="feature-card">
@@ -300,7 +326,7 @@
                         <div class="feature-card">
                             <div class="feature-icon" aria-hidden="true">🎯</div>
                             <h3 class="feature-title">Real-time Tickets</h3>
-                            <p class="feature-desc">Supabase-powered support system. <a href="tickets.html" style="color: #ff1494; font-size: 0.9em;">Create ticket →</a></p>
+                            <p class="feature-desc">Supabase-powered support system. <a href="tickets.html" class="inline-link-accent inline-link-small">Create ticket →</a></p>
                         </div>
                         <div class="feature-card">
                             <div class="feature-icon" aria-hidden="true">🌍</div>
@@ -337,7 +363,6 @@
                     <ul class="footer-links">
                         <li><a href="index.html">Home</a></li>
                         <li><a href="services.html">Services</a></li>
-                        <li><a href="order.html">Order Now</a></li>
                         <li><a href="contact.html">Contact</a></li>
                     </ul>
                 </div>
@@ -368,7 +393,7 @@
     <script src="js/refund-state.js" defer></script>
     <script src="js/refund-banner.js" defer></script>
     <script src="js/api-client.js" defer></script>
-    <script src="js/main.js" defer></script>
+    <script src="js/main.js?v=20250209" defer></script>
     <script src="js/auth-backend.js" defer></script>
     <script src="js/services.js" defer></script>
     <!-- PWA Registration -->

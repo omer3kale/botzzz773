@@ -38,7 +38,7 @@
         CHANNEL_PREFIX: 'botzzz773',
         
         // Debug mode (set to false in production)
-        DEBUG: true
+        DEBUG: false
     });
 
     // ==========================================
@@ -62,7 +62,7 @@
     // ==========================================
     
     function log(level, message, data = null) {
-        if (!CONFIG.DEBUG && level === 'debug') return;
+        if (!CONFIG.DEBUG && (level === 'debug' || level === 'info')) return;
         
         const prefix = `[${CONFIG.PRODUCT} Realtime]`;
         const timestamp = new Date().toISOString().substr(11, 12);

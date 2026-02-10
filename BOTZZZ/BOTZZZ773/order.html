@@ -3,9 +3,50 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script>
+        (function () {
+            try {
+                var token = localStorage.getItem('token');
+                var user = localStorage.getItem('user');
+                if (token) {
+                    document.documentElement.classList.add('auth-pending');
+                }
+                if (token && user) {
+                    document.documentElement.classList.add('authenticated');
+                } else {
+                    document.documentElement.classList.add('auth-nav-ready');
+                }
+            } catch (error) {
+                console.warn('Auth preload failed:', error);
+            }
+        })();
+    </script>
+    <style>
+        [data-auth="required"] {
+            display: none;
+        }
+
+        html.authenticated [data-auth="required"] {
+            display: list-item;
+        }
+
+        .nav-auth {
+            visibility: hidden;
+        }
+
+        html.auth-nav-ready .nav-auth {
+            visibility: visible;
+        }
+
+        html.auth-pending .nav-menu,
+        html.auth-pending .nav-auth {
+            visibility: hidden !important;
+        }
+    </style>
     <title>Order Now - BOTZZZ773 SMM Panel</title>
     <meta name="description" content="Place your order for premium SMM services. Fast, secure, and reliable!">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -34,28 +75,28 @@
 <body>
     <!-- Navigation -->
     <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
-                <a href="index.html" class="logo">
-                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
-                </a>
-                <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="index.html" class="nav-link">Home</a></li>
-                    <li><a href="services.html" class="nav-link">Services</a></li>
-                    <li><a href="order.html" class="nav-link active">Order Now</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
-                    <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
-                    <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li id="authNavItem">
-                        <a href="signin.html" class="nav-link btn-primary">Sign In</a>
-                    </li>
-                </ul>
+        <div class="nav-wrapper">
+            <a href="index.html" class="logo">
+                <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
+            </a>
+            <button class="mobile-toggle" id="mobileToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="index.html" class="nav-link">Home</a></li>
+                <li><a href="services.html" class="nav-link">Services</a></li>
+                <li><a href="order.html" class="nav-link active">Order Now</a></li>
+                <li data-auth="required"><a href="dashboard.html" class="nav-link">Dashboard</a></li>
+                <li data-auth="required"><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                <li><a href="api.html" class="nav-link">API</a></li>
+                <li data-auth="required"><a href="tickets.html" class="nav-link">Tickets</a></li>
+                <li><a href="contact.html" class="nav-link">Contact</a></li>
+            </ul>
+            <div class="nav-auth" id="authNavItem">
+                <a href="signup.html" class="nav-link btn-outline">Sign Up</a>
+                <a href="signin.html" class="nav-link btn-primary">Sign In</a>
             </div>
         </div>
     </nav>
@@ -95,7 +136,7 @@
 
                         <div class="form-group">
                             <label for="quantity" class="form-label">Quantity *</label>
-                            <input type="number" id="quantity" name="quantity" class="form-input" placeholder="1000" min="10" required>
+                            <input type="number" id="quantity" name="quantity" class="form-input" placeholder="1000" min="10" step="1" inputmode="numeric" required>
                             <span class="form-hint">Minimum order: 10</span>
                         </div>
 

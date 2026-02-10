@@ -4,7 +4,7 @@
 
 /* Full-screen layout when dashboard is not running inside a popup */
 body.dashboard-shell:not(.popup-mode) {
-    background: #0f1419;
+    background: var(--bg-black);
     min-height: 100vh;
 }
 
@@ -45,7 +45,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .dashboard-wrapper {
     display: flex;
     min-height: 100vh;
-    background: #0f1419;
+    background: var(--bg-black);
 }
 
 /* ==========================================
@@ -53,8 +53,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
    ========================================== */
 .dashboard-sidebar {
     width: 260px;
-    background: linear-gradient(180deg, rgba(10, 10, 15, 0.99) 0%, rgba(12, 12, 18, 0.98) 100%);
-    border-right: 1px solid rgba(255, 20, 148, 0.12);
+    background: linear-gradient(180deg, rgba(26, 32, 38, 0.98) 0%, rgba(34, 42, 51, 0.98) 100%);
+    border-right: 1px solid rgba(43, 195, 164, 0.2);
     display: flex;
     flex-direction: column;
     position: fixed;
@@ -75,7 +75,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .sidebar-header {
     padding: var(--spacing-lg) var(--spacing-md);
-    border-bottom: 1px solid rgba(255, 20, 148, 0.08);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.15);
 }
 
 .sidebar-logo .logo-text {
@@ -115,7 +115,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     width: 32px;
     height: 32px;
     border-radius: 6px;
-    background: rgba(255, 20, 148, 0.05);
+    background: rgba(43, 195, 164, 0.14);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -125,25 +125,25 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .sidebar-link:hover {
-    background: rgba(255, 20, 148, 0.1);
+    background: rgba(43, 195, 164, 0.16);
     color: rgba(255, 255, 255, 0.95);
     transform: translateX(2px);
 }
 
 .sidebar-link:hover .sidebar-link-icon {
-    background: rgba(255, 20, 148, 0.15);
+    background: rgba(255, 138, 74, 0.2);
     transform: scale(1.02);
 }
 
 .sidebar-link.active {
-    background: rgba(255, 20, 148, 0.12);
-    color: var(--primary-pink);
+    background: rgba(43, 195, 164, 0.22);
+    color: var(--text-white);
     box-shadow: none;
     font-weight: 600;
 }
 
 .sidebar-link.active .sidebar-link-icon {
-    background: rgba(255, 20, 148, 0.2);
+    background: rgba(255, 138, 74, 0.3);
     box-shadow: none;
 }
 
@@ -157,7 +157,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     right: 16px;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--primary-pink);
+    background: var(--hot-pink);
     color: white;
     font-size: 11px;
     font-weight: 700;
@@ -170,22 +170,22 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     justify-content: center;
     text-align: center;
     line-height: 1;
-    box-shadow: 0 2px 4px rgba(255, 20, 148, 0.3);
+    box-shadow: 0 2px 6px rgba(255, 138, 74, 0.35);
     animation: badgePulse 2s ease-in-out infinite;
 }
 
 @keyframes badgePulse {
     0%, 100% {
-        box-shadow: 0 0 0 0 rgba(255, 20, 148, 0.7);
+        box-shadow: 0 0 0 0 rgba(255, 138, 74, 0.6);
     }
     50% {
-        box-shadow: 0 0 0 4px rgba(255, 20, 148, 0);
+        box-shadow: 0 0 0 4px rgba(255, 138, 74, 0);
     }
 }
 
 .sidebar-footer {
     padding: var(--spacing-md);
-    border-top: 1px solid rgba(255, 20, 148, 0.08);
+    border-top: 1px solid rgba(43, 195, 164, 0.15);
     margin-top: auto;
     display: flex;
     flex-direction: column;
@@ -205,7 +205,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
     background: transparent;
-    border: 1px solid rgba(255, 20, 148, 0.3);
+    border: 1px solid rgba(43, 195, 164, 0.35);
     color: var(--text-gray);
     font-size: 0.9rem;
     font-weight: 500;
@@ -215,9 +215,9 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .btn-logout:hover {
-    background: rgba(255, 20, 148, 0.1);
-    border-color: var(--primary-pink);
-    color: var(--primary-pink);
+    background: rgba(43, 195, 164, 0.16);
+    border-color: rgba(255, 138, 74, 0.6);
+    color: var(--text-white);
 }
 
 /* ==========================================
@@ -233,7 +233,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 /* Top Bar */
 .dashboard-topbar {
     background: var(--bg-darker);
-    border-bottom: 1px solid rgba(255, 20, 148, 0.15);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.2);
     padding: 0;
     margin: 0;
     height: 0;
@@ -289,7 +289,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     justify-content: center;
     gap: var(--spacing-xs);
     padding: var(--spacing-md) var(--spacing-lg);
-    background: linear-gradient(135deg, var(--primary-pink), #FF69B4);
+    background: var(--gradient-primary);
     border-radius: var(--radius-lg);
     cursor: pointer;
     transition: var(--transition-fast);
@@ -303,7 +303,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .balance-amount {
     font-size: 1.2rem;
     font-weight: 700;
-    color: var(--text-white);
+    color: var(--bg-black);
     letter-spacing: 0.5px;
 }
 
@@ -317,7 +317,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     gap: var(--spacing-xs);
     padding: var(--spacing-xs) var(--spacing-md);
     background: transparent;
-    border: 1px solid rgba(255, 20, 148, 0.3);
+    border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: var(--radius-lg);
     color: var(--text-white);
     cursor: pointer;
@@ -325,8 +325,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .user-menu-btn:hover {
-    border-color: var(--primary-pink);
-    background: rgba(255, 20, 148, 0.1);
+    border-color: rgba(255, 138, 74, 0.6);
+    background: rgba(43, 195, 164, 0.16);
 }
 
 .user-name {
@@ -340,7 +340,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     top: calc(100% + 8px);
     right: 0;
     background: var(--bg-darker);
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-md);
     min-width: 150px;
     padding: var(--spacing-xs);
@@ -362,8 +362,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .dropdown-item:hover {
-    background: rgba(255, 20, 148, 0.1);
-    color: var(--primary-pink);
+    background: rgba(43, 195, 164, 0.16);
+    color: var(--text-white);
 }
 
 /* ==========================================
@@ -383,7 +383,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 /* Services Highlight - Positioned at top */
 .services-highlight {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
-    border: 1px solid rgba(255, 20, 148, 0.15);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     padding: 10px;
     margin-bottom: 12px;
@@ -397,7 +397,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     color: var(--text-white);
     margin-bottom: 10px;
     text-align: center;
-    background: linear-gradient(135deg, #ff1494 0%, #ff69b4 100%);
+    background: linear-gradient(135deg, var(--text-white) 0%, var(--hot-pink) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -411,8 +411,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .service-badge {
-    background: linear-gradient(135deg, rgba(255, 20, 148, 0.1), rgba(255, 105, 180, 0.05));
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    background: linear-gradient(135deg, rgba(43, 195, 164, 0.14), rgba(255, 138, 74, 0.08));
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-md);
     padding: var(--spacing-md);
     font-size: 0.95rem;
@@ -424,13 +424,13 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .service-badge:hover {
-    border-color: var(--primary-pink);
+    border-color: rgba(255, 138, 74, 0.6);
     transform: translateX(8px);
 }
 
 .service-id {
-    background: var(--primary-pink);
-    color: var(--text-white);
+    background: var(--gradient-primary);
+    color: var(--bg-black);
     padding: 4px 10px;
     border-radius: var(--radius-sm);
     font-weight: 700;
@@ -448,8 +448,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     font-size: 0.95rem;
     line-height: 1.7;
     padding: 12px 16px;
-    background: linear-gradient(135deg, rgba(255, 20, 148, 0.08) 0%, rgba(255, 105, 180, 0.05) 100%);
-    border: 1px solid rgba(255, 20, 148, 0.1);
+    background: linear-gradient(135deg, rgba(43, 195, 164, 0.12) 0%, rgba(255, 138, 74, 0.08) 100%);
+    border: 1px solid rgba(43, 195, 164, 0.2);
     border-radius: var(--radius-md);
     margin-top: 6px;
     font-weight: 500;
@@ -461,7 +461,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
    ========================================== */
 .order-form-container {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
-    border: 1px solid rgba(255, 20, 148, 0.15);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     padding: 12px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
@@ -493,7 +493,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     width: 100%;
     padding: var(--spacing-sm) var(--spacing-md);
     background: var(--bg-black);
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-md);
     color: var(--text-white);
     font-size: 0.95rem;
@@ -504,8 +504,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .form-input:focus,
 .form-select:focus {
     outline: none;
-    border-color: var(--primary-pink);
-    box-shadow: 0 0 0 3px rgba(255, 20, 148, 0.1);
+    border-color: rgba(255, 138, 74, 0.6);
+    box-shadow: 0 0 0 3px rgba(43, 195, 164, 0.18);
 }
 
 .form-input::placeholder {
@@ -521,7 +521,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .service-info {
     padding: var(--spacing-sm);
-    background: rgba(255, 20, 148, 0.05);
+    background: rgba(43, 195, 164, 0.12);
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
     color: var(--text-gray);
@@ -550,7 +550,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     gap: var(--spacing-sm);
     padding: var(--spacing-sm) var(--spacing-md);
     background: var(--bg-black);
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-md);
     color: var(--text-light-gray);
 }
@@ -560,8 +560,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     align-items: center;
     gap: var(--spacing-sm);
     padding: var(--spacing-md);
-    background: linear-gradient(135deg, rgba(255, 20, 148, 0.1), rgba(255, 105, 180, 0.05));
-    border: 1px solid rgba(255, 20, 148, 0.3);
+    background: linear-gradient(135deg, rgba(43, 195, 164, 0.16), rgba(255, 138, 74, 0.12));
+    border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: var(--radius-md);
     flex-wrap: wrap;
 }
@@ -592,7 +592,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     background: var(--gradient-primary);
     border: none;
     border-radius: var(--radius-lg);
-    color: var(--text-white);
+    color: var(--bg-black);
     font-size: 1rem;
     font-weight: 700;
     cursor: pointer;
@@ -639,7 +639,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .live-order-status {
     background: var(--bg-darker);
-    border: 1px solid rgba(255, 20, 148, 0.12);
+    border: 1px solid rgba(43, 195, 164, 0.2);
     border-radius: var(--radius-lg);
     padding: var(--spacing-lg);
     margin-bottom: var(--spacing-lg);
@@ -679,7 +679,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     height: 10px;
     border-radius: 999px;
     background: var(--primary-pink);
-    box-shadow: 0 0 0 6px rgba(255, 20, 148, 0.15);
+    box-shadow: 0 0 0 6px rgba(43, 195, 164, 0.18);
     animation: pulse 2s infinite;
 }
 
@@ -689,8 +689,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     gap: 6px;
     padding: 6px 12px;
     border-radius: var(--radius-lg);
-    border: 1px solid rgba(255, 20, 148, 0.4);
-    background: rgba(255, 20, 148, 0.08);
+    border: 1px solid rgba(43, 195, 164, 0.4);
+    background: rgba(43, 195, 164, 0.12);
     color: var(--text-white);
     font-size: 0.8rem;
     cursor: pointer;
@@ -698,8 +698,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .btn-soft:hover {
-    border-color: var(--primary-pink);
-    background: rgba(255, 20, 148, 0.15);
+    border-color: rgba(255, 138, 74, 0.6);
+    background: rgba(43, 195, 164, 0.18);
 }
 
 .live-status-body {
@@ -721,7 +721,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     font-size: 0.75rem;
     font-weight: 600;
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 20, 148, 0.25);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     color: var(--text-light-gray);
 }
 
@@ -736,7 +736,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     padding: 0 12px;
     border-radius: var(--radius-md);
     background: rgba(30, 30, 40, 0.95);
-    border: 1px solid rgba(255, 20, 148, 0.5);
+    border: 1px solid rgba(255, 138, 74, 0.6);
     color: var(--text-white);
     font-size: 0.8rem;
     width: 320px;
@@ -760,8 +760,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .refund-pill {
     padding: 4px 10px;
     border-radius: var(--radius-lg);
-    background: rgba(255, 20, 148, 0.15);
-    color: var(--primary-pink);
+    background: rgba(43, 195, 164, 0.18);
+    color: var(--text-white);
     font-size: 0.72rem;
     font-weight: 600;
     text-transform: uppercase;
@@ -792,7 +792,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .filter-btn {
     padding: var(--spacing-xs) var(--spacing-md);
     background: transparent;
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-lg);
     color: var(--text-gray);
     font-size: 0.85rem;
@@ -802,7 +802,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .filter-btn:hover {
-    border-color: var(--primary-pink);
+    border-color: rgba(255, 138, 74, 0.6);
     color: var(--text-white);
 }
 
@@ -849,7 +849,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     align-items: center;
     gap: 8px;
     background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 20, 148, 0.35);
+    border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: var(--radius-md);
     color: var(--text-white);
     cursor: pointer;
@@ -858,17 +858,17 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .refresh-btn:hover {
-    border-color: rgba(255, 20, 148, 0.6);
+    border-color: rgba(255, 138, 74, 0.6);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
 }
 
 .orders-table-container {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
-    border: 1px solid rgba(255, 20, 148, 0.15);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     overflow-x: hidden;
     overflow-y: auto;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(255, 20, 148, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
     backdrop-filter: blur(20px);
 }
 
@@ -908,7 +908,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .orders-table thead {
-    background: rgba(255, 20, 148, 0.1);
+    background: rgba(43, 195, 164, 0.16);
 }
 
 .orders-table th {
@@ -928,7 +928,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .orders-table td {
     padding: 16px 20px;
-    border-top: 1px solid rgba(255, 20, 148, 0.08);
+    border-top: 1px solid rgba(43, 195, 164, 0.12);
     font-size: 0.95rem;
     color: rgba(255, 255, 255, 0.8);
     line-height: 1.5;
@@ -999,7 +999,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .orders-table tbody tr:hover {
-    background: rgba(255, 20, 148, 0.08);
+    background: rgba(43, 195, 164, 0.12);
     transform: translateX(2px);
 }
 
@@ -1091,7 +1091,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     bottom: -100px;
     right: var(--spacing-lg);
     background: var(--bg-darker);
-    border: 1px solid rgba(255, 20, 148, 0.3);
+    border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: var(--radius-lg);
     padding: var(--spacing-md) var(--spacing-lg);
     display: flex;
@@ -1207,7 +1207,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .refill-search .search-input {
     flex: 1;
     padding: 10px 16px;
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: var(--radius-md);
     background: rgba(15, 23, 42, 0.5);
     color: #e2e8f0;
@@ -1221,9 +1221,9 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .refill-search .search-input:focus {
     outline: none;
-    border-color: #ff1494;
+    border-color: rgba(255, 138, 74, 0.6);
     background: rgba(15, 23, 42, 0.8);
-    box-shadow: 0 0 0 3px rgba(255, 20, 148, 0.1);
+    box-shadow: 0 0 0 3px rgba(43, 195, 164, 0.18);
 }
 
 .refill-search .search-btn,
@@ -1233,9 +1233,9 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     justify-content: center;
     gap: 8px;
     padding: 10px 16px;
-    background: rgba(255, 20, 148, 0.15);
-    color: #ff1494;
-    border: 1px solid rgba(255, 20, 148, 0.3);
+    background: rgba(43, 195, 164, 0.18);
+    color: var(--text-white);
+    border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: var(--radius-md);
     font-size: 14px;
     font-weight: 600;
@@ -1245,9 +1245,9 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .refill-search .search-btn:hover,
 .refill-search .refresh-btn:hover {
-    background: rgba(255, 20, 148, 0.25);
-    border-color: #ff1494;
-    box-shadow: 0 4px 12px rgba(255, 20, 148, 0.2);
+    background: rgba(255, 138, 74, 0.2);
+    border-color: rgba(255, 138, 74, 0.6);
+    box-shadow: 0 4px 12px rgba(255, 138, 74, 0.2);
 }
 
 .refill-search .search-btn:active,
@@ -1257,11 +1257,11 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .refills-table-container {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
-    border: 1px solid rgba(255, 20, 148, 0.15);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     overflow-x: hidden;
     overflow-y: auto;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(255, 20, 148, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
     backdrop-filter: blur(20px);
 }
 
@@ -1271,7 +1271,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .refills-table thead {
-    background: rgba(255, 20, 148, 0.1);
+    background: rgba(43, 195, 164, 0.16);
 }
 
 .refills-table th {
@@ -1281,18 +1281,18 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     font-weight: 600;
     color: rgba(255, 255, 255, 0.85);
     letter-spacing: 0.3px;
-    border-bottom: 1px solid rgba(255, 20, 148, 0.15);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.2);
     text-transform: uppercase;
 }
 
 .refills-table th:first-child {
-    border-left: 2px solid #ff1494;
+    border-left: 2px solid var(--primary-pink);
     padding-left: 18px;
 }
 
 .refills-table td {
     padding: 14px 20px;
-    border-bottom: 1px solid rgba(255, 20, 148, 0.08);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.12);
     font-size: 14px;
     color: rgba(255, 255, 255, 0.8);
 }
@@ -1309,7 +1309,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .refills-table tbody tr:hover {
-    background: rgba(255, 20, 148, 0.05);
+    background: rgba(43, 195, 164, 0.1);
 }
 
 .refills-table tbody tr:last-child td {
@@ -1473,9 +1473,9 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .payments-card {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
     border-radius: 16px;
-    border: 1px solid rgba(255, 20, 148, 0.15);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(255, 20, 148, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
     backdrop-filter: blur(20px);
     margin-bottom: 0;
     min-height: 350px;
@@ -1493,7 +1493,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .payments-table thead {
-    background: rgba(255, 20, 148, 0.1);
+    background: rgba(43, 195, 164, 0.16);
 }
 
 .payments-table th {
@@ -1552,7 +1552,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .refunds-card {
     background: var(--bg-darker);
     border-radius: 16px;
-    border: 1px solid rgba(255, 20, 148, 0.1);
+    border: 1px solid rgba(43, 195, 164, 0.2);
     padding: 1.5rem;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
 }
@@ -1698,12 +1698,12 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    border-bottom: 1px solid rgba(255, 20, 148, 0.1);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.2);
 }
 
 .payments-table td {
     padding: 1rem 1.5rem;
-    border-bottom: 1px solid rgba(255, 20, 148, 0.05);
+    border-bottom: 1px solid rgba(43, 195, 164, 0.12);
     color: var(--text-white);
     font-size: 0.95rem;
     vertical-align: middle;
@@ -1714,7 +1714,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .payments-table tbody tr:hover {
-    background: rgba(255, 20, 148, 0.08);
+    background: rgba(43, 195, 164, 0.12);
     transform: translateX(2px);
 }
 
@@ -1806,7 +1806,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     gap: 0.5rem;
     padding: 0.25rem 0.75rem;
     background: var(--bg-dark);
-    border: 1px solid rgba(255, 20, 148, 0.2);
+    border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 8px;
     font-size: 0.875rem;
     font-weight: 500;
@@ -1887,8 +1887,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 /* Refill Button Styling */
 .btn-refill {
-    background: linear-gradient(135deg, var(--primary-pink), #d946a6);
-    color: var(--text-white);
+    background: var(--gradient-primary);
+    color: var(--bg-black);
     border: none;
     padding: 10px 18px;
     font-size: 13px;
@@ -1896,7 +1896,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s ease;
-    box-shadow: 0 2px 8px rgba(219, 70, 166, 0.3);
+    box-shadow: 0 2px 8px rgba(255, 138, 74, 0.3);
     white-space: nowrap;
     text-align: center;
     display: inline-flex;
@@ -1906,13 +1906,13 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .btn-refill:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(219, 70, 166, 0.5);
-    background: linear-gradient(135deg, #d946a6, #be185d);
+    box-shadow: 0 4px 16px rgba(255, 138, 74, 0.45);
+    background: linear-gradient(135deg, rgba(255, 138, 74, 0.95), rgba(43, 195, 164, 0.95));
 }
 
 .btn-refill:active {
     transform: translateY(0);
-    box-shadow: 0 2px 8px rgba(219, 70, 166, 0.3);
+    box-shadow: 0 2px 8px rgba(255, 138, 74, 0.3);
 }
 
 .btn-refill:disabled,

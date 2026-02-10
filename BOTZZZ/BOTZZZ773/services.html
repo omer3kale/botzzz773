@@ -3,6 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            (function() {
+                try {
+                    var token = localStorage.getItem('token');
+                    var user = localStorage.getItem('user');
+                    if (token) {
+                        document.documentElement.classList.add('auth-pending');
+                    }
+                    if (token && user) {
+                        document.documentElement.classList.add('authenticated');
+                    } else {
+                        document.documentElement.classList.add('auth-nav-ready');
+                    }
+                } catch (e) {
+                }
+            })();
+        </script>
+        <style>
+            html.authenticated .nav-auth .nav-link.btn-outline { display: none !important; }
+            .nav-auth { visibility: hidden; }
+            html.auth-nav-ready .nav-auth { visibility: visible; }
+            html.auth-pending .nav-menu,
+            html.auth-pending .nav-auth { visibility: hidden !important; }
+        </style>
     <title>Our Services - BOTZZZ773 SMM Panel</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -38,24 +62,27 @@
 <body>
     <!-- Navigation -->
     <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
-                <a href="index.html" class="logo">
-                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
-                </a>
-                <button class="mobile-toggle" id="mobileToggle">
-                    <span></span><span></span><span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="index.html" class="nav-link">Home</a></li>
-                    <li><a href="services.html" class="nav-link active">Services</a></li>
-                    <li><a href="order.html" class="nav-link">Order Now</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
-                    <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
-                    <li><a href="contact.html" class="nav-link">Contact</a></li>
-                    <li id="authNavItem"><a href="signin.html" class="nav-link btn-primary">Sign In</a></li>
-                </ul>
+        <div class="nav-wrapper">
+            <a href="index.html" class="logo">
+                <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
+            </a>
+            <button class="mobile-toggle" id="mobileToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="index.html" class="nav-link">Home</a></li>
+                <li><a href="services.html" class="nav-link active">Services</a></li>
+                <li data-auth="required"><a href="dashboard.html" class="nav-link">Dashboard</a></li>
+                <li data-auth="required"><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                <li><a href="api.html" class="nav-link">API</a></li>
+                <li data-auth="required"><a href="tickets.html" class="nav-link">Tickets</a></li>
+                <li><a href="contact.html" class="nav-link">Contact</a></li>
+            </ul>
+            <div class="nav-auth" id="authNavItem">
+                <a href="signup.html" class="nav-link btn-outline">Sign Up</a>
+                <a href="signin.html" class="nav-link btn-primary">Sign In</a>
             </div>
         </div>
     </nav>
@@ -70,7 +97,7 @@
             <div class="hero-gradient"></div>
 
             <!-- Page Header -->
-            <section class="page-header">
+            <section class="page-header services-page-header">
                 <div class="container">
                     <h1 class="page-title">Our <span class="gradient-text">Services</span></h1>
                     <p class="page-subtitle">150+ premium SMM services at unbeatable prices</p>
@@ -156,7 +183,7 @@
 
     <!-- Scripts -->
     <script src="js/api-client.js"></script>
-    <script src="js/main.js?v=20251118"></script>
+    <script src="js/main.js?v=20250209"></script>
     <script src="js/auth-backend.js"></script>
     <script src="js/services.js?v=20251118"></script>
     <script src="js/botzzz773-realtime.js"></script>
@@ -167,12 +194,8 @@
     <script>
         // Initialize real-time for services page
         document.addEventListener('supabase:ready', function() {
-            console.log('[BOTZZZ773] Services page real-time initializing...');
-            
             if (window.BOTZZZ773Realtime) {
-                window.BOTZZZ773Realtime.init().then(function() {
-                    console.log('[BOTZZZ773] Services page real-time connected');
-                }).catch(function(err) {
+                window.BOTZZZ773Realtime.init().catch(function(err) {
                     console.warn('[BOTZZZ773] Services page real-time error:', err);
                 });
             }

@@ -117,7 +117,7 @@ function createNetworkPillController() {
         pill.hidden = false;
         pill.dataset.status = state;
         if (labelEl) {
-            labelEl.textContent = isOnline ? 'Connection stable' : 'Offline – retrying';
+            labelEl.textContent = isOnline ? 'Connection stable' : 'Offline - retrying';
         }
         if (dotEl) {
             dotEl.setAttribute('aria-hidden', 'true');
@@ -182,28 +182,22 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize filter buttons
 function initializeFilters() {
     filterButtons = document.querySelectorAll('[data-filter]');
-    
-    console.log('[FILTERS] Initializing with', filterButtons.length, 'buttons');
-    
+
     filterButtons.forEach(button => {
         button.addEventListener('click', function() {
             const filter = this.dataset.filter;
             const serviceCategories = document.querySelectorAll('.service-category');
-            
-            console.log('[FILTER] Clicked:', filter);
-            console.log('[FILTER] Found categories:', serviceCategories.length);
-            
+
             // Update active button
             filterButtons.forEach(btn => btn.classList.remove('active'));
             this.classList.add('active');
-            
+
             // Filter categories
             serviceCategories.forEach(category => {
                 if (filter === 'all') {
                     category.style.display = 'block';
                 } else {
                     const categoryName = category.dataset.category;
-                    console.log('[FILTER] Category:', categoryName, 'Filter:', filter, 'Match:', categoryName === filter);
                     if (categoryName === filter) {
                         category.style.display = 'block';
                     } else {
@@ -211,7 +205,7 @@ function initializeFilters() {
                     }
                 }
             });
-            
+
             // Animate appearance
             setTimeout(() => {
                 const visibleCategories = Array.from(serviceCategories)
@@ -225,29 +219,27 @@ function initializeFilters() {
             }, 100);
         });
     });
-    
-    console.log('[FILTERS] Initialized successfully');
 }
 
 // Initialize search functionality
 function initializeSearch() {
     const searchInput = document.getElementById('serviceSearch');
-    
+
     if (searchInput) {
         searchInput.addEventListener('input', function() {
             const searchTerm = this.value.toLowerCase();
             const serviceCategories = document.querySelectorAll('.service-category');
-            
+
             serviceCategories.forEach(category => {
                 const categoryTitle = category.querySelector('.category-title')?.textContent.toLowerCase() || '';
                 const rows = category.querySelectorAll('.service-row:not(.service-row-header)');
                 let hasVisibleRow = false;
-                
+
                 rows.forEach(row => {
                     const serviceName = row.querySelector('strong')?.textContent.toLowerCase() || '';
                     const serviceDetails = row.querySelector('.service-details')?.textContent.toLowerCase() || '';
-                    
-                    if (serviceName.includes(searchTerm) || 
+
+                    if (serviceName.includes(searchTerm) ||
                         serviceDetails.includes(searchTerm) ||
                         categoryTitle.includes(searchTerm)) {
                         row.style.display = 'grid';
@@ -256,7 +248,7 @@ function initializeSearch() {
                         row.style.display = 'none';
                     }
                 });
-                
+
                 if (hasVisibleRow || categoryTitle.includes(searchTerm)) {
                     category.style.display = 'block';
                 } else {
@@ -265,7 +257,7 @@ function initializeSearch() {
             });
         });
     }
-    
+
     // Smooth scroll to category from hash
     if (window.location.hash) {
         setTimeout(() => {
@@ -296,8 +288,6 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
-
-console.log('📱 Services page loaded!');
 
 function enablePopupSurface() {
     document.body.classList.add('popup-mode');
@@ -342,10 +332,7 @@ function handlePopupClose() {
     }
 }
 
-// ==========================================
 // Load Services from API
-// ==========================================
-
 async function loadServicesFromAPI(options = {}) {
     const container = document.getElementById('servicesContainer');
     if (!container) {
@@ -353,23 +340,11 @@ async function loadServicesFromAPI(options = {}) {
         return false;
     }
 
-    const isRetry = Boolean(options.manualRetry);
-    const token = resolveAuthToken('load-services');
-    authToken = token;
-    // Refresh user profile to get latest service_discounts
-    if (token) {
-        await refreshUserProfile(token);
-    }
-    
-    try {
-        // Show loading state
-        container.innerHTML = '<div class="loading-spinner" style="text-align: center; padding: 60px;"><div style="display: inline-block; width: 50px; height: 50px; border: 4px solid rgba(255,20,148,0.2); border-top-color: #FF1494; border-radius: 50%; animation: spin 1s linear infinite;"></div><p style="margin-top: 20px; color: #94A3B8;">Loading services...</p></div>';
-        servicesStatusController?.setState(isRetry ? 'retrying' : 'loading');
-        
-        const headers = {
-            'Content-Type': 'application/json'
-        };
+    const headers = {
+        'Content-Type': 'application/json'
+    };
 
+    try {
         // Prefer full services payload from Netlify Function (includes description + slots)
         // Fallback to public v2 if function is not available
         let response = await fetch('/.netlify/functions/services', {
@@ -399,7 +374,7 @@ async function loadServicesFromAPI(options = {}) {
 
         // Handle both array response (from /v2) and object response (function)
         let services = Array.isArray(data) ? data : (Array.isArray(data.services) ? data.services : []);
-        
+
         // Normalize to internal shape while preserving description and slots when available
         services = services.map(service => {
             const rateVal = service.rate ?? service.price;
@@ -424,28 +399,25 @@ async function loadServicesFromAPI(options = {}) {
                 __clientKey: `service_${publicId}`
             };
         });
-        
+
         // Load user's discount rate and service-specific discounts if authenticated
         try {
             const userData = JSON.parse(localStorage.getItem('user') || '{}');
             const discount = Number(userData?.discount_rate ?? 0);
             if (Number.isFinite(discount) && discount >= 0 && discount <= 100) {
                 userDiscountRate = discount;
-                console.log('[SERVICES] User discount rate:', userDiscountRate + '%');
             }
             // Load user-specific service discounts
             if (userData.service_discounts && typeof userData.service_discounts === 'object') {
                 userServiceDiscounts = userData.service_discounts;
-                console.log('[SERVICES] User service-specific discounts:', userServiceDiscounts);
             }
         } catch (err) {
-            console.debug('[SERVICES] No user discount available');
+            // Ignore discount lookup failures silently
         }
-        
+
         // Show all services - no authentication or approval filtering for public view
         approvedServicesCache = services;
-        console.log('[DEBUG] Loaded public services:', services.length);
-        
+
         if (services.length === 0) {
             container.innerHTML = `
                 <div style="text-align: center; padding: 80px 20px;">
@@ -457,7 +429,7 @@ async function loadServicesFromAPI(options = {}) {
             servicesStatusController?.setState('empty');
             return true;
         }
-        
+
         // Group services by category
         const grouped = groupServicesByCategory(services);
         Object.keys(serviceDetailsMap).forEach((key) => delete serviceDetailsMap[key]);
@@ -469,15 +441,13 @@ async function loadServicesFromAPI(options = {}) {
         const html = await buildGroupedServicesHtml(grouped);
         container.innerHTML = html;
         fullServicesHTMLCache = html;
-        console.log('[SUCCESS] Services loaded and displayed');
         servicesStatusController?.setState('success');
-        
+
         // Setup real-time listeners for service updates
         setupServicesRealTimeListener();
-        
+
         // Return true to signal completion
         return true;
-        
     } catch (error) {
         console.error('[ERROR] Failed to load services:', error);
 
@@ -490,7 +460,7 @@ async function loadServicesFromAPI(options = {}) {
             </div>
         `;
         servicesStatusController?.setState('error');
-        
+
         // Return false to signal error
         return false;
     }
@@ -963,7 +933,7 @@ function showServiceDescription(serviceKey) {
     if (effectiveDiscount > 0) {
         const discountAmount = service.rate * (effectiveDiscount / 100);
         finalRate = service.rate - discountAmount;
-        priceDiscountMarkup = `<div style=\"opacity: 0.7; font-size: 1.2rem; text-decoration: line-through; margin-bottom: 4px;\">${formatCurrencyValue(service.rate, currency)}</div>`;
+            priceDiscountMarkup = `<div class="service-modal-price-original">${formatCurrencyValue(service.rate, currency)}</div>`;
     }
     
     const priceLabel = formatCurrencyValue(finalRate, currency);
@@ -977,69 +947,56 @@ function showServiceDescription(serviceKey) {
     const serviceRecordId = service.id ?? service.provider_service_id ?? serviceKey;
     const orderLinkParam = encodeURIComponent(serviceRecordId);
 
-    const modalHTML = `
-        <div id="serviceDescriptionModal" class="modal" style="display: flex !important; align-items: center; justify-content: center; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; backdrop-filter: blur(4px);">
-            <div class="modal-content" style="background: white; border-radius: 16px; padding: 32px; max-width: 720px; width: 92%; box-shadow: 0 20px 60px rgba(0,0,0,0.35); animation: modalSlideIn 0.3s ease;">
-                <div style="display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 24px;">
-                    <div>
-                        <p style="margin: 0; color: #94A3B8; font-size: 0.85rem;">${labelId}</p>
-                        <h2 style="color: #0F172A; margin: 4px 0 0; font-size: 26px; font-weight: 700;">${escapeHtml(service.name)}</h2>
+        const modalHTML = `
+            <div id="serviceDescriptionModal" class="service-modal">
+                <div class="service-modal-content">
+                    <div class="service-modal-header">
+                        <div>
+                            <p class="service-modal-id">${labelId}</p>
+                            <h2 class="service-modal-title">${escapeHtml(service.name)}</h2>
+                        </div>
+                        <button type="button" class="service-modal-close" onclick="closeServiceDescription()" aria-label="Close">&times;</button>
                     </div>
-                    <button onclick="closeServiceDescription()" style="background: none; border: none; font-size: 28px; color: #64748B; cursor: pointer; padding: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 10px; transition: all 0.2s;" onmouseover="this.style.background='#F1F5F9'; this.style.color='#1E293B'" onmouseout="this.style.background='none'; this.style.color='#64748B'">&times;</button>
-                </div>
 
-                <div style="background: linear-gradient(120deg, #FF1494 0%, #FF6B35 100%); padding: 24px; border-radius: 16px; margin-bottom: 24px; color: white;">
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 16px; text-align: center;">
-                        <div>
-                            <div style="opacity: 0.8; font-size: 0.8rem;">Rate per 1000</div>
-                            ${priceDiscountMarkup}
-                            <div style="font-size: 1.6rem; font-weight: 700;">${priceLabel}</div>
-                        </div>
-                        <div>
-                            <div style="opacity: 0.8; font-size: 0.8rem;">Minimum</div>
-                            <div style="font-size: 1.6rem; font-weight: 700;">${min}</div>
-                        </div>
-                        <div>
-                            <div style="opacity: 0.8; font-size: 0.8rem;">Maximum</div>
-                            <div style="font-size: 1.6rem; font-weight: 700;">${max}</div>
-                        </div>
-                        <div>
-                            <div style="opacity: 0.8; font-size: 0.8rem;">Average Time</div>
-                            <div style="font-size: 1.3rem; font-weight: 600;">${averageTime}</div>
+                    <div class="service-modal-metrics">
+                        <div class="service-modal-metric-grid">
+                            <div class="service-modal-metric">
+                                <div class="service-modal-label">Rate per 1000</div>
+                                ${priceDiscountMarkup}
+                                <div class="service-modal-value">${priceLabel}</div>
+                            </div>
+                            <div class="service-modal-metric">
+                                <div class="service-modal-label">Minimum</div>
+                                <div class="service-modal-value">${min}</div>
+                            </div>
+                            <div class="service-modal-metric">
+                                <div class="service-modal-label">Maximum</div>
+                                <div class="service-modal-value">${max}</div>
+                            </div>
+                            <div class="service-modal-metric">
+                                <div class="service-modal-label">Average Time</div>
+                                <div class="service-modal-value service-modal-value--sm">${averageTime}</div>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div style="margin-bottom: 24px;">
-                    <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Service Description</h3>
-                    <p style="color: #475569; line-height: 1.65; margin: 0; white-space: pre-wrap;">${description}</p>
-                </div>
+                    <div class="service-modal-section">
+                        <h3 class="service-modal-section-title">Service Description</h3>
+                        <p class="service-modal-description">${description}</p>
+                    </div>
 
-                <div style="margin-bottom: 24px;">
-                    <h3 style="color: #1E293B; font-size: 16px; font-weight: 600; margin-bottom: 12px;">Automation & Support</h3>
-                    <div class="service-meta-row service-meta-row--wrap">${capabilityBadges}</div>
-                </div>
+                    <div class="service-modal-section">
+                        <h3 class="service-modal-section-title">Automation & Support</h3>
+                        <div class="service-meta-row service-meta-row--wrap">${capabilityBadges}</div>
+                    </div>
 
-                <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-                    <a href="order.html?service=${orderLinkParam}" class="btn btn-primary" style="flex: 1; text-align: center; padding: 12px; font-size: 16px; font-weight: 600; text-decoration: none; display: block;">Order Now</a>
-                    <button onclick="closeServiceDescription()" class="btn btn-secondary" style="padding: 12px 24px; font-size: 16px; font-weight: 600;">Close</button>
+                    <div class="service-modal-actions">
+                        <a href="order.html?service=${orderLinkParam}" class="btn btn-primary">Order Now</a>
+                        <button type="button" onclick="closeServiceDescription()" class="btn btn-secondary">Close</button>
+                    </div>
                 </div>
             </div>
-        </div>
-        
-        <style>
-            @keyframes modalSlideIn {
-                from {
-                    opacity: 0;
-                    transform: translateY(-20px) scale(0.95);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0) scale(1);
-                }
-            }
-        </style>
-    `;
+        `;
 
     document.body.insertAdjacentHTML('beforeend', modalHTML);
     document.body.style.overflow = 'hidden';
@@ -1106,22 +1063,6 @@ function closeServiceDescription() {
     });
 })();
 
-// Add modal slide out animation
-const modalStyle = document.createElement('style');
-modalStyle.textContent = `
-    @keyframes modalSlideOut {
-        from {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-        to {
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
-        }
-    }
-`;
-document.head.appendChild(modalStyle);
-
 // Add loading styles for categories
 const categoryLoadingStyle = document.createElement('style');
 categoryLoadingStyle.textContent = `
@@ -1146,152 +1087,6 @@ categoryLoadingStyle.textContent = `
     .loading-categories-home {
         min-height: 200px;
         grid-column: 1 / -1;
-    }
-    
-    /* Subcategory Modal Styles */
-    .subcategory-modal {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        animation: fadeIn 0.2s ease-out;
-    }
-    
-    .subcategory-modal-content {
-        background: white;
-        border-radius: 12px;
-        padding: 0;
-        max-width: 500px;
-        width: 90%;
-        max-height: 80vh;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        animation: slideIn 0.3s ease-out;
-    }
-    
-    .subcategory-header {
-        padding: 20px 24px;
-        border-bottom: 1px solid #e5e7eb;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: linear-gradient(135deg, #ff1494, #ff6b6b);
-        color: white;
-    }
-    
-    .subcategory-header h3 {
-        margin: 0;
-        font-size: 18px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    
-    .close-subcategory {
-        background: none;
-        border: none;
-        font-size: 24px;
-        color: white;
-        cursor: pointer;
-        padding: 0;
-        width: 30px;
-        height: 30px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        transition: background-color 0.2s;
-    }
-    
-    .close-subcategory:hover {
-        background-color: rgba(255, 255, 255, 0.2);
-    }
-    
-    .subcategory-options {
-        padding: 20px;
-        display: grid;
-        gap: 12px;
-        max-height: 60vh;
-        overflow-y: auto;
-    }
-    
-    .subcategory-btn {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: #f8fafc;
-        border: 2px solid #e2e8f0;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s;
-        font-size: 14px;
-        font-weight: 500;
-        text-align: left;
-        color: #374151;
-    }
-    
-    .subcategory-btn:hover {
-        background: #eff6ff;
-        border-color: #3b82f6;
-        color: #1d4ed8;
-        transform: translateY(-1px);
-    }
-    
-    .subcategory-btn[data-type="parent"] {
-        background: linear-gradient(135deg, #ff1494, #ff6b6b);
-        color: white;
-        border-color: transparent;
-    }
-    
-    .subcategory-btn[data-type="parent"]:hover {
-        background: linear-gradient(135deg, #e11d48, #ef4444);
-        transform: translateY(-1px);
-    }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-    
-    @keyframes slideIn {
-        from { 
-            opacity: 0;
-            transform: translateY(-20px) scale(0.95);
-        }
-        to { 
-            opacity: 1;
-            transform: translateY(0) scale(1);
-        }
-    }
-
-    .services-filter-context {
-        position: relative;
-        z-index: 10;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 20px;
-        padding: 16px;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        background: var(--bg-darker);
-    }
-
-    .services-filter-label {
-        font-weight: 600;
-        color: #ffffff;
-        position: relative;
-        z-index: 10;
     }
 `;
 document.head.appendChild(categoryLoadingStyle);
@@ -1588,7 +1383,7 @@ function showSubcategoryOptions(parentSlug) {
             <div class="subcategory-modal-overlay" onclick="closeSubcategoryModal()"></div>
             <div class="subcategory-modal-content">
                 <div class="subcategory-header">
-                    <h3><i class="${parentCategory.icon}" style="color: #e91e63; margin-right: 8px;"></i>${parentCategory.name} Categories</h3>
+                    <h3><i class="${parentCategory.icon} subcategory-header-icon"></i>${parentCategory.name} Categories</h3>
                     <button class="close-subcategory" onclick="closeSubcategoryModal()">&times;</button>
                 </div>
                 <div class="subcategory-options">
@@ -1959,7 +1754,7 @@ function getAuthToken() {
 
 function handleMissingAuth(reason) {
     // Fully disabled for public access - no alerts, no redirects
-    console.debug('[SERVICES] Auth check skipped (public mode).', { reason });
+    void reason;
 }
 
 function buildRedirectTarget() {
@@ -1987,7 +1782,6 @@ const REALTIME_CHECK_INTERVAL = 5000; // Poll every 5 seconds for changes
  */
 function setupServicesRealTimeListener() {
     if (servicesRealtimeListener) {
-        console.log('[REALTIME] Services listener already active');
         return;
     }
 
@@ -2011,7 +1805,6 @@ function subscribeToServiceUpdates() {
             .on('UPDATE', (payload) => {
                 const updatedService = payload.new;
                 if (updatedService && updatedService.customer_portal_slot !== undefined) {
-                    console.log('[REALTIME] Service slot updated:', updatedService.id);
                     // Reload services to reflect new order
                     reloadServicesForReordering();
                 }
@@ -2019,7 +1812,6 @@ function subscribeToServiceUpdates() {
             .subscribe();
 
         servicesRealtimeListener = subscription;
-        console.log('[REALTIME] Subscribed to service updates');
     } catch (error) {
         console.warn('[REALTIME] Failed to subscribe to updates, falling back to polling:', error);
         startServicesPolling();
@@ -2056,12 +1848,11 @@ function startServicesPolling() {
             );
 
             if (currentSlotState !== previousSlotState) {
-                console.log('[REALTIME] Services reordered detected, refreshing UI');
                 previousSlotState = currentSlotState;
                 reloadServicesForReordering();
             }
         } catch (error) {
-            console.debug('[REALTIME] Polling check skipped:', error.message);
+            // Ignore transient polling errors silently
         }
     }, REALTIME_CHECK_INTERVAL);
 }
@@ -2070,8 +1861,6 @@ function startServicesPolling() {
  * Reload services when reordering is detected
  */
 async function reloadServicesForReordering() {
-    console.log('[REALTIME] Reloading services due to detected changes');
-    
     // Show subtle notification
     showReorderingNotification();
     

@@ -11,6 +11,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
+function normalizeQuantityValue(rawValue) {
+    const raw = rawValue === undefined || rawValue === null ? '' : String(rawValue).trim();
+    if (!raw) {
+        return null;
+    }
+    if (!/^[0-9]+$/.test(raw)) {
+        return null;
+    }
+    return Number(raw);
+}
+
+function coerceQuantityInput({ clampToLimits = false } = {}) {
+    const quantityInput = document.getElementById('quantity');
+    if (!quantityInput) {
+        return null;
+    }
+    const normalized = normalizeQuantityValue(quantityInput.value);
+    if (normalized === null) {
+        return null;
+    }
+    let finalValue = normalized;
+    if (clampToLimits) {
+        const serviceSelect = document.getElementById('service');
+        const selectedOption = serviceSelect?.options?.[serviceSelect.selectedIndex];
+        const min = Number(selectedOption?.dataset?.min ?? quantityInput.min ?? 0);
+        const max = Number(selectedOption?.dataset?.max ?? quantityInput.max ?? Infinity);
+        const safeMin = Number.isFinite(min) ? min : 0;
+        const safeMax = Number.isFinite(max) ? max : Infinity;
+        finalValue = Math.min(Math.max(finalValue, safeMin), safeMax);
+    }
+    if (String(quantityInput.value) !== String(finalValue)) {
+        quantityInput.value = finalValue;
+    }
+    return finalValue;
+}
+
 // Load services from backend
 async function loadServices() {
     try {
@@ -69,11 +105,15 @@ async function handleOrderSubmit(e) {
 
     const serviceId = document.getElementById('service')?.value;
     const link = document.getElementById('link')?.value.trim();
-    const quantity = parseInt(document.getElementById('quantity')?.value);
+    const quantity = coerceQuantityInput({ clampToLimits: true });
 
     // Validation
-    if (!serviceId || !link || !quantity) {
+    if (!serviceId || !link || !Number.isFinite(quantity) || quantity <= 0) {
         showMessage('Please fill in all fields', 'error');
+        return;
+    }
+    if (!Number.isInteger(quantity)) {
+        showMessage('Quantity must be a whole number', 'error');
         return;
     }
 
@@ -141,7 +181,7 @@ function updatePrice() {
 
     const selectedOption = serviceSelect.options[serviceSelect.selectedIndex];
     const price = parseFloat(selectedOption.dataset.price || 0);
-    const quantity = parseInt(quantityInput.value) || 0;
+    const quantity = normalizeQuantityValue(quantityInput.value) || 0;
     const min = parseInt(selectedOption.dataset.min || 0);
     const max = parseInt(selectedOption.dataset.max || 999999);
 
@@ -167,7 +207,36 @@ function updatePrice() {
 
 // Attach event listeners for price updates
 document.getElementById('service')?.addEventListener('change', updatePrice);
-document.getElementById('quantity')?.addEventListener('input', updatePrice);
+const orderQuantityInput = document.getElementById('quantity');
+orderQuantityInput?.addEventListener('input', updatePrice);
+orderQuantityInput?.addEventListener('blur', () => {
+    coerceQuantityInput({ clampToLimits: true });
+    updatePrice();
+});
+orderQuantityInput?.addEventListener('input', () => {
+    if (orderQuantityInput.validity.customError) {
+        orderQuantityInput.setCustomValidity('');
+    }
+});
+orderQuantityInput?.addEventListener('invalid', () => {
+    const raw = String(orderQuantityInput.value || '').trim();
+    if (!raw) {
+        orderQuantityInput.setCustomValidity('Please enter a quantity.');
+        return;
+    }
+    const numeric = Number(raw.replace(',', '.'));
+    if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) {
+        const lower = Math.floor(numeric);
+        const upper = Math.ceil(numeric);
+        if (Number.isFinite(lower) && Number.isFinite(upper)) {
+            orderQuantityInput.setCustomValidity(`Please enter a whole number. The nearest valid values are ${lower} and ${upper}.`);
+        } else {
+            orderQuantityInput.setCustomValidity('Please enter a whole number.');
+        }
+        return;
+    }
+    orderQuantityInput.setCustomValidity('');
+});
 
 // Show message helper
 function showMessage(message, type) {

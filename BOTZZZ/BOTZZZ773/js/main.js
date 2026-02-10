@@ -2,6 +2,23 @@
 // BOTZZZ773 - Main JavaScript File
 // ==========================================
 
+(function initAuthUiHint(windowObject, documentObject) {
+    if (!windowObject || !documentObject) {
+        return;
+    }
+    try {
+        const hasToken = !!windowObject.localStorage?.getItem('token');
+        const hasUser = !!windowObject.localStorage?.getItem('user');
+        if (hasToken && hasUser) {
+            documentObject.documentElement.classList.add('authenticated');
+        } else {
+            documentObject.documentElement.classList.remove('authenticated');
+        }
+    } catch (error) {
+        documentObject.documentElement.classList.remove('authenticated');
+    }
+})(typeof window !== 'undefined' ? window : undefined, typeof document !== 'undefined' ? document : undefined);
+
 (function bootstrapMonitoringScript(windowObject, documentObject) {
     if (!windowObject || !documentObject) {
         return;
@@ -1549,16 +1566,20 @@ window.addEventListener('scroll', function() {
 });
 
 // Navbar Background on Scroll
-window.addEventListener('scroll', function() {
+function updateNavbarOnScroll() {
     const navbar = document.querySelector('.navbar');
-    if (navbar) {
-        if (window.scrollY > 50) {
-            navbar.style.background = 'rgba(0, 0, 0, 0.98)';
-        } else {
-            navbar.style.background = 'rgba(0, 0, 0, 0.95)';
-        }
+    if (!navbar) {
+        return;
     }
-});
+    if (window.scrollY > 50) {
+        navbar.classList.add('is-scrolled');
+    } else {
+        navbar.classList.remove('is-scrolled');
+    }
+}
+
+window.addEventListener('scroll', updateNavbarOnScroll);
+updateNavbarOnScroll();
 
 // Animate Elements on Scroll
 const observerOptions = {
@@ -1866,50 +1887,60 @@ function updateAuthNavigation() {
     const token = localStorage.getItem('token');
     const user = localStorage.getItem('user');
     const authNavItem = document.getElementById('authNavItem');
+    const isLoggedIn = !!(token && user);
+    if (document.body) {
+        document.body.classList.toggle('authenticated', isLoggedIn);
+    }
+    if (document.documentElement) {
+        document.documentElement.classList.toggle('authenticated', isLoggedIn);
+    }
+    const protectedLinks = document.querySelectorAll('a[href="dashboard.html"], a[href="addfunds.html"]');
+    protectedLinks.forEach((link) => {
+        link.style.display = isLoggedIn ? '' : 'none';
+        link.setAttribute('aria-hidden', isLoggedIn ? 'false' : 'true');
+    });
     
     if (!authNavItem) return;
+
+    if (token && !user) {
+        return;
+    }
     
     if (token && user) {
         // User is logged in
         try {
             const userData = JSON.parse(user);
             authNavItem.innerHTML = `
-                <div class="user-menu-dropdown">
-                    <button class="user-menu-btn" style="color: var(--primary-pink); background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 14px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="7" height="7"/>
-                            <rect x="14" y="3" width="7" height="7"/>
-                            <rect x="14" y="14" width="7" height="7"/>
-                            <rect x="3" y="14" width="7" height="7"/>
-                        </svg>
-                        ${userData.username || 'Menu'}
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="6 9 12 15 18 9"/>
-                        </svg>
+                <div class="user-account-nav">
+                    <button type="button" class="nav-link user-account-toggle" aria-expanded="false">
+                        <i class="fas fa-user-circle"></i>
+                        <span>${userData.username || userData.email || 'Account'}</span>
                     </button>
-                    <div class="user-menu-dropdown-content" style="display: none; position: absolute; top: 100%; right: 0; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000;">
-                        <a href="dashboard.html" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Dashboard</a>
-                        <a href="addfunds.html" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Add Funds</a>
-                        <a href="/tickets" class="dropdown-item" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; border-bottom: 1px solid var(--border-color); font-size: 14px;">Tickets</a>
-                        <a href="#" class="dropdown-item logout-link" style="display: block; padding: 12px 16px; color: var(--text-gray); text-decoration: none; font-size: 14px;">Logout</a>
+                    <div class="user-dropdown">
+                        <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
+                        <a href="addfunds.html"><i class="fas fa-wallet"></i> Add Funds</a>
+                        <a href="tickets.html"><i class="fas fa-ticket-alt"></i> Tickets</a>
+                        <a href="#" class="logout-link"><i class="fas fa-sign-out-alt"></i> Logout</a>
                     </div>
                 </div>
             `;
             
             // Setup dropdown toggle
-            const userMenuBtn = authNavItem.querySelector('.user-menu-btn');
-            const dropdownContent = authNavItem.querySelector('.user-menu-dropdown-content');
+            const userMenuBtn = authNavItem.querySelector('.user-account-toggle');
+            const userMenu = authNavItem.querySelector('.user-account-nav');
             
-            if (userMenuBtn && dropdownContent) {
+            if (userMenuBtn && userMenu) {
                 userMenuBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    dropdownContent.style.display = dropdownContent.style.display === 'none' ? 'block' : 'none';
+                    const isOpen = userMenu.classList.toggle('open');
+                    userMenuBtn.setAttribute('aria-expanded', String(isOpen));
                 });
                 
                 // Close dropdown when clicking outside
                 document.addEventListener('click', (e) => {
-                    if (!authNavItem.contains(e.target)) {
-                        dropdownContent.style.display = 'none';
+                    if (userMenu && !userMenu.contains(e.target)) {
+                        userMenu.classList.remove('open');
+                        userMenuBtn.setAttribute('aria-expanded', 'false');
                     }
                 });
             }
@@ -1931,12 +1962,26 @@ function updateAuthNavigation() {
 
             registerDashboardPopupLinks();
         } catch (error) {
-            console.error('Error parsing user data:', error);
+            console.error('Failed to render auth navigation.', error);
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            authNavItem.innerHTML = '<a href="signup.html" class="nav-link btn-outline">Sign Up</a><a href="signin.html" class="nav-link btn-primary">Sign In</a>';
+            registerAuthPopupLinks();
         }
     } else {
         // User is not logged in
-        authNavItem.innerHTML = '<a href="signin.html" class="nav-link btn-primary" data-auth-popup="signin">Sign In</a>';
+        authNavItem.innerHTML = '<a href="signup.html" class="nav-link btn-outline">Sign Up</a><a href="signin.html" class="nav-link btn-primary">Sign In</a>';
         registerAuthPopupLinks();
+    }
+
+    if (authNavItem) {
+        authNavItem.removeAttribute('hidden');
+        authNavItem.style.visibility = 'visible';
+    }
+
+    if (document.documentElement) {
+        document.documentElement.classList.remove('auth-pending');
+        document.documentElement.classList.add('auth-nav-ready');
     }
 }
 
@@ -1985,4 +2030,3 @@ function updateTicketBadge(badgeId, count) {
     }
 }
 
-console.log('🚀 BOTZZZ773 SMM Panel Loaded Successfully!');

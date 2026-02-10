@@ -3,6 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script>
+            (function() {
+                try {
+                    var token = localStorage.getItem('token');
+                    var user = localStorage.getItem('user');
+                    if (token) {
+                        document.documentElement.classList.add('auth-pending');
+                    }
+                    if (token && user) {
+                        document.documentElement.classList.add('authenticated');
+                    } else {
+                        document.documentElement.classList.add('auth-nav-ready');
+                    }
+                } catch (e) {
+                }
+            })();
+        </script>
+        <style>
+            html.authenticated .nav-auth .nav-link.btn-outline { display: none !important; }
+            .nav-auth { visibility: hidden; }
+            html.auth-nav-ready .nav-auth { visibility: visible; }
+            html.auth-pending .nav-menu,
+            html.auth-pending .nav-auth { visibility: hidden !important; }
+        </style>
     <title>Sign Up - BOTZZZ773</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/auth-styles.css">
@@ -33,44 +57,27 @@
 <body>
     <!-- Navigation -->
     <nav class="navbar">
-        <div class="container">
-            <div class="nav-wrapper">
-                <a href="index.html" class="logo">
-                    <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
-                </a>
-                <button class="mobile-toggle" id="mobileToggle">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </button>
-                <ul class="nav-menu" id="navMenu">
-                    <li><a href="index.html" class="nav-link">Home</a></li>
-                    <li><a href="services.html" class="nav-link">Services</a></li>
-                    <li><a href="order.html" class="nav-link">Order Now</a></li>
-                    <li><a href="addfunds.html" class="nav-link">Add Funds</a></li>
-                    <li><a href="api.html" class="nav-link">API</a></li>
-                    <li><a href="tickets.html" class="nav-link">Tickets</a></li>
-                    <li><a href="contact.html" class="nav-link">Contact</a></li>
-                </ul>
-                <div class="nav-auth-controls">
-                    <div class="auth-buttons">
-                        <a href="signin.html" class="btn btn-outline">Sign In</a>
-                        <a href="signup.html" class="btn btn-primary">Sign Up</a>
-                    </div>
-                    <div class="user-menu" style="display: none;">
-                        <button class="user-menu-btn" type="button">
-                            <span class="username">Account</span>
-                            <span class="balance">$0.00</span>
-                            <i class="fas fa-chevron-down"></i>
-                        </button>
-                        <div class="user-dropdown">
-                            <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
-                            <a href="addfunds.html"><i class="fas fa-wallet"></i> Add Funds</a>
-                            <a href="tickets.html"><i class="fas fa-ticket-alt"></i> Tickets</a>
-                            <a href="#" onclick="handleLogout(); return false;"><i class="fas fa-sign-out-alt"></i> Logout</a>
-                        </div>
-                    </div>
-                </div>
+        <div class="nav-wrapper">
+            <a href="index.html" class="logo">
+                <span class="logo-text">BOTZZZ<span class="logo-highlight">773</span></span>
+            </a>
+            <button class="mobile-toggle" id="mobileToggle">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
+            <ul class="nav-menu" id="navMenu">
+                <li><a href="index.html" class="nav-link">Home</a></li>
+                <li><a href="services.html" class="nav-link">Services</a></li>
+                <li data-auth="required"><a href="dashboard.html" class="nav-link">Dashboard</a></li>
+                <li data-auth="required"><a href="addfunds.html" class="nav-link">Add Funds</a></li>
+                <li><a href="api.html" class="nav-link">API</a></li>
+                <li data-auth="required"><a href="tickets.html" class="nav-link">Tickets</a></li>
+                <li><a href="contact.html" class="nav-link">Contact</a></li>
+            </ul>
+            <div class="nav-auth" id="authNavItem">
+                <a href="signup.html" class="nav-link btn-outline">Sign Up</a>
+                <a href="signin.html" class="nav-link btn-primary">Sign In</a>
             </div>
         </div>
     </nav>
@@ -250,7 +257,7 @@
 
                     <div class="promo-banner">
                         <h3>🎉 Welcome Bonus</h3>
-                        <p>Get <strong>$5 free credits</strong> on your first deposit!</p>
+                        <p>Get <strong>10% free credits</strong> on your first deposit!</p>
                     </div>
                 </div>
                     </div>
@@ -262,40 +269,39 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
-            <div class="footer-content">
-                <div class="footer-section">
-                    <h3>BOTZZZ<span>773</span></h3>
-                    <p>Your trusted SMM panel provider for all social media marketing needs.</p>
+            <div class="footer-grid">
+                <div class="footer-col">
+                    <h4 class="footer-title">BOTZZZ<span class="logo-highlight">773</span></h4>
+                    <p class="footer-desc">Professional SMM panel for resellers and agencies. Premium social media services with 37M+ orders completed since 2023.</p>
                 </div>
-                <div class="footer-section">
-                    <h4>Quick Links</h4>
-                    <ul>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Quick Links</h4>
+                    <ul class="footer-links">
+                        <li><a href="index.html">Home</a></li>
                         <li><a href="services.html">Services</a></li>
-                        <li><a href="order.html">Order Now</a></li>
-                        <li><a href="api.html">API</a></li>
-                        <li><a href="tickets.html">Support</a></li>
+                        <li><a href="contact.html">Contact</a></li>
                     </ul>
                 </div>
-                <div class="footer-section">
-                    <h4>Support</h4>
-                    <ul>
-                        <li><a href="contact.html">Contact Us</a></li>
-                        <li><a href="tickets.html">Tickets</a></li>
-                        <li><a href="#">FAQ</a></li>
-                        <li><a href="#">Terms of Service</a></li>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Services</h4>
+                    <ul class="footer-links">
+                        <li><a href="services.html#instagram">Instagram</a></li>
+                        <li><a href="services.html#tiktok">TikTok</a></li>
+                        <li><a href="services.html#youtube">YouTube</a></li>
+                        <li><a href="services.html#twitter">Twitter</a></li>
                     </ul>
                 </div>
-                <div class="footer-section">
-                    <h4>Connect</h4>
-                    <div class="social-links">
-                        <a href="#">Instagram</a>
-                        <a href="#">Twitter</a>
-                        <a href="#">Facebook</a>
-                    </div>
+                <div class="footer-col">
+                    <h4 class="footer-heading">Contact</h4>
+                    <ul class="footer-links">
+                        <li>📧 <a href="mailto:botzzz773@gmail.com">botzzz773@gmail.com</a></li>
+                        <li>💬 24/7 Live Chat</li>
+                        <li>🌐 Worldwide Service</li>
+                    </ul>
                 </div>
             </div>
             <div class="footer-bottom">
-                <p>&copy; 2024 BOTZZZ773. All rights reserved.</p>
+                <p>&copy; 2023-2025 BOTZZZ773. All rights reserved.</p>
             </div>
         </div>
     </footer>

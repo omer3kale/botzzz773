@@ -66,6 +66,8 @@ async function checkAuthStatus() {
             clearAuthStorage();
             if (!isAuthPage && !isPublicApiDoc) {
                 window.location.href = 'signin.html';
+            } else if (!isAuthPage) {
+                updateNavigation(false);
             }
             return false;
         }
@@ -75,6 +77,8 @@ async function checkAuthStatus() {
         clearAuthStorage();
         if (!isAuthPage && !isPublicApiDoc) {
             window.location.href = 'signin.html';
+        } else if (!isAuthPage) {
+            updateNavigation(false);
         }
         return false;
     }
@@ -632,11 +636,20 @@ function updateNavigation(isLoggedIn, user = null) {
                 </div>
             `;
         } else {
-            // Show Sign In button
+            // Show Sign Up + Sign In buttons
             authNavItem.innerHTML = `
+                <a href="signup.html" class="nav-link btn-outline">Sign Up</a>
                 <a href="signin.html" class="nav-link btn-primary">Sign In</a>
             `;
         }
+
+        authNavItem.removeAttribute('hidden');
+        authNavItem.style.visibility = 'visible';
+    }
+
+    if (document.documentElement) {
+        document.documentElement.classList.remove('auth-pending');
+        document.documentElement.classList.add('auth-nav-ready');
     }
 }
 

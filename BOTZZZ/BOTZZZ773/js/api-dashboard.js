@@ -587,192 +587,128 @@ document.addEventListener('DOMContentLoaded', function() {
     // Generate API Key button (if exists)
     const generateKeyBtn = document.getElementById('generateKeyBtn');
     if (generateKeyBtn) {
-        generateKeyBtn.addEventListener('click', function() {
-            openModal('generateKeyModal');
-        });
-    }
-    
-    // Generate API Key form (if exists)
-    const generateKeyForm = document.getElementById('generateKeyForm');
-    if (generateKeyForm) {
-        generateKeyForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        const submitBtn = generateKeyForm.querySelector('button[type="submit"]');
-        const originalBtnText = submitBtn ? submitBtn.textContent : '';
-        
-        const keyName = document.getElementById('keyName').value;
-        const permissions = Array.from(document.querySelectorAll('#generateKeyForm input[type="checkbox"]:checked'))
-            .map(cb => cb.value);
-        
-        // Validation
-        if (!keyName || keyName.trim().length === 0) {
-            showMessage('API key name is required', 'error');
-            return;
-        }
-        
-        if (keyName.length > 100) {
-            showMessage('API key name must be less than 100 characters', 'error');
-            return;
-        }
-        
-        if (permissions.length === 0) {
-            showMessage('Please select at least one permission', 'error');
-            return;
-        }
-        
-        // Disable submit button
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Creating...';
-        }
-        
-        try {
-            const token = resolveAuthToken('generate-api-key');
-            if (!token) {
-                if (submitBtn) {
-                    submitBtn.disabled = false;
-                    submitBtn.textContent = originalBtnText;
-                }
-                return;
-            }
-            
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-            
-            const response = await fetch('/.netlify/functions/api-keys', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    name: keyName.trim(),
-                    permissions: permissions
-                }),
-                signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            let data;
+        generateKeyBtn.addEventListener('click', async function() {
+            const originalBtnHtml = generateKeyBtn.innerHTML;
+            const keyName = 'API Key';
+            const permissions = ['orders', 'services', 'balance'];
+
+            generateKeyBtn.disabled = true;
+            generateKeyBtn.textContent = 'Creating...';
+
             try {
-                data = await response.json();
-            } catch (parseError) {
-                console.error('[API-DASHBOARD] Failed to parse API response:', parseError);
-                // If response is 201 (created) but JSON parse failed, still check if key was created
-                if (response.status === 201) {
-                    console.warn('[API-DASHBOARD] Got 201 status but could not parse JSON - key may have been created');
-                    showMessage('API key may have been created. Please refresh the page to check.', 'warning');
-                    // Attempt to refresh keys list
+                const token = resolveAuthToken('generate-api-key');
+                if (!token) {
+                    return;
+                }
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+                const response = await fetch('/.netlify/functions/api-keys', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        name: keyName,
+                        permissions: permissions
+                    }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseError) {
+                    console.error('[API-DASHBOARD] Failed to parse API response:', parseError);
+                    if (response.status === 201) {
+                        console.warn('[API-DASHBOARD] Got 201 status but could not parse JSON - key may have been created');
+                        showMessage('API key may have been created. Please refresh the page to check.', 'warning');
+                        await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
+                    }
+                    throw new Error('Invalid response from server. Please try again.');
+                }
+
+                if (response.ok && data.success && data.key) {
+                    console.log('[API-DASHBOARD] API key created successfully:', {
+                        name: keyName,
+                        permissions: permissions,
+                        keyLength: data.key.length,
+                        keyPrefix: data.key.substring(0, 10),
+                        fullKey: data.key
+                    });
+
+                    const keyElement = document.getElementById('generatedApiKey');
+                    if (keyElement) {
+                        keyElement.textContent = data.key;
+                        keyElement.innerText = data.key;
+                        keyElement.innerHTML = data.key;
+
+                        setTimeout(() => {
+                            const displayed = keyElement.textContent;
+                            if (displayed !== data.key) {
+                                console.error('[API-DASHBOARD] KEY MISMATCH! Expected:', data.key, 'Got:', displayed);
+                                alert('Key display issue detected. Full key (copy this):\n\n' + data.key);
+                            }
+                        }, 100);
+                    } else {
+                        console.warn('[API-DASHBOARD] generatedApiKey element not found');
+                        alert('Full API key:\n\n' + data.key);
+                    }
+
+                    openModal('apiKeyModal');
+
+                    await renderApiKeys().catch(err => {
+                        console.warn('[API-DASHBOARD] Failed to refresh keys list:', err);
+                    });
+
+                    notifyOpener({
+                        type: 'API_KEY_CREATED',
+                        name: keyName,
+                        permissions: permissions,
+                        success: true
+                    });
+
+                    showMessage('API key created successfully! Make sure to copy it now.', 'success');
+                } else if (response.status === 201 && (!data.success || !data.key)) {
+                    console.error('[API-DASHBOARD] Got 201 status but incomplete data:', data);
+                    showMessage('API key may have been created but response was incomplete. Please refresh to verify.', 'warning');
                     await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
-                }
-                throw new Error('Invalid response from server. Please try again.');
-            }
-            
-            // Check for successful creation - must have all three: response.ok, data.success, and data.key
-            if (response.ok && data.success && data.key) {
-                console.log('[API-DASHBOARD] API key created successfully:', {
-                    name: keyName,
-                    permissions: permissions,
-                    keyLength: data.key.length,
-                    keyPrefix: data.key.substring(0, 10),
-                    fullKey: data.key
-                });
-                
-                // Show the key in modal
-                const keyElement = document.getElementById('generatedApiKey');
-                if (keyElement) {
-                    // Verify key is a proper string
-                    console.log('[API-DASHBOARD] Received key type:', typeof data.key);
-                    console.log('[API-DASHBOARD] Received key value:', data.key);
-                    
-                    // Set the key multiple ways to ensure it displays
-                    keyElement.textContent = data.key;
-                    keyElement.innerText = data.key;
-                    keyElement.innerHTML = data.key;
-                    
-                    console.log('[API-DASHBOARD] After setting - textContent:', keyElement.textContent);
-                    console.log('[API-DASHBOARD] After setting - innerText:', keyElement.innerText);
-                    console.log('[API-DASHBOARD] After setting - innerHTML:', keyElement.innerHTML);
-                    
-                    // Visual confirmation for debugging
-                    setTimeout(() => {
-                        const displayed = keyElement.textContent;
-                        if (displayed !== data.key) {
-                            console.error('[API-DASHBOARD] KEY MISMATCH! Expected:', data.key, 'Got:', displayed);
-                            alert('Key display issue detected. Full key (copy this):\n\n' + data.key);
-                        } else {
-                            console.log('[API-DASHBOARD] Key displayed correctly');
-                        }
-                    }, 100);
+                } else if (response.status === 401 || response.status === 403) {
+                    console.error('[API-DASHBOARD] Authentication failed:', response.status);
+                } else if (response.status === 400) {
+                    console.error('[API-DASHBOARD] Validation error:', data);
+                    showMessage(data.error || 'Invalid request. Please check your input.', 'error');
+                } else if (response.status === 500) {
+                    console.error('[API-DASHBOARD] Server error:', data);
+                    showMessage('Server error. Please try again later.', 'error');
                 } else {
-                    console.warn('[API-DASHBOARD] generatedApiKey element not found');
-                    alert('Full API key:\n\n' + data.key);
+                    console.error('[API-DASHBOARD] API key creation failed:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: data
+                    });
+                    showMessage(data.error || data.message || 'Failed to generate API key. Please try again.', 'error');
                 }
-                
-                closeModal('generateKeyModal');
-                openModal('apiKeyModal');
-                
-                // Reset form
-                generateKeyForm.reset();
-                
-                // Re-render keys list
-                await renderApiKeys().catch(err => {
-                    console.warn('[API-DASHBOARD] Failed to refresh keys list:', err);
-                });
-                
-                // Notify parent window if in iframe/popup
-                notifyOpener({
-                    type: 'API_KEY_CREATED',
-                    name: keyName,
-                    permissions: permissions,
-                    success: true
-                });
-                
-                showMessage('API key created successfully! Make sure to copy it now.', 'success');
-            } else if (response.status === 201 && (!data.success || !data.key)) {
-                // Edge case: backend returned 201 but response is incomplete
-                console.error('[API-DASHBOARD] Got 201 status but incomplete data:', data);
-                showMessage('API key may have been created but response was incomplete. Please refresh to verify.', 'warning');
-                // Attempt to refresh keys list to show potentially created key
-                await renderApiKeys().catch(err => console.warn('[API-DASHBOARD] Could not refresh keys:', err));
-            } else if (response.status === 401 || response.status === 403) {
-                console.error('[API-DASHBOARD] Authentication failed:', response.status);
-                // Silently handle auth errors for public dashboard
-            } else if (response.status === 400) {
-                console.error('[API-DASHBOARD] Validation error:', data);
-                showMessage(data.error || 'Invalid request. Please check your input.', 'error');
-            } else if (response.status === 500) {
-                console.error('[API-DASHBOARD] Server error:', data);
-                showMessage('Server error. Please try again later.', 'error');
-            } else {
-                console.error('[API-DASHBOARD] API key creation failed:', {
-                    status: response.status,
-                    statusText: response.statusText,
-                    data: data
-                });
-                showMessage(data.error || data.message || 'Failed to generate API key. Please try again.', 'error');
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    console.error('[API-DASHBOARD] Request timeout:', error);
+                    showMessage('Request timed out. Please check your connection and try again.', 'error');
+                } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+                    console.error('[API-DASHBOARD] Network error:', error);
+                    showMessage('Network error. Please check your connection and try again.', 'error');
+                } else {
+                    console.error('[API-DASHBOARD] Unexpected error during API key generation:', error);
+                    showMessage(error.message || 'An unexpected error occurred. Please try again.', 'error');
+                }
+            } finally {
+                generateKeyBtn.disabled = false;
+                generateKeyBtn.innerHTML = originalBtnHtml;
             }
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.error('[API-DASHBOARD] Request timeout:', error);
-                showMessage('Request timed out. Please check your connection and try again.', 'error');
-            } else if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
-                console.error('[API-DASHBOARD] Network error:', error);
-                showMessage('Network error. Please check your connection and try again.', 'error');
-            } else {
-                console.error('[API-DASHBOARD] Unexpected error during API key generation:', error);
-                showMessage(error.message || 'An unexpected error occurred. Please try again.', 'error');
-            }
-        } finally {
-            // Re-enable submit button
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalBtnText;
-            }
-        }
-    });
+        });
     }
     
     // Add Provider button (if exists)
