@@ -177,11 +177,6 @@ function normalizeCurrency(value, fallback = 'USD') {
   return str.toUpperCase().slice(0, 10);
 }
 
-function generateRefillId() {
-  const randomSuffix = Math.floor(Math.random() * 900) + 100;
-  return `${Date.now()}${randomSuffix}`;
-}
-
 function calculateProviderRate(service) {
   const directRate = toNumberOrNull(service.provider_rate);
   if (directRate !== null) {
@@ -2481,6 +2476,7 @@ async function handleUpdateOrder(user, data, headers) {
     }
 
     if (action === 'refill') {
+      console.log('[REFILL][DEV] Using DB-generated refill_id path');
       // Handle refill request
       try {
         const { order: providerOrderId } = data;
@@ -2569,6 +2565,62 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
+        // Create pending refill request (use DB trigger for refill_id)
+        const { error: insertError, data: insertData } = await supabaseAdmin
+          .from('refill_requests')
+          .insert({
+            user_id: foundOrder.user_id,
+            order_number: foundOrder.order_number,
+            provider_refill_id: null,
+            service_id: foundOrder.service?.public_id || foundOrder.service?.id,
+            quantity: foundOrder?.quantity || 0,
+            status: 'pending',
+            api_request: data,
+            api_response: null,
+            refill_requested_at: new Date().toISOString()
+          })
+          .select('refill_id')
+          .single();
+
+        if (insertError) {
+          console.error('[REFILL] Failed to create refill request:', insertError);
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to save refill request' })
+          };
+        }
+
+        const refillId = insertData?.refill_id;
+        if (!refillId) {
+          console.error('[REFILL] Missing refill_id after insert');
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to generate refill ID' })
+          };
+        }
+
+        // Update order with our refill_id
+        const { error: updateError } = await supabaseAdmin
+          .from('orders')
+          .update({
+            refill_id: String(refillId),
+            refill_status: 'pending',
+            refill_requested_at: new Date().toISOString(),
+            status: 'refilling'
+          })
+          .eq('id', foundOrder.id);
+
+        if (updateError) {
+          console.error('[REFILL] Failed to update order:', updateError);
+          return {
+            statusCode: 500,
+            headers,
+            body: JSON.stringify({ error: 'Failed to save refill request' })
+          };
+        }
+
         // Submit refill request to provider using URLSearchParams
         const params = new URLSearchParams();
         params.append('key', provider.api_key);
@@ -2590,6 +2642,10 @@ async function handleUpdateOrder(user, data, headers) {
 
         // Check for error in response
         if (refillResponse.data.error) {
+          await supabaseAdmin
+            .from('refill_requests')
+            .update({ status: 'rejected', api_response: refillResponse.data })
+            .eq('refill_id', String(refillId));
           return {
             statusCode: 400,
             headers,
@@ -2601,8 +2657,12 @@ async function handleUpdateOrder(user, data, headers) {
         }
 
         // Extract refill ID from response
-        const refillId = refillResponse.data.refill;
-        if (!refillId) {
+        const providerRefillId = refillResponse.data.refill;
+        if (!providerRefillId) {
+          await supabaseAdmin
+            .from('refill_requests')
+            .update({ api_response: refillResponse.data })
+            .eq('refill_id', String(refillId));
           return {
             statusCode: 400,
             headers,
@@ -2613,25 +2673,14 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
-        // Update order with refill information
-        const { error: updateError } = await supabaseAdmin
-          .from('orders')
+        await supabaseAdmin
+          .from('refill_requests')
           .update({
-            refill_id: String(refillId),
-            refill_status: 'pending',
-            refill_requested_at: new Date().toISOString(),
-            status: 'refilling'
+            provider_refill_id: String(providerRefillId),
+            status: 'pending',
+            api_response: refillResponse.data
           })
-          .eq('id', foundOrder.id);
-
-        if (updateError) {
-          console.error('[REFILL] Failed to update order:', updateError);
-          return {
-            statusCode: 500,
-            headers,
-            body: JSON.stringify({ error: 'Failed to save refill request' })
-          };
-        }
+          .eq('refill_id', String(refillId));
 
         console.log(`[REFILL] Refill submitted successfully. Refill ID: ${refillId}`);
 
@@ -5330,9 +5379,7 @@ async function handleRefillOrder(user, body, headers) {
       order_number: order.order_number
     });
 
-    const refillId = generateRefillId();
     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
-      refill_id: refillId,
       user_id: user.userId,
       order_number: order.order_number,
       provider_refill_id: null, // Initially null
@@ -5342,7 +5389,7 @@ async function handleRefillOrder(user, body, headers) {
       api_request: body,
       api_response: null,
       refill_requested_at: new Date().toISOString()
-    });
+    }).select('refill_id').single();
 
     if (insertError) {
       logger.error('Refill request insert failed', { orderId, error: insertError });
@@ -5352,6 +5399,19 @@ async function handleRefillOrder(user, body, headers) {
         body: JSON.stringify({
           success: false,
           error: `Failed to save refill request: ${insertError.message}`
+        })
+      };
+    }
+
+    const refillId = insertData?.refill_id;
+    if (!refillId) {
+      logger.error('Missing refill_id after insert', { orderId });
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Failed to generate refill ID'
         })
       };
     }

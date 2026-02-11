@@ -188,11 +188,6 @@ function parseRequest(event) {
   return params;
 }
 
-function generateRefillId() {
-  const randomSuffix = Math.floor(Math.random() * 900) + 100;
-  return `${Date.now()}${randomSuffix}`;
-}
-
 // --- 5. HTML DOCUMENTATION ---
 const HTML_DOCS = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>API v2 Integration</title><style>body{font-family:sans-serif;background:#0f172a;color:#fff;padding:40px;max-width:800px;margin:0 auto}h1{color:#38bdf8}pre{background:#1e293b;padding:15px;border-radius:5px;overflow-x:auto}code{color:#f472b6}</style></head><body><h1>🚀 API Integration</h1><p>Endpoint: <code>POST /api</code></p><h3>Check Balance</h3><pre>key=API_KEY&action=balance</pre><h3>Add Order</h3><pre>key=API_KEY&action=add&service=1&link=url&quantity=100</pre></body></html>`;
 
@@ -756,9 +751,7 @@ exports.handler = async (event) => {
                        order_number: rOrder.order_number
                    });
                    
-                     const refillId = generateRefillId();
                      const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
-                       refill_id: refillId,
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -768,11 +761,17 @@ exports.handler = async (event) => {
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
-                   });
+                   }).select('refill_id').single();
                    
                    if (insertError) {
                        console.error('[V2 REFILL] Insert error:', JSON.stringify(insertError));
                        return errorResponse(`Database error: ${insertError.message}`);
+                   }
+
+                   const refillId = insertData?.refill_id;
+                   if (!refillId) {
+                       console.error('[V2 REFILL] Missing refill_id after insert');
+                       return errorResponse('Database error: missing refill ID');
                    }
                    
                    console.log('[V2 REFILL] Pending refill created, now requesting from provider');
@@ -860,9 +859,7 @@ exports.handler = async (event) => {
             if (rOrder && rOrder.service && rOrder.service.provider) {
                 try {
                    // First, create pending refill record immediately
-                     const refillId = generateRefillId();
-                     const { error: insertError } = await supabaseAdmin.from('refill_requests').insert({
-                       refill_id: refillId,
+                     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -872,10 +869,16 @@ exports.handler = async (event) => {
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
-                   });
+                   }).select('refill_id').single();
                    
                    if (insertError) {
                        results.push({ order: String(orderNum), refill: { error: 'Database error' } });
+                       continue;
+                   }
+
+                   const refillId = insertData?.refill_id;
+                   if (!refillId) {
+                       results.push({ order: String(orderNum), refill: { error: 'Missing refill ID' } });
                        continue;
                    }
                    
