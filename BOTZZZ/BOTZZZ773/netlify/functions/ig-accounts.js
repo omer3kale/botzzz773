@@ -49,8 +49,35 @@ async function checkInstagramProfile(username) {
       if (json?.data?.user?.username) return 'active';
       return 'deleted';
     }
+    
+    // 400 = SecFetch Policy violation, retry without Sec-Fetch headers
+    if (apiResp.status === 400) {
+      const errText = await apiResp.text();
+      console.log(`[IG-CHECK] 400 error for ${username}: ${errText.substring(0, 100)}, retrying without Sec-Fetch`);
+      const retryHeaders = {
+        'User-Agent': 'Instagram 275.0.0.27.98 Android (33/13; 420dpi; 1080x2400; samsung; SM-G991B; o1s; exynos2100)',
+        'X-IG-App-ID': '936619743392459'
+      };
+      if (sessionId) retryHeaders['Cookie'] = `sessionid=${sessionId}`;
+      
+      const retryResp = await fetch(
+        `https://i.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
+        { headers: retryHeaders }
+      );
+      console.log(`[IG-CHECK] Retry ${username}: status=${retryResp.status}`);
+      if (retryResp.status === 404) return 'deleted';
+      if (retryResp.ok) {
+        const json = await retryResp.json();
+        if (json?.data?.user?.username) return 'active';
+        return 'deleted';
+      }
+      const retryBody = await retryResp.text();
+      console.log(`[IG-CHECK] Retry failed for ${username}: ${retryBody.substring(0, 200)}`);
+    }
+
     if (apiResp.status === 401 || apiResp.status === 429) {
-      console.log(`[IG-CHECK] Rate limited or session expired for ${username}`);
+      const body = await apiResp.text();
+      console.log(`[IG-CHECK] Rate limited or session expired for ${username}: ${body.substring(0, 200)}`);
       return 'unknown';
     }
   } catch (e) {
