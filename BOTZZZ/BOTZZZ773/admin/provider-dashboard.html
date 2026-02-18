@@ -657,6 +657,8 @@
 
     <script>
         const API_BASE = '/.netlify/functions/ig-accounts';
+        // Lokal Python checker server (check_server.py)
+        const IG_CHECKER_URL = 'http://localhost:5555';
         let allAccounts = [];
 
         // ─── LOAD ACCOUNTS ───
@@ -869,6 +871,17 @@
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
 
+            // Python checker server'ın çalışıp çalışmadığını kontrol et
+            try {
+                const statusRes = await fetch(IG_CHECKER_URL + '/status', { signal: AbortSignal.timeout(3000) });
+                if (!statusRes.ok) throw new Error('Server not ok');
+            } catch (e) {
+                showToast('Python checker server çalışmıyor! check_server.py başlatın.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-satellite-dish"></i> Live Check';
+                return;
+            }
+
             // Progress modal aç
             const total = allAccounts.length;
             let activeCount = 0, deletedCount = 0, errorCount = 0;
@@ -896,33 +909,19 @@
                 logEl.scrollTop = logEl.scrollHeight;
 
                 let ig_status = 'error';
-                let retries = 0;
-                const maxRetries = 3;
-                
-                while (retries <= maxRetries) {
-                    try {
-                        const res = await fetch(API_BASE, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'check_single', username: acc.username })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            ig_status = data.ig_status;
-                        }
-                        // Rate limited → retry with longer wait
-                        if (ig_status === 'unknown' && retries < maxRetries) {
-                            retries++;
-                            const waitSec = retries * 15; // 15s, 30s, 45s
-                            entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">${acc.username}</span> <span class="log-result-checking"><i class="fas fa-clock"></i> rate limited, retry ${retries}/${maxRetries} in ${waitSec}s...</span>`;
-                            await new Promise(r => setTimeout(r, waitSec * 1000));
-                            continue;
-                        }
-                        break;
-                    } catch (e) {
-                        ig_status = 'error';
-                        break;
+                try {
+                    const res = await fetch(IG_CHECKER_URL + '/check_single', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: acc.username })
+                    });
+                    const data = await res.json();
+                    if (data.ig_status) {
+                        ig_status = data.ig_status;
                     }
+                } catch (e) {
+                    ig_status = 'error';
+                    entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">${acc.username}</span> <span class="log-result-error">⚠️ Server offline</span>`;
                 }
 
                 // Sonucu güncelle
@@ -946,9 +945,9 @@
                 document.getElementById('pgError').textContent = errorCount;
                 logEl.scrollTop = logEl.scrollHeight;
 
-                // Rate limit koruması: her istek arasında 5 saniye bekle
+                // Playwright doğal olarak yavaş, ekstra bekleme gerekmiyor
                 if (i < allAccounts.length - 1) {
-                    await new Promise(r => setTimeout(r, 5000));
+                    await new Promise(r => setTimeout(r, 500));
                 }
             }
 
