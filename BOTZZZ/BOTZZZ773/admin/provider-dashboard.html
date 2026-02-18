@@ -858,7 +858,7 @@
                 return;
             }
             document.getElementById('modalTitle').textContent = 'Live Check';
-            document.getElementById('modalText').textContent = `${total} accounts will be checked on Instagram one by one. ~2 sec per account. Estimated time: ~${Math.ceil(total * 2 / 60)} min. Continue?`;
+            document.getElementById('modalText').textContent = `${total} accounts will be checked on Instagram one by one. ~5 sec per account. Estimated time: ~${Math.ceil(total * 5 / 60)} min. Continue?`;
             document.getElementById('modalConfirmBtn').onclick = doCheckAll;
             document.getElementById('confirmModal').classList.add('show');
         }
@@ -896,18 +896,33 @@
                 logEl.scrollTop = logEl.scrollHeight;
 
                 let ig_status = 'error';
-                try {
-                    const res = await fetch(API_BASE, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'check_single', username: acc.username })
-                    });
-                    const data = await res.json();
-                    if (data.success) {
-                        ig_status = data.ig_status;
+                let retries = 0;
+                const maxRetries = 3;
+                
+                while (retries <= maxRetries) {
+                    try {
+                        const res = await fetch(API_BASE, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'check_single', username: acc.username })
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                            ig_status = data.ig_status;
+                        }
+                        // Rate limited → retry with longer wait
+                        if (ig_status === 'unknown' && retries < maxRetries) {
+                            retries++;
+                            const waitSec = retries * 15; // 15s, 30s, 45s
+                            entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">${acc.username}</span> <span class="log-result-checking"><i class="fas fa-clock"></i> rate limited, retry ${retries}/${maxRetries} in ${waitSec}s...</span>`;
+                            await new Promise(r => setTimeout(r, waitSec * 1000));
+                            continue;
+                        }
+                        break;
+                    } catch (e) {
+                        ig_status = 'error';
+                        break;
                     }
-                } catch (e) {
-                    ig_status = 'error';
                 }
 
                 // Sonucu güncelle
@@ -930,6 +945,11 @@
                 document.getElementById('pgDeleted').textContent = deletedCount;
                 document.getElementById('pgError').textContent = errorCount;
                 logEl.scrollTop = logEl.scrollHeight;
+
+                // Rate limit koruması: her istek arasında 5 saniye bekle
+                if (i < allAccounts.length - 1) {
+                    await new Promise(r => setTimeout(r, 5000));
+                }
             }
 
             // Bitti
