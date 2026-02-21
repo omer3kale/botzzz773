@@ -400,8 +400,24 @@ exports.handler = async (event) => {
             return errorResponse('Not enough balance');
         }
 
-        // Deduct Balance
-        await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) - charge }).eq('id', user.id);
+        // Deduct Balance - ATOMIC: prevents race condition when multiple orders arrive simultaneously
+        const { data: deductResult, error: deductError } = await supabaseAdmin.rpc('deduct_balance', {
+          p_user_id: user.id,
+          p_amount: charge
+        });
+
+        if (deductError) {
+          console.error('[V2 ADD] Atomic balance deduction failed:', deductError.message);
+          if (deductError.message?.includes('INSUFFICIENT_BALANCE')) {
+            await auditLog(user.id, 'no_balance_atomic', { charge, balance: user.balance }, 'warning');
+            return errorResponse('Not enough balance');
+          }
+          await auditLog(user.id, 'balance_deduct_error', { charge, error: deductError.message }, 'error');
+          return errorResponse('Payment processing failed. Please try again.');
+        }
+
+        let balanceDeducted = true;
+        console.log(`[V2 ADD] Balance deducted atomically: new_balance=${deductResult}`);
         
         // Generate order number with random increment (1-30) from last order number
         let orderNumber = null;
@@ -484,7 +500,21 @@ exports.handler = async (event) => {
           break;
         }
 
-        if (oErr) return errorResponse('Order failed');
+        if (oErr) {
+          // Rollback: refund the deducted balance since order creation failed
+          if (balanceDeducted) {
+            const { error: rollbackErr } = await supabaseAdmin.rpc('refund_balance', {
+              p_user_id: user.id,
+              p_amount: charge
+            });
+            if (rollbackErr) {
+              console.error('[V2 CRITICAL] Balance deducted but order failed AND rollback failed:', { userId: user.id, charge, error: rollbackErr.message });
+            } else {
+              console.log(`[V2 ADD] Balance rolled back after order creation failure`);
+            }
+          }
+          return errorResponse('Order failed');
+        }
 
         // Post-Creation Race Condition Check: if another non-completed order with same service+link exists, delete this one and reject
         try {
@@ -500,8 +530,14 @@ exports.handler = async (event) => {
           if (Array.isArray(otherOrders) && otherOrders.length > 0) {
             // Another order exists; delete this one and reject
             await supabaseAdmin.from('orders').delete().eq('id', newOrder.id);
-            // Refund the charge
-            await supabaseAdmin.from('users').update({ balance: parseFloat(user.balance) }).eq('id', user.id);
+            // Refund the charge atomically
+            const { error: dupRefundErr } = await supabaseAdmin.rpc('refund_balance', {
+              p_user_id: user.id,
+              p_amount: charge
+            });
+            if (dupRefundErr) {
+              console.error('[V2 CRITICAL] Duplicate order refund failed:', { userId: user.id, charge, error: dupRefundErr.message });
+            }
             const prev = otherOrders[0];
             await auditLog(user.id, 'duplicate_link_race_blocked_until_completed', { service_id: sData.id, link: params.link, previous_order: prev?.order_number, previous_status: prev?.status, previous_error: prev?.provider_error, deleted_order_id: newOrder.id }, 'warning');
             const msg = prev?.status === 'failed' && prev?.provider_error 
