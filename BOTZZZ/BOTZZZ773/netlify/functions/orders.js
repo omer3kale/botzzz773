@@ -654,7 +654,7 @@ async function processOrderRefund(order, options = {}) {
     console.log(`[REFUND] Order ${orderId} marked with refund_applied_at = ${nowIso}`);
   }
 
-  // Get user's current balance
+  // Get user info for logging
   const { data: userData, error: userFetchError } = await supabaseAdmin
     .from('users')
     .select('id, balance, email')
@@ -668,27 +668,24 @@ async function processOrderRefund(order, options = {}) {
 
   const previousBalance = Number(userData.balance ?? 0);
   const refundAmount = Math.abs(refundAmountCalculated);
-  const newBalance = Number((previousBalance + refundAmount).toFixed(5));
 
-  console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount.toFixed(2)} = $${newBalance}`);
+  console.log(`[REFUND] User ${userId} (${userData.email}): $${previousBalance} + $${refundAmount.toFixed(2)} (atomic RPC)`);
 
-  // Update user balance
-  const { data: balanceResult, error: balanceError } = await supabaseAdmin
-    .from('users')
-    .update({ 
-      balance: newBalance,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', userId)
-    .select('id, balance')
-    .single();
+  // Update user balance atomically via RPC
+  const { data: newBalanceResult, error: balanceError } = await supabaseAdmin
+    .rpc('refund_balance', {
+      p_user_id: userId,
+      p_amount: refundAmount
+    });
 
   if (balanceError) {
     console.error(`[REFUND] Failed to update balance for user ${userId}:`, balanceError);
     return { success: false, error: 'Failed to update balance', details: balanceError.message };
   }
 
-  console.log(`[REFUND] Balance updated successfully:`, balanceResult);
+  const newBalance = newBalanceResult;
+  const balanceResult = { id: userId, balance: newBalance };
+  console.log(`[REFUND] Balance updated atomically: $${previousBalance} -> $${newBalance}`);
 
   // Record refund transaction
   const refundRecord = await recordRefundTransaction(order, refundAmount, {
@@ -711,12 +708,12 @@ async function processOrderRefund(order, options = {}) {
       console.error(`[REFUND] Failed to revert refund_applied_at marker:`, revertMarkerError);
     }
     
-    // Revert the balance update
-    const revertedBalance = Number((previousBalance).toFixed(5));
+    // Revert the balance update atomically (subtract refundAmount back)
     const { error: revertBalanceError } = await supabaseAdmin
-      .from('users')
-      .update({ balance: revertedBalance })
-      .eq('id', userId);
+      .rpc('deduct_balance', {
+        p_user_id: userId,
+        p_amount: refundAmount
+      });
     
     if (revertBalanceError) {
       console.error(`[REFUND] Failed to revert balance:`, revertBalanceError);
@@ -1749,17 +1746,20 @@ async function handleCreateOrder(user, data, headers) {
       console.warn('[ORDER] Order reference not persisted in database; relying on runtime-generated identifier.');
     }
 
-    // ============= STEP 5: DEDUCT BALANCE =============
-    const balanceNum = originalBalance - totalCost;
-    const newBalance = Number(balanceNum.toFixed(5));
-    console.log(`[ORDER] Deducting balance: ${originalBalance} -> ${newBalance}`);
+    // ============= STEP 5: DEDUCT BALANCE (ATOMIC) =============
+    console.log(`[ORDER] Deducting balance atomically: ${originalBalance} - ${totalCost}`);
 
-    const { error: balanceError } = await supabaseAdmin
-      .from('users')
-      .update({ 
-        balance: newBalance
-      })
-      .eq('id', user.userId);
+    let newBalance;
+    const { data: deductResult, error: balanceError } = await supabaseAdmin
+      .rpc('deduct_balance', {
+        p_user_id: user.userId,
+        p_amount: totalCost
+      });
+
+    if (!balanceError) {
+      newBalance = deductResult;
+      console.log(`[ORDER] Balance after atomic deduction: ${newBalance}`);
+    }
 
     if (balanceError) {
       console.error('[ORDER] Balance deduction error:', balanceError);
@@ -2145,11 +2145,12 @@ async function handleCreateOrder(user, data, headers) {
       console.error('[ORDER] Attempting emergency rollback for order:', orderCreated.id);
       
       try {
-        // Refund
+        // Refund balance atomically (add back totalCost)
         await supabaseAdmin
-          .from('users')
-          .update({ balance: originalBalance })
-          .eq('id', user.userId);
+          .rpc('refund_balance', {
+            p_user_id: user.userId,
+            p_amount: totalCost
+          });
         
         // Mark failed
         await supabaseAdmin
