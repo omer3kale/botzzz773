@@ -2774,7 +2774,7 @@ async function handleCancelOrder(user, data, headers) {
     });
 
     // Admin can cancel any order except those already cancelled
-    if (order.status === 'cancelled') {
+    if (order.status === 'canceled' || order.status === 'cancelled') {
       return {
         statusCode: 400,
         headers,
@@ -2996,6 +2996,7 @@ async function recordRefundTransaction(order, amount, options = {}) {
       status: options.status || 'refunded',
       reason: options.reason || 'refund',
       source: options.source || 'orders-service',
+      processed_at: new Date().toISOString(),
       metadata: {
         order_number: order.order_number || null,
         order_reference: order.order_reference || null,
@@ -3060,7 +3061,6 @@ async function recordRefundTransaction(order, amount, options = {}) {
         amount: -Math.abs(Number(numericAmount.toFixed(5))),  // Negative for refund (outflow)
         method: 'refund',
         status: 'refunded',  // Match the example record status
-        gateway: 'internal',
         transaction_id: refundCode,
         gateway_response: {
           refund_id: refundRecord.id,
