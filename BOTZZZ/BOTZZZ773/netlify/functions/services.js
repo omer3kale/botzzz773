@@ -912,7 +912,9 @@ async function handleCreateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes
+      customerPortalNotes,
+      overflow_percent,
+      overflowPercent
     } = data;
 
     if (!name || !category) {
@@ -953,6 +955,7 @@ async function handleCreateService(user, data, headers) {
   const customerPortalEnabledFlag = customerPortalEnabledRaw !== undefined ? toBooleanFlag(customerPortalEnabledRaw) : false;
   const customerPortalSlotValue = toNumberOrNull(customer_portal_slot ?? customerPortalSlot);
   const customerPortalNotesValue = customer_portal_notes ?? customerPortalNotes ?? null;
+  const overflowPercentValue = toNumberOrNull(overflow_percent ?? overflowPercent) ?? 0;
 
     let resolvedPublicId = toNumberOrNull(public_id ?? publicId);
     if (resolvedPublicId === null || resolvedPublicId < PUBLIC_ID_BASE) {
@@ -989,7 +992,8 @@ async function handleCreateService(user, data, headers) {
         admin_visibility_notes: adminVisibilityNotesValue,
         customer_portal_enabled: customerPortalEnabledFlag,
         customer_portal_slot: customerPortalSlotValue,
-        customer_portal_notes: customerPortalNotesValue
+        customer_portal_notes: customerPortalNotesValue,
+        overflow_percent: overflowPercentValue
       })
       .select()
       .single();
@@ -1078,7 +1082,9 @@ async function handleUpdateService(user, data, headers) {
       customer_portal_slot,
       customerPortalSlot,
       customer_portal_notes,
-      customerPortalNotes
+      customerPortalNotes,
+      overflow_percent,
+      overflowPercent
     } = data;
 
     if (!serviceId) {
@@ -1173,6 +1179,12 @@ async function handleUpdateService(user, data, headers) {
     if (hasCustomerPortalNotesField) {
       const portalNoteValue = customer_portal_notes ?? customerPortalNotes;
       updates.customer_portal_notes = portalNoteValue === undefined ? null : portalNoteValue;
+    }
+
+    const hasOverflowPercentField = Object.prototype.hasOwnProperty.call(data, 'overflow_percent') ||
+      Object.prototype.hasOwnProperty.call(data, 'overflowPercent');
+    if (hasOverflowPercentField) {
+      updates.overflow_percent = toNumberOrNull(overflow_percent ?? overflowPercent) ?? 0;
     }
 
     const hasProviderRateField = Object.prototype.hasOwnProperty.call(data, 'provider_rate') ||

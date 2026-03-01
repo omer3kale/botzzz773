@@ -1824,6 +1824,12 @@ async function handleCreateOrder(user, data, headers) {
     console.log(`[ORDER] Balance deducted successfully`);
 
     // ============= STEP 6: SUBMIT TO PROVIDER =============
+    // Apply overflow: send extra quantity to provider (customer pays for original qty)
+    const overflowPercent = parseFloat(service.overflow_percent) || 0;
+    const providerQty = overflowPercent > 0 ? Math.ceil(qty * (1 + overflowPercent / 100)) : qty;
+    if (overflowPercent > 0) {
+      console.log(`[ORDER] Overflow ${overflowPercent}%: customer qty=${qty}, provider qty=${providerQty}`);
+    }
     console.log(`[ORDER] Submitting to provider: ${service.provider.name}`);
     
     let providerOrderId = null;
@@ -1831,7 +1837,7 @@ async function handleCreateOrder(user, data, headers) {
       const providerResponse = await submitOrderToProviderWithRetry(service.provider, {
         service: service.provider_service_id,
         link: linkStr,
-        quantity: qty,
+        quantity: providerQty,
         comments: isCustomComments && normalizedComments.length > 0
           ? normalizedComments.join('\n')
           : undefined
@@ -1875,7 +1881,8 @@ async function handleCreateOrder(user, data, headers) {
         provider_status: 'processing',
         last_status_sync: nowIso,
         provider_response: providerResponse.response,
-        provider_currency: normalizeCurrency(providerCurrencyFromResponse)
+        provider_currency: normalizeCurrency(providerCurrencyFromResponse),
+        overflow_quantity: overflowPercent > 0 ? providerQty : null
       };
 
       if (normalizedProviderStatus === 'canceled') {

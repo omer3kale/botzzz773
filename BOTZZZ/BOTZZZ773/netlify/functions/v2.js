@@ -473,8 +473,12 @@ exports.handler = async (event) => {
             }
           }
           
+          // Calculate overflow before inserting order
+          const overflowPercent = parseFloat(sData.overflow_percent) || 0;
+          const providerQtyForOrder = overflowPercent > 0 ? Math.ceil(qty * (1 + overflowPercent / 100)) : qty;
+          
           const insertResult = await supabaseAdmin.from('orders').insert({
-            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, charge: charge, original_charge: charge,
+            user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, overflow_quantity: overflowPercent > 0 ? providerQtyForOrder : null, charge: charge, original_charge: charge,
               order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null,
               provider_id: providerIdForOrder,
               provider_name: providerNameForOrder
@@ -556,8 +560,14 @@ exports.handler = async (event) => {
            try {
             console.log('[V2 PROVIDER] Forwarding to provider:', sData.provider.name);
             const providerServiceId = sData.provider_service_id || sData.public_id || sData.id;
+            // Apply overflow: send extra quantity to provider
+            const overflowPercent = parseFloat(sData.overflow_percent) || 0;
+            const providerQty = overflowPercent > 0 ? Math.ceil(qty * (1 + overflowPercent / 100)) : qty;
+            if (overflowPercent > 0) {
+              console.log(`[V2 PROVIDER] Overflow ${overflowPercent}%: customer qty=${qty}, provider qty=${providerQty}`);
+            }
             const pParams = new URLSearchParams({ 
-              key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: qty 
+              key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: providerQty 
             });
             if (normalizedComments) {
               pParams.append('comments', normalizedComments);

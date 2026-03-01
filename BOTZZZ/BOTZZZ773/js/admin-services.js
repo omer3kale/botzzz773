@@ -1049,12 +1049,19 @@ async function addService() {
                                 <input type="number" name="max" placeholder="10000" min="1">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Status</label>
-                            <select name="status">
-                                <option value="active" selected>Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Overflow %</label>
+                                <input type="number" name="overflowPercent" placeholder="0" min="0" max="500" step="1" value="0">
+                                <small style="color: #94a3b8;">Extra quantity sent to provider. E.g. 40 = customer orders 100, provider gets 140.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select name="status">
+                                    <option value="active" selected>Active</option>
+                                    <option value="inactive">Inactive</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1193,6 +1200,7 @@ async function submitAddService(event) {
     const cancelSupportedFlag = toBooleanInput(serviceData.cancel_supported);
     const dripfeedSupportedFlag = toBooleanInput(serviceData.dripfeed_supported);
     const subscriptionSupportedFlag = toBooleanInput(serviceData.subscription_supported);
+    const overflowPercentValue = parseNumberInput(serviceData.overflowPercent) ?? 0;
 
     const submitBtn = document.querySelector('button[form="addServiceForm"]');
     if (submitBtn) {
@@ -1225,7 +1233,8 @@ async function submitAddService(event) {
             adminApproved: customerPortalEnabledFlag,
             customerPortalEnabled: customerPortalEnabledFlag,
             customerPortalSlot: customerPortalSlotValue,
-            customerPortalNotes: customerPortalNotesValue || null
+            customerPortalNotes: customerPortalNotesValue || null,
+            overflowPercent: overflowPercentValue
         };
         
         console.log('Create service payload:', payload);
@@ -1416,12 +1425,19 @@ async function editService(serviceId) {
                                 <input type="number" name="max" min="1" value="${maxValue !== null ? maxValue : ''}">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label>Status</label>
-                            <select name="status">
-                                <option value="active"${service.status === 'active' ? ' selected' : ''}>Active</option>
-                                <option value="inactive"${service.status === 'inactive' ? ' selected' : ''}>Inactive</option>
-                            </select>
+                        <div class="add-service-inline">
+                            <div class="form-group">
+                                <label>Overflow %</label>
+                                <input type="number" name="overflowPercent" min="0" max="500" step="1" value="${service.overflow_percent || 0}">
+                                <small style="color: #94a3b8;">Extra quantity sent to provider. E.g. 40 = customer orders 100, provider gets 140.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Status</label>
+                                <select name="status">
+                                    <option value="active"${service.status === 'active' ? ' selected' : ''}>Active</option>
+                                    <option value="inactive"${service.status === 'inactive' ? ' selected' : ''}>Inactive</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2188,6 +2204,7 @@ async function submitEditService(event, serviceId) {
     const cancelSupportedFlag = toBooleanInput(serviceData.cancel_supported);
     const dripfeedSupportedFlag = toBooleanInput(serviceData.dripfeed_supported);
     const subscriptionSupportedFlag = toBooleanInput(serviceData.subscription_supported);
+    const overflowPercentValue = parseNumberInput(serviceData.overflowPercent);
     const numericServiceId = Number.isFinite(Number(serviceId)) ? Number(serviceId) : serviceId;
     const payload = {
         serviceId: numericServiceId,
@@ -2207,7 +2224,8 @@ async function submitEditService(event, serviceId) {
         refill_supported: refillSupportedFlag,
         cancel_supported: cancelSupportedFlag,
         dripfeed_supported: dripfeedSupportedFlag,
-        subscription_supported: subscriptionSupportedFlag
+        subscription_supported: subscriptionSupportedFlag,
+        overflowPercent: overflowPercentValue
     };
 
     if (retailRateValue !== null) {

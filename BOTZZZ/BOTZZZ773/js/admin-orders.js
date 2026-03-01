@@ -3306,7 +3306,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                         </td>
                         <td>${linkCellMarkup}</td>
                         <td>${escapeHtml(String(startCount))}</td>
-                        <td>${escapeHtml(String(quantity))}</td>
+                        <td>${escapeHtml(String(quantity))}${order.overflow_quantity ? ` <span style="color: #10b981; font-weight: 500;">+${order.overflow_quantity - quantity}</span>` : ''}</td>
                         <td><span class="service-label">${escapeHtml(orderService?.public_id || '?')} · ${escapeHtml(orderService?.name || 'Unknown Service')}</span></td>
                         <td>
                             <div class="cell-stack">

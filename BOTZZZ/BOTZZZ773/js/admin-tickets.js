@@ -403,7 +403,8 @@ async function addTicket() {
         if (response.ok) {
             const result = await response.json();
             const users = result.users || [];
-            usersOptions = '<option value="">Select user...</option>' + 
+            usersOptions = '<option value="">Select user...</option>' +
+                '<option value="__ALL__">📢 All Users (' + users.length + ')</option>' +
                 users.map(user => `<option value="${user.id}">${user.username} (${user.email})</option>`).join('');
         }
     } catch (error) {
@@ -479,12 +480,28 @@ function submitAddTicket(event) {
     const formData = new FormData(event.target);
     const ticketData = Object.fromEntries(formData);
     
+    const isBulk = ticketData.userId === '__ALL__';
+    
+    console.log('[ADD TICKET] Form data:', { 
+        userId: ticketData.userId, 
+        isBulk,
+        subject: ticketData.subject, 
+        category: ticketData.category,
+        priority: ticketData.priority,
+        messageLength: ticketData.message?.length,
+        messagePreview: ticketData.message?.substring(0, 100)
+    });
+    
     // Show loading state
     const submitBtn = document.querySelector('button[form="addTicketForm"]');
     if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+        submitBtn.innerHTML = isBulk 
+            ? '<i class="fas fa-spinner fa-spin"></i> Sending to all users...'
+            : '<i class="fas fa-spinner fa-spin"></i> Creating...';
     }
+    
+    const messageText = ticketData.message?.trim() || 'Ticket created by admin';
     
     // Call backend API to create ticket
     const token = localStorage.getItem('token');
@@ -496,20 +513,19 @@ function submitAddTicket(event) {
             'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-            action: 'create',
-            userId: ticketData.userId,
+            action: isBulk ? 'bulkCreate' : 'create',
+            userId: isBulk ? undefined : ticketData.userId,
             subject: ticketData.subject,
             category: ticketData.category,
             priority: ticketData.priority,
-            status: ticketData.status || 'open',
             orderId: ticketData.orderId || null,
-            message: ticketData.message || 'Ticket created by admin'
+            message: messageText
         })
     })
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            showNotification(data.message || 'Ticket created successfully!', 'success');
+            showNotification(data.statusMessage || data.message || 'Ticket created successfully!', 'success');
             closeModal();
             setTimeout(() => window.location.reload(), 1000);
         } else {

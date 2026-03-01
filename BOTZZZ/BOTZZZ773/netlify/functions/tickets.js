@@ -277,9 +277,14 @@ async function handleGetTickets(user, data, headers) {
 
 async function handleCreateTicket(user, data, headers) {
   try {
-    const { subject, category, priority, message, orderId } = data;
+    const { subject, category, priority, message, orderId, userId: targetUserId } = data;
 
-    console.log('[TICKET CREATE] Request data:', { subject, category, priority, message: message?.substring(0, 50), orderId, userId: user.userId });
+    // Determine ticket owner: if admin provides a userId, use that (admin creating ticket for user)
+    // Otherwise, use the authenticated user's own ID (user creating their own ticket)
+    const isAdminCreating = user.role === 'admin' && targetUserId && targetUserId !== user.userId;
+    const ticketOwnerId = isAdminCreating ? targetUserId : user.userId;
+
+    console.log('[TICKET CREATE] Request data:', { subject, category, priority, message: message?.substring(0, 50), orderId, ticketOwnerId, createdBy: user.userId, isAdminCreating });
 
     // Input sanitization
     if (!subject || !category || !message) {
@@ -299,11 +304,28 @@ async function handleCreateTicket(user, data, headers) {
       };
     }
 
+    // If admin is creating for a specific user, validate that user exists
+    if (isAdminCreating) {
+      const { data: targetUser, error: targetUserError } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('id', targetUserId)
+        .single();
+      
+      if (targetUserError || !targetUser) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ error: 'Selected user not found' })
+        };
+      }
+    }
+
     // Create ticket with auto-generated ticket number and optional orderId
     let ticket;
     try {
       const ticketData = {
-        user_id: user.userId,
+        user_id: ticketOwnerId,
         subject: subject.trim(),
         category,
         priority: priority || 'medium',
@@ -335,18 +357,47 @@ async function handleCreateTicket(user, data, headers) {
       };
     }
 
-    // Add initial message
+    // Add initial message (same pattern as handleReplyTicket which works)
+    const messagePayload = {
+      ticket_id: ticket.id,
+      message: message.trim(),
+      is_admin: isAdminCreating
+    };
+
+    // Only add user_id if it's a valid UUID (not for dev-admin or similar)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const senderId = isAdminCreating ? user.userId : ticketOwnerId;
+    if (senderId && uuidRegex.test(senderId)) {
+      messagePayload.user_id = senderId;
+    }
+
+    console.log('[TICKET CREATE] Inserting message:', { 
+      ticket_id: messagePayload.ticket_id, 
+      user_id: messagePayload.user_id,
+      messageLength: messagePayload.message?.length,
+      is_admin: messagePayload.is_admin 
+    });
+
     const { error: messageError } = await supabaseAdmin
       .from('ticket_messages')
-      .insert({
-        ticket_id: ticket.id,
-        user_id: user.userId,
-        message,
-        is_admin: false
-      });
+      .insert(messagePayload);
 
     if (messageError) {
-      console.error('Create message error:', messageError);
+      console.error('[TICKET CREATE] Message insert FAILED:', JSON.stringify(messageError));
+    } else {
+      console.log('[TICKET CREATE] Message inserted successfully');
+    }
+
+    // If admin created this ticket, mark it as answered with unread flag so user sees it
+    if (isAdminCreating) {
+      await supabaseAdmin
+        .from('tickets')
+        .update({
+          status: 'answered',
+          has_unread_replies: true,
+          last_reply_by: 'admin'
+        })
+        .eq('id', ticket.id);
     }
 
     return {
@@ -354,7 +405,8 @@ async function handleCreateTicket(user, data, headers) {
       headers,
       body: JSON.stringify({
         success: true,
-        ticket
+        ticket,
+        statusMessage: isAdminCreating ? 'Ticket created and sent to user' : 'Ticket created successfully'
       })
     };
   } catch (error) {
@@ -364,6 +416,138 @@ async function handleCreateTicket(user, data, headers) {
       headers,
       body: JSON.stringify({ 
         error: 'Internal server error',
+        details: error.message || 'Unknown error'
+      })
+    };
+  }
+}
+
+// ============= BULK CREATE TICKETS (Send to all users) =============
+async function handleBulkCreateTickets(user, data, headers) {
+  try {
+    // Only admins can bulk create
+    if (user.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ error: 'Admin access required' })
+      };
+    }
+
+    const { subject, category, priority, message } = data;
+
+    if (!subject || !category || !message) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Subject, category, and message are required' })
+      };
+    }
+
+    if (subject.length > 200 || message.length > 5000) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Subject or message too long' })
+      };
+    }
+
+    // Fetch all active users
+    const { data: allUsers, error: usersError } = await supabaseAdmin
+      .from('users')
+      .select('id')
+      .eq('status', 'active');
+
+    if (usersError || !allUsers || allUsers.length === 0) {
+      console.error('[BULK TICKET] Error fetching users:', usersError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch users' })
+      };
+    }
+
+    console.log(`[BULK TICKET] Creating tickets for ${allUsers.length} users. Subject: "${subject}"`);
+
+    let successCount = 0;
+    let failCount = 0;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    // Process in batches of 10 to avoid overwhelming the DB
+    const batchSize = 10;
+    for (let i = 0; i < allUsers.length; i += batchSize) {
+      const batch = allUsers.slice(i, i + batchSize);
+      
+      const results = await Promise.allSettled(batch.map(async (targetUser) => {
+        // 1. Create ticket for this user
+        const ticketData = {
+          user_id: targetUser.id,
+          subject: subject.trim(),
+          category,
+          priority: priority || 'medium',
+          status: 'open'
+        };
+
+        const ticket = await insertTicketRecord(ticketData);
+
+        // 2. Add admin message
+        const messagePayload = {
+          ticket_id: ticket.id,
+          message: message.trim(),
+          is_admin: true
+        };
+
+        if (user.userId && uuidRegex.test(user.userId)) {
+          messagePayload.user_id = user.userId;
+        }
+
+        await supabaseAdmin
+          .from('ticket_messages')
+          .insert(messagePayload);
+
+        // 3. Mark as answered with unread flag
+        await supabaseAdmin
+          .from('tickets')
+          .update({
+            status: 'answered',
+            has_unread_replies: true,
+            last_reply_by: 'admin'
+          })
+          .eq('id', ticket.id);
+
+        return ticket.id;
+      }));
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          successCount++;
+        } else {
+          failCount++;
+          console.error('[BULK TICKET] Failed for one user:', result.reason?.message || result.reason);
+        }
+      }
+    }
+
+    console.log(`[BULK TICKET] Completed: ${successCount} success, ${failCount} failed out of ${allUsers.length} users`);
+
+    return {
+      statusCode: 201,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        statusMessage: `Ticket sent to ${successCount}/${allUsers.length} users${failCount > 0 ? ` (${failCount} failed)` : ''}`,
+        totalUsers: allUsers.length,
+        successCount,
+        failCount
+      })
+    };
+  } catch (error) {
+    console.error('[BULK TICKET] Error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ 
+        error: 'Failed to create bulk tickets',
         details: error.message || 'Unknown error'
       })
     };
@@ -520,6 +704,8 @@ async function handlePostActions(user, data, headers) {
     return await handleBulkClose(user, data, headers);
   } else if (action === 'bulkDelete') {
     return await handleBulkDelete(user, data, headers);
+  } else if (action === 'bulkCreate') {
+    return await handleBulkCreateTickets(user, data, headers);
   }
 
   // Default to create ticket (no action or action === 'create')
