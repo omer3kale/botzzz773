@@ -448,7 +448,15 @@ document.addEventListener('DOMContentLoaded', function() {
         if (estimatedPriceEl) {
             if (service && quantity > 0) {
                 const rate = Number(service.rate || 0);
-                let price = (quantity / 1000) * rate;
+                const serviceType = String(service.type || '').toLowerCase();
+                const isPackage = serviceType.includes('package');
+                
+                // Price calculation depends on service type:
+                // - Standard/Subscription: per 1000 formula (rate / 1000) * quantity
+                // - Package: direct price (rate * quantity, where quantity is typically 1)
+                let price = isPackage 
+                    ? quantity * rate
+                    : (quantity / 1000) * rate;
                 
                 // Apply discount: user-service specific → global-service → user-global
                 const servicePublicId = Number(service?.public_id ?? service?.publicId ?? service?.id);
@@ -905,7 +913,8 @@ function renderServiceOptions(serviceSelect) {
                 }
                 const finalRateNum = effectiveDiscount > 0 ? (baseRateNum - (baseRateNum * (effectiveDiscount / 100))) : baseRateNum;
                 const finalRate = finalRateNum.toFixed(2);
-                html += `<option value="${escapeHtml(String(service.id))}" data-rate="${finalRate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}">
+                const serviceType = String(service.type || '').toLowerCase();
+                html += `<option value="${escapeHtml(String(service.id))}" data-rate="${finalRate}" data-min="${min}" data-max="${datasetMax}" data-public-id="${hasPublicId ? service.publicId : ''}" data-type="${serviceType}">
                         ${labelId} · ${escapeHtml(service.name || 'Untitled Service')} - $${finalRate}/1k${effectiveDiscount > 0 ? ` (was $${baseRate})` : ''} (Min: ${formatNumber(min)}, Max: ${formatNumber(max)})
                 </option>`;
         });

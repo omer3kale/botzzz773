@@ -1077,10 +1077,15 @@
         if (!selectedService || !quantityInput) return;
         
         const quantity = normalizeQuantityValue(quantityInput.value) || 0;
+        const isPackage = String(selectedService.type || '').toLowerCase().includes('package');
         
         if (quantity >= selectedService.min && quantity <= selectedService.max) {
-            // Price is already discounted in selectedService.price
-            let charge = (quantity / 1000) * selectedService.price;
+            // Price calculation depends on service type:
+            // - Standard/Subscription: per 1000 formula (price / 1000) * quantity
+            // - Package: direct price (price * quantity, where quantity is typically 1)
+            let charge = isPackage 
+                ? quantity * selectedService.price
+                : (quantity / 1000) * selectedService.price;
             
             if (chargeAmount) {
                 chargeAmount.textContent = formatCurrencyDisplay(charge, selectedService.currency);
@@ -1263,8 +1268,11 @@
                 return;
             }
 
-            // Calculate charge
-            const charge = (quantity / 1000) * selectedService.price;
+            // Calculate charge based on service type
+            const isPackage = String(selectedService.type || '').toLowerCase().includes('package');
+            const charge = isPackage 
+                ? quantity * selectedService.price
+                : (quantity / 1000) * selectedService.price;
 
             // Check if user has sufficient balance
             if (parseFloat(user.balance) < charge) {

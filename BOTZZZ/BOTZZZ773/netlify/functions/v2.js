@@ -303,8 +303,14 @@ exports.handler = async (event) => {
 
         const serviceTypeRaw = String(sData.type ?? '').trim().toLowerCase();
         const isCustomCommentsService = serviceTypeRaw.includes('custom');
+        const isPackageService = serviceTypeRaw.includes('package');
+        
         if (isCustomCommentsService && !hasCommentsField) {
           return { statusCode: 400, headers, body: JSON.stringify({ error: 'Comments are required for this service.' }) };
+        }
+        
+        if (isPackageService && params.quantity !== '1' && params.quantity !== 1) {
+          return { statusCode: 400, headers, body: JSON.stringify({ error: 'Package service can only be ordered with quantity 1.' }) };
         }
         
         // DEBUG: Log full service data to understand provider structure
@@ -387,9 +393,17 @@ exports.handler = async (event) => {
             console.log('[V2 ADD] Discount applied:', { original_rate: rateValue, discount_rate: effectiveDiscount + '%', source: discountSource, final_rate: finalRate });
         }
         
-        // Preserve micro-charges by keeping 5-decimal precision on orders
-        const charge = Number(((finalRate / 1000) * qty).toFixed(5));
-        console.log('[V2 ADD] Charge calculation:', { retail_rate: sData.retail_rate, rate: sData.rate, rateValue, finalRate, qty, charge, discount_applied: effectiveDiscount > 0 });
+        // Pricing calculation depends on service type:
+        // - Standard/Subscription: per 1000 formula (rate / 1000) * quantity
+        // - Package: fixed price per package (rate * quantity, where quantity is always 1)
+        let charge;
+        if (isPackageService) {
+          charge = Number((finalRate * qty).toFixed(5));
+          console.log('[V2 ADD] Package pricing:', { retail_rate: sData.retail_rate, rate: sData.rate, finalRate, qty, charge });
+        } else {
+          charge = Number(((finalRate / 1000) * qty).toFixed(5));
+          console.log('[V2 ADD] Standard pricing:', { retail_rate: sData.retail_rate, rate: sData.rate, rateValue, finalRate, qty, charge, discount_applied: effectiveDiscount > 0 });
+        }
         // Reject if rate is missing or computed charge is not positive
         if (!Number.isFinite(charge) || charge <= 0) {
           await auditLog(user.id, 'invalid_charge_computed', { service_id: sData.id, public_id: sData.public_id, rate: sData.rate, retail_rate: sData.retail_rate, rateValue, qty, charge }, 'warning');
@@ -561,7 +575,8 @@ exports.handler = async (event) => {
             console.log('[V2 PROVIDER] Forwarding to provider:', sData.provider.name);
             const providerServiceId = sData.provider_service_id || sData.public_id || sData.id;
             // Apply overflow: send extra quantity to provider
-            const overflowPercent = parseFloat(sData.overflow_percent) || 0;
+            // Note: Package services don't support overflow (quantity always 1)
+            const overflowPercent = isPackageService ? 0 : (parseFloat(sData.overflow_percent) || 0);
             const providerQty = overflowPercent > 0 ? Math.ceil(qty * (1 + overflowPercent / 100)) : qty;
             if (overflowPercent > 0) {
               console.log(`[V2 PROVIDER] Overflow ${overflowPercent}%: customer qty=${qty}, provider qty=${providerQty}`);

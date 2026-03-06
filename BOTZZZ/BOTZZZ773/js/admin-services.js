@@ -990,6 +990,7 @@ async function addService() {
                                     <option value="service" selected>Standard</option>
                                     <option value="subscription">Subscription</option>
                                     <option value="custom_comments">Custom Comments</option>
+                                    <option value="package">Package</option>
                                 </select>
                             </div>
                         </div>
@@ -1336,7 +1337,8 @@ async function editService(serviceId) {
     const normalizedType = String(service.type || 'service').trim().toLowerCase();
     const resolvedType = normalizedType.includes('custom')
         ? 'custom_comments'
-        : (normalizedType.includes('subscription') ? 'subscription' : 'service');
+        : (normalizedType.includes('subscription') ? 'subscription' 
+          : (normalizedType.includes('package') ? 'package' : 'service'));
 
     const content = `
         <form id="editServiceForm" onsubmit="submitEditService(event, '${serviceId}')" class="admin-form">
@@ -1366,6 +1368,7 @@ async function editService(serviceId) {
                                     <option value="service"${resolvedType === 'service' ? ' selected' : ''}>Standard</option>
                                     <option value="subscription"${resolvedType === 'subscription' ? ' selected' : ''}>Subscription</option>
                                     <option value="custom_comments"${resolvedType === 'custom_comments' ? ' selected' : ''}>Custom Comments</option>
+                                    <option value="package"${resolvedType === 'package' ? ' selected' : ''}>Package</option>
                                 </select>
                                 <small style="color: #94a3b8;">Use Custom Comments for comment-per-line orders.</small>
                             </div>

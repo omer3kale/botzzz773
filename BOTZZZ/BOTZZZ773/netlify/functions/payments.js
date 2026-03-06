@@ -796,21 +796,28 @@ async function handleAdminAddPayment(user, data, headers) {
     console.log('Creating payment record...', { userId, amount, method, status, finalTransactionId });
 
     // Create payment record
+    const parsedAmount = parseFloat(amount);
+    const gatewayResponse = {
+      manual: true,
+      added_by: user.userId,
+      added_by_email: user.email,
+      timestamp: new Date().toISOString()
+    };
+    // Flag negative admin adjustments so the DB refund trigger skips them
+    if (parsedAmount < 0) {
+      gatewayResponse.is_admin_adjustment = true;
+    }
+
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from('payments')
       .insert({
         user_id: userId,
         transaction_id: finalTransactionId,
-        amount: parseFloat(amount),
+        amount: parsedAmount,
         method: method,
         status: status,
         memo: memo || null,
-        gateway_response: {
-          manual: true,
-          added_by: user.userId,
-          added_by_email: user.email,
-          timestamp: new Date().toISOString()
-        }
+        gateway_response: gatewayResponse
       })
       .select()
       .single();

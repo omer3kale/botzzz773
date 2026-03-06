@@ -92,6 +92,7 @@ function populateServiceDropdown(services) {
             option.dataset.price = service.rate;
             option.dataset.min = service.min_quantity;
             option.dataset.max = service.max_quantity;
+            option.dataset.type = String(service.type || '').toLowerCase();
             optgroup.appendChild(option);
         });
 
@@ -181,6 +182,8 @@ function updatePrice() {
 
     const selectedOption = serviceSelect.options[serviceSelect.selectedIndex];
     const price = parseFloat(selectedOption.dataset.price || 0);
+    const serviceType = String(selectedOption.dataset.type || '').toLowerCase();
+    const isPackage = serviceType.includes('package');
     const quantity = normalizeQuantityValue(quantityInput.value) || 0;
     const min = parseInt(selectedOption.dataset.min || 0);
     const max = parseInt(selectedOption.dataset.max || 999999);
@@ -194,8 +197,13 @@ function updatePrice() {
         showMessage(`Maximum quantity is ${max}`, 'warning');
     }
 
-    // Calculate total
-    const total = (price * quantity / 1000).toFixed(2);
+    // Calculate total - depends on service type
+    // - Standard/Subscription: per 1000 formula (price * quantity / 1000)
+    // - Package: direct price (price * quantity, where quantity is typically 1)
+    const total = (isPackage 
+        ? price * quantity
+        : (price * quantity / 1000)
+    ).toFixed(2);
     totalPriceEl.textContent = `$${total}`;
     
     // Pulse animation

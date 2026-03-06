@@ -53,6 +53,14 @@ function isCustomCommentsService(service) {
   return String(raw).toLowerCase().includes('custom');
 }
 
+function isPackageService(service) {
+  if (!service) {
+    return false;
+  }
+  const raw = service.type ?? service.service_type ?? service.order_type ?? '';
+  return String(raw).toLowerCase().includes('package');
+}
+
 function normalizeCustomComments(raw) {
   if (typeof raw !== 'string') {
     return [];
@@ -194,11 +202,15 @@ function calculateProviderRate(service) {
   return null;
 }
 
-function calculateProviderCharge(ratePerThousand, quantity) {
+function calculateProviderCharge(ratePerThousand, quantity, isPackage = false) {
   if (!Number.isFinite(ratePerThousand) || !Number.isFinite(quantity)) {
     return null;
   }
-  const charge = (ratePerThousand * quantity) / 1000;
+  // For package services: cost = rate * quantity
+  // For standard services: cost = (rate * quantity) / 1000
+  const charge = isPackage 
+    ? ratePerThousand * quantity
+    : (ratePerThousand * quantity) / 1000;
   return Number(charge.toFixed(5));
 }
 
@@ -1393,6 +1405,7 @@ async function handleCreateOrder(user, data, headers) {
     }
 
     const isCustomComments = isCustomCommentsService(service);
+    const isPackage = isPackageService(service);
     const normalizedComments = isCustomComments ? normalizeCustomComments(comments) : [];
     const qty = isCustomComments ? normalizedComments.length : parseInt(quantity);
 
@@ -1405,7 +1418,16 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    if (!isCustomComments) {
+    if (isPackage && (quantity !== '1' && quantity !== 1)) {
+      logger.warn('Package service must have quantity 1', { serviceId, quantity });
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Package service can only be ordered with quantity 1' })
+      };
+    }
+
+    if (!isCustomComments && !isPackage) {
       if (!quantity) {
         logger.warn('Order missing required quantity', { serviceId });
         return {
@@ -1465,14 +1487,21 @@ async function handleCreateOrder(user, data, headers) {
       };
     }
 
-    // Calculate total cost (rate is per 1000 units)
-    // Keep order charge precise to 5 decimals (balance deductions remain 2 decimals elsewhere)
-    const totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(5));
-    logger.debug('Calculated retail cost', { totalCost, qty, retailRate: retailRatePerThousand });
+    // Calculate total cost
+    // For standard/subscription services: (rate is per 1000 units) cost = (rate * qty) / 1000
+    // For package services: (rate is fixed per package) cost = rate * qty
+    let totalCost;
+    if (isPackage) {
+      totalCost = Number((retailRatePerThousand * qty).toFixed(5));
+      logger.debug('Calculated package cost', { totalCost, qty, packageRate: retailRatePerThousand });
+    } else {
+      totalCost = Number(((retailRatePerThousand * qty) / 1000).toFixed(5));
+      logger.debug('Calculated standard cost', { totalCost, qty, retailRate: retailRatePerThousand });
+    }
 
     const providerRatePerThousand = calculateProviderRate(service);
     const providerCharge = providerRatePerThousand !== null
-      ? calculateProviderCharge(providerRatePerThousand, qty)
+      ? calculateProviderCharge(providerRatePerThousand, qty, isPackage)
       : null;
     logger.debug('Provider cost estimate', { providerRatePerThousand, providerCharge });
 
