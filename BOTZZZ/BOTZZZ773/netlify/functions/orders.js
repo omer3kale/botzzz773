@@ -5493,7 +5493,7 @@ async function handleRefillOrder(user, body, headers) {
         const dbStatus = providerRefillId ? 'pending' : 'awaiting';
 
         // Update with provider refill ID and set appropriate status
-        // Status will be updated via refill_status sync (scheduled every 10 minutes)
+        // Status will be updated via refill_status sync (scheduled every 60 minutes)
         let updateData = { 
           provider_refill_id: String(providerRefillId), 
           status: dbStatus,

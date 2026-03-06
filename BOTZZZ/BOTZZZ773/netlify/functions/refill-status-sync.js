@@ -1,7 +1,7 @@
 const { supabaseAdmin } = require('./utils/supabase');
 const axios = require('axios');
 
-// Scheduled function: Runs every 10 minutes to sync refill status from providers
+// Scheduled function: Runs every 60 minutes to sync refill status from providers
 exports.handler = async (event) => {
   try {
     console.log('[REFILL_STATUS_SYNC] Starting refill status sync...');

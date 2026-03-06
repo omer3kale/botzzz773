@@ -871,7 +871,7 @@ exports.handler = async (event) => {
                            const dbStatus = 'pending';
                            
                            // Update with provider refill ID only
-                           // Status will be updated via refill_status sync (scheduled every 10 minutes)
+                           // Status will be updated via refill_status sync (scheduled every 60 minutes)
                            const { error: providerUpdateError } = await supabaseAdmin
                                .from('refill_requests')
                                .update({ 
