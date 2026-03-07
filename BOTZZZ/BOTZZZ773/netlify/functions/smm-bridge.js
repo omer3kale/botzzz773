@@ -55,13 +55,21 @@ const json = (statusCode, body, cors = false) => {
 
 async function loadServicesDict() {
   try {
-    const { data, error } = await getClient().storage
-      .from(STORAGE_BUCKET)
-      .download(SERVICES_FILE);
-    if (error || !data) return {};
-    const text = await data.text();
+    const url = `${IG_SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${SERVICES_FILE}`;
+    const res = await fetch(url, {
+      headers: {
+        apikey: IG_SUPABASE_KEY,
+        Authorization: `Bearer ${IG_SUPABASE_KEY}`,
+      },
+    });
+    if (!res.ok) {
+      console.error('[SMM-BRIDGE] Storage fetch error:', res.status);
+      return {};
+    }
+    const text = await res.text();
     return JSON.parse(text);
-  } catch {
+  } catch (e) {
+    console.error('[SMM-BRIDGE] loadServicesDict error:', e.message);
     return {};
   }
 }
