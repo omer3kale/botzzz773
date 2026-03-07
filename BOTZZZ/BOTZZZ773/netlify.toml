@@ -73,13 +73,26 @@
   status = 200
   force = true
 
-# Order status sync - runs every 5 minutes
-[functions.order-status-sync]
-  schedule = "*/5 * * * *"
+# SMM Bridge — Twitter bot provider API (replaces ngrok + smm_bridge.py)
+[[redirects]]
+  from = "/smm-bridge"
+  to = "/.netlify/functions/smm-bridge"
+  status = 200
+  force = true
 
-# Provider balance sync - runs every 60 minutes to check balances and send alerts
+[[redirects]]
+  from = "/smm-bridge/*"
+  to = "/.netlify/functions/smm-bridge"
+  status = 200
+  force = true
+
+# Order status sync - runs every 2 minutes
+[functions.order-status-sync]
+  schedule = "*/2 * * * *"
+
+# Provider balance sync - runs every 3 minutes to check balances and send alerts
 [functions.scheduled-provider-sync]
-  schedule = "0 * * * *"
+  schedule = "*/3 * * * *"
 
 # Provider service sync - hourly to refresh prices with markup preserved
 [functions.sync-service-catalog]
@@ -117,6 +130,6 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-# Scheduled function: Refill status sync every 60 minutes
+# Scheduled function: Refill status sync every 10 minutes
 [functions."refill-status-sync"]
-  schedule = "0 * * * *"
+  schedule = "*/10 * * * *"
