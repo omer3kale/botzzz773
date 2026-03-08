@@ -469,6 +469,7 @@
                 <button class="btn-ig btn-ig-outline header-acc-btn" onclick="refreshCurrent()"><i class="fas fa-sync-alt"></i> Refresh</button>
                 <button class="btn-ig btn-ig-primary header-acc-btn" id="btnCheckAll" onclick="confirmCheckAll()"><i class="fas fa-satellite-dish"></i> Live Check</button>
                 <button class="btn-ig btn-ig-danger header-acc-btn" id="btnCleanup" onclick="confirmCleanup()"><i class="fas fa-trash-alt"></i> Clean Deleted</button>
+                <button class="btn-ig btn-ig-primary header-acc-btn" id="btnCheckTwitter" onclick="confirmCheckAllTwitter()" style="display:none;"><i class="fas fa-satellite-dish"></i> Check Accounts</button>
                 <button class="btn-ig btn-ig-primary header-acc-btn" id="btnFetchBios" onclick="confirmFetchBios()" style="display:none;"><i class="fas fa-download"></i> Fetch Bios</button>
             </div>
         </div>
@@ -727,6 +728,7 @@
     // SHARED CONFIG
     // ═══════════════════════════════════════════
     const API_BASE = '/.netlify/functions/ig-accounts';
+    const TW_CHECKER_URL = 'http://localhost:5556';
     const TW_SUPABASE_URL = 'https://hdukqqkjraoswvpxchqk.supabase.co';
     const TW_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhkdWtxcWtqcmFvc3d2cHhjaHFrIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDE0NTMxNCwiZXhwIjoyMDg1NzIxMzE0fQ.5Q5SRz81-rjF1fHSYoT9qAKLjS3WWyjmE7M4UfHLYQQ';
     const SMM_HEADERS = {
@@ -804,14 +806,17 @@
         const checkBtn = document.getElementById('btnCheckAll');
         const cleanBtn = document.getElementById('btnCleanup');
         const fetchBtn = document.getElementById('btnFetchBios');
+        const checkTwBtn = document.getElementById('btnCheckTwitter');
         if (platform === 'twitter') {
             checkBtn.style.display = 'none';
             cleanBtn.style.display = '';
             fetchBtn.style.display = '';
+            checkTwBtn.style.display = '';
         } else {
             checkBtn.style.display = '';
             cleanBtn.style.display = '';
             fetchBtn.style.display = 'none';
+            checkTwBtn.style.display = 'none';
         }
 
         document.getElementById('pageSubtitle').textContent = platform === 'instagram'
@@ -1011,19 +1016,20 @@
     function renderTwitterTable(accounts) {
         const el = document.getElementById('twTableContent');
         if (!accounts.length) { el.innerHTML = '<div class="ig-empty-state"><i class="fas fa-inbox"></i><p>No Twitter accounts yet</p></div>'; return; }
-        let html = `<table class="ig-table"><thead><tr><th>#</th><th>Username</th><th>Email</th><th>Gender</th><th>Status</th><th>Warmup</th><th>Bio</th><th>City</th><th>Last Tweet</th><th>Created</th><th></th></tr></thead><tbody>`;
+        let html = `<table class="ig-table"><thead><tr><th>#</th><th>Username</th><th>Email</th><th>Gender</th><th>Status</th><th>TW Check</th><th>Warmup</th><th>Bio</th><th>City</th><th>Last Tweet</th><th>Created</th><th></th></tr></thead><tbody>`;
         accounts.forEach((acc, i) => {
             const username = acc.username || '-';
             const initials = username.substring(0, 2).toUpperCase();
             const warmupBadge = getWarmupBadge(acc.warmup_status);
             const dbBadge = getDbBadge(acc.status);
+            const twBadge = getTwStatusBadge(acc.tw_status);
             const gender = acc.gender === 'male' ? '♂️' : acc.gender === 'female' ? '♀️' : '-';
             const created = acc.created_at ? new Date(acc.created_at).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
             const bio = acc.bio ? (acc.bio.length > 30 ? acc.bio.substring(0, 30) + '...' : acc.bio) : '-';
             const city = acc.city || '-';
             const lastTweet = acc.last_tweet ? (acc.last_tweet.length > 25 ? acc.last_tweet.substring(0, 25) + '...' : acc.last_tweet) : '-';
             const avatarUrl = `https://unavatar.io/twitter/${username}`;
-            html += `<tr><td style="color:#555;">${i+1}</td><td><div class="ig-username-cell"><img class="tw-avatar" src="${avatarUrl}" alt="${username}" onerror="this.outerHTML='<div class=tw-avatar-fallback>${initials}</div>'"><div><div class="ig-username-text"><a href="https://x.com/${username}" target="_blank">${username}</a></div></div></div></td><td style="color:#888;font-size:12px;">${acc.email || '-'}</td><td>${gender}</td><td>${dbBadge}</td><td>${warmupBadge}</td><td style="color:#888;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.bio || '')}">${escapeHtml(bio)}</td><td style="color:#888;font-size:12px;">${escapeHtml(city)}</td><td style="color:#888;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.last_tweet || '')}">${escapeHtml(lastTweet)}</td><td style="color:#666;font-size:12px;">${created}</td><td><button class="btn-ig btn-ig-danger btn-ig-sm" onclick="confirmDeleteTwitter('${username}')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
+            html += `<tr><td style="color:#555;">${i+1}</td><td><div class="ig-username-cell"><img class="tw-avatar" src="${avatarUrl}" alt="${username}" onerror="this.outerHTML='<div class=tw-avatar-fallback>${initials}</div>'"><div><div class="ig-username-text"><a href="https://x.com/${username}" target="_blank">${username}</a></div></div></div></td><td style="color:#888;font-size:12px;">${acc.email || '-'}</td><td>${gender}</td><td>${dbBadge}</td><td>${twBadge}</td><td>${warmupBadge}</td><td style="color:#888;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.bio || '')}">${escapeHtml(bio)}</td><td style="color:#888;font-size:12px;">${escapeHtml(city)}</td><td style="color:#888;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.last_tweet || '')}">${escapeHtml(lastTweet)}</td><td style="color:#666;font-size:12px;">${created}</td><td><button class="btn-ig btn-ig-danger btn-ig-sm" onclick="confirmDeleteTwitter('${username}')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
         });
         html += '</tbody></table>';
         el.innerHTML = html;
@@ -1034,6 +1040,17 @@
             case 'completed': return '<span class="ig-badge ig-badge-completed"><i class="fas fa-circle"></i> Completed</span>';
             case 'error': return '<span class="ig-badge ig-badge-warmup-error"><i class="fas fa-circle"></i> Error</span>';
             case 'pending': default: return '<span class="ig-badge ig-badge-pending"><i class="fas fa-circle"></i> Pending</span>';
+        }
+    }
+    function getTwStatusBadge(status) {
+        switch (status) {
+            case 'active': return '<span class="ig-badge ig-badge-active"><i class="fas fa-circle"></i> Active</span>';
+            case 'suspended': return '<span class="ig-badge ig-badge-deleted"><i class="fas fa-circle"></i> Suspended</span>';
+            case 'not_found': return '<span class="ig-badge ig-badge-deleted"><i class="fas fa-circle"></i> Not Found</span>';
+            case 'locked': return '<span class="ig-badge ig-badge-error"><i class="fas fa-circle"></i> Locked</span>';
+            case 'protected': return '<span class="ig-badge ig-badge-pending"><i class="fas fa-circle"></i> Protected</span>';
+            case 'error': return '<span class="ig-badge ig-badge-error"><i class="fas fa-circle"></i> Error</span>';
+            default: return '<span class="ig-badge ig-badge-unknown"><i class="fas fa-circle"></i> Not Checked</span>';
         }
     }
     function filterTwitterTable() {
@@ -1072,6 +1089,76 @@
             if (data.success) { showToast(`${data.deleted_count} accounts cleaned`, 'success'); loadTwitterAccounts(); }
             else showToast('Error: ' + (data.error || 'Unknown'), 'error');
         } catch (err) { showToast('Cleanup error: ' + err.message, 'error'); }
+    }
+
+    // ─── Twitter Live Check (local server) ───
+    async function confirmCheckAllTwitter() {
+        // First check if local server is running
+        try {
+            const res = await fetch(`${TW_CHECKER_URL}/status`, { signal: AbortSignal.timeout(3000) });
+            if (!res.ok) throw new Error('Server not responding');
+        } catch (e) {
+            showToast('Twitter Checker server is not running! Start TW-Checker.bat first.', 'error');
+            return;
+        }
+        const total = allTwitterAccounts.length;
+        if (total === 0) { showToast('No Twitter accounts to check', 'info'); return; }
+        document.getElementById('modalTitle').textContent = 'Twitter Check';
+        document.getElementById('modalText').textContent = `${total} accounts will be checked on X/Twitter. ~4 sec each. ~${Math.ceil(total * 4 / 60)} min. Continue?`;
+        document.getElementById('modalConfirmBtn').onclick = doCheckAllTwitter;
+        document.getElementById('confirmModal').classList.add('show');
+    }
+    async function doCheckAllTwitter() {
+        closeIgModal();
+        const btn = document.getElementById('btnCheckTwitter');
+        btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        const total = allTwitterAccounts.length;
+        let activeCount = 0, suspendedCount = 0, notFoundCount = 0, errorCount = 0;
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressSub').textContent = `0 / ${total} checking...`;
+        document.getElementById('pgActive').textContent = '0';
+        document.getElementById('pgDeleted').textContent = '0';
+        document.getElementById('pgError').textContent = '0';
+        document.getElementById('progressLog').innerHTML = '';
+        document.getElementById('progressCloseBtn').disabled = true;
+        document.getElementById('progressModal').classList.add('show');
+        const logEl = document.getElementById('progressLog');
+        for (let i = 0; i < allTwitterAccounts.length; i++) {
+            const acc = allTwitterAccounts[i]; const num = i + 1;
+            const entry = document.createElement('div'); entry.className = 'log-entry'; entry.id = `log-tw-${i}`;
+            entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-checking"><i class="fas fa-spinner fa-spin"></i> checking...</span>`;
+            logEl.appendChild(entry); logEl.scrollTop = logEl.scrollHeight;
+            let tw_status = 'error';
+            try {
+                const res = await fetch(`${TW_CHECKER_URL}/check_single`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: acc.username }) });
+                const data = await res.json();
+                if (data.success) tw_status = data.tw_status;
+            } catch (e) { tw_status = 'error'; }
+            if (tw_status === 'active' || tw_status === 'protected') {
+                activeCount++;
+                const label = tw_status === 'protected' ? '🔐 Protected' : '✅ Active';
+                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-active">${label}</span>`;
+            } else if (tw_status === 'suspended' || tw_status === 'not_found') {
+                suspendedCount++;
+                const label = tw_status === 'suspended' ? '🚫 Suspended' : '❌ Not Found';
+                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-deleted">${label}</span>`;
+            } else {
+                errorCount++;
+                const label = tw_status === 'locked' ? '🔒 Locked' : '❓ Unknown';
+                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-error">${label}</span>`;
+            }
+            const pct = Math.round((num / total) * 100);
+            document.getElementById('progressBar').style.width = pct + '%';
+            document.getElementById('progressSub').textContent = `${num} / ${total} completed (${pct}%)`;
+            document.getElementById('pgActive').textContent = activeCount;
+            document.getElementById('pgDeleted').textContent = suspendedCount + notFoundCount;
+            document.getElementById('pgError').textContent = errorCount;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+        document.getElementById('progressSub').textContent = `Done! ${total} accounts checked.`;
+        document.getElementById('progressCloseBtn').disabled = false;
+        btn.disabled = false; btn.innerHTML = '<i class="fas fa-satellite-dish"></i> Check Accounts';
+        loadTwitterAccounts();
     }
 
     function updateAccountsTotalCount() {
@@ -1157,12 +1244,14 @@
         const pending = allOrders.filter(o => o.status === "pending").length;
         const progress = allOrders.filter(o => o.status === "in progress").length;
         const completed = allOrders.filter(o => o.status === "completed").length;
+        const canceled = allOrders.filter(o => o.status === "canceled").length;
         const errors = allOrders.filter(o => o.status === "error").length;
         document.getElementById("smmStatsRow").innerHTML = `
             <div class="smm-stat-card"><div class="smm-stat-label">Total Orders</div><div class="smm-stat-value accent">${total}</div></div>
             <div class="smm-stat-card"><div class="smm-stat-label">Pending</div><div class="smm-stat-value yellow">${pending}</div></div>
             <div class="smm-stat-card"><div class="smm-stat-label">In Progress</div><div class="smm-stat-value blue">${progress}</div></div>
             <div class="smm-stat-card"><div class="smm-stat-label">Completed</div><div class="smm-stat-value green">${completed}</div></div>
+            <div class="smm-stat-card"><div class="smm-stat-label">Canceled</div><div class="smm-stat-value" style="color:#ff6b6b">${canceled}</div></div>
             <div class="smm-stat-card"><div class="smm-stat-label">Errors</div><div class="smm-stat-value red">${errors}</div></div>
         `;
     }

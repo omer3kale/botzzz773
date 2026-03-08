@@ -90,16 +90,22 @@ async function loadServicesList() {
 }
 
 async function saveServicesDict(dict) {
-  const blob = new Blob([JSON.stringify(dict, null, 2)], {
-    type: 'application/json',
+  const body = JSON.stringify(dict, null, 2);
+  const url = `${IG_SUPABASE_URL}/storage/v1/object/${STORAGE_BUCKET}/${SERVICES_FILE}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: IG_SUPABASE_KEY,
+      Authorization: `Bearer ${IG_SUPABASE_KEY}`,
+      'Content-Type': 'application/json',
+      'x-upsert': 'true',
+    },
+    body,
   });
-  const { error } = await getClient().storage
-    .from(STORAGE_BUCKET)
-    .update(SERVICES_FILE, blob, {
-      contentType: 'application/json',
-      upsert: true,
-    });
-  if (error) throw error;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Storage save failed (${res.status}): ${text}`);
+  }
 }
 
 // ── ACTIONS ──
@@ -209,8 +215,12 @@ exports.handler = async (event) => {
     try {
       const data = JSON.parse(body);
 
-      // Dashboard saving services config
-      if (data && typeof data === 'object' && !data.action) {
+      // Dashboard saving services config (must have _saveConfig marker)
+      if (data && typeof data === 'object' && data._saveConfig === true) {
+        delete data._saveConfig;
+        if (Object.keys(data).length === 0) {
+          return json(200, { error: 'Empty services config, not saving' }, true);
+        }
         await saveServicesDict(data);
         console.log(`[SMM-BRIDGE] Services config updated: ${Object.keys(data).join(', ')}`);
         return json(200, { ok: true }, true);

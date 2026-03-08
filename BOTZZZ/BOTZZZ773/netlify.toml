@@ -86,13 +86,13 @@
   status = 200
   force = true
 
-# Order status sync - runs every 2 minutes
+# Order status sync - runs every 5 minutes
 [functions.order-status-sync]
-  schedule = "*/2 * * * *"
+  schedule = "*/5 * * * *"
 
-# Provider balance sync - runs every 3 minutes to check balances and send alerts
+# Provider balance sync - runs every 2 hours to check balances and send alerts
 [functions.scheduled-provider-sync]
-  schedule = "*/3 * * * *"
+  schedule = "0 */2 * * *"
 
 # Provider service sync - hourly to refresh prices with markup preserved
 [functions.sync-service-catalog]
@@ -130,6 +130,6 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-# Scheduled function: Refill status sync every 10 minutes
+# Scheduled function: Refill status sync every 2 hours
 [functions."refill-status-sync"]
-  schedule = "*/10 * * * *"
+  schedule = "0 */2 * * *"
