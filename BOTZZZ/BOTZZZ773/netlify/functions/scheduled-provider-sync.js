@@ -1044,3 +1044,7 @@ exports.handler = async (event = {}) => {
   }
 };
 
+// Export alert utilities for use in sync-order-status.js
+exports.sendFailedOrdersAlert = sendFailedOrdersAlert;
+exports.sendTelegramAlert = sendTelegramAlert;
+

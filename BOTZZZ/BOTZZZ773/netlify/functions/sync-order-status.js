@@ -1,4 +1,6 @@
 const { performOrderStatusSync } = require('./orders');
+const { sendFailedOrdersAlert } = require('./scheduled-provider-sync');
+const { supabaseAdmin } = require('./utils/supabase');
 
 exports.handler = async (event = {}) => {
   const headers = { 'Content-Type': 'application/json' };
@@ -11,10 +13,72 @@ exports.handler = async (event = {}) => {
 
   try {
     const result = await performOrderStatusSync({ limit, providerId: providerFilter || null });
+
+    // Check if any orders newly failed during this sync — send immediate alert
+    const newlyFailed = (result.results || []).filter(r =>
+      r.success && (r.status === 'failed' || r.status === 'error')
+    );
+
+    if (newlyFailed.length > 0) {
+      console.log(`[ALERT] ${newlyFailed.length} orders failed — sending immediate alert`);
+      try {
+        const failedIds = newlyFailed.map(r => r.orderId);
+
+        // Fetch full order data for alert
+        const { data: failedOrders } = await supabaseAdmin
+          .from('orders')
+          .select('id, order_number, provider_id, provider_order_id, user_id, service_id, status, charge, quantity, provider_notes, provider_response, created_at, updated_at, alerted_at')
+          .in('id', failedIds)
+          .is('alerted_at', null);
+
+        if (failedOrders && failedOrders.length > 0) {
+          // Enrich with user/service/provider names
+          const userIds = [...new Set(failedOrders.map(o => o.user_id).filter(Boolean))];
+          const serviceIds = [...new Set(failedOrders.map(o => o.service_id).filter(Boolean))];
+          const usersMap = new Map();
+          const servicesMap = new Map();
+          const providersMap = new Map();
+
+          if (userIds.length > 0) {
+            const { data: users } = await supabaseAdmin.from('users').select('id, username').in('id', userIds);
+            (users || []).forEach(u => usersMap.set(u.id, u));
+          }
+          if (serviceIds.length > 0) {
+            const { data: services } = await supabaseAdmin.from('services').select('id, name, public_id, provider_id').in('id', serviceIds);
+            (services || []).forEach(s => { servicesMap.set(s.id, s); if (s.provider_id) providersMap.set(s.provider_id, null); });
+          }
+          const providerIds = [...providersMap.keys()];
+          if (providerIds.length > 0) {
+            const { data: providers } = await supabaseAdmin.from('providers').select('id, name').in('id', providerIds);
+            (providers || []).forEach(p => providersMap.set(p.id, p));
+          }
+
+          const enrichedOrders = failedOrders.map(order => {
+            const user = usersMap.get(order.user_id);
+            const service = servicesMap.get(order.service_id);
+            const provider = service ? providersMap.get(service.provider_id) : null;
+            let failureReason = order.provider_notes || 'No reason provided';
+            if (failureReason === 'No reason provided') {
+              try {
+                const resp = typeof order.provider_response === 'string' ? JSON.parse(order.provider_response) : order.provider_response;
+                if (resp && (resp.error || resp.message || resp.reason)) failureReason = resp.error || resp.message || resp.reason;
+              } catch (e) { /* ignore */ }
+            }
+            return { ...order, username: user?.username || 'N/A', serviceName: service?.name || 'N/A', servicePublicId: service?.public_id || 'N/A', providerName: provider?.name || 'N/A', failureReason };
+          });
+
+          await sendFailedOrdersAlert(enrichedOrders);
+          console.log(`[ALERT] Failed order alert sent for ${enrichedOrders.length} orders`);
+        }
+      } catch (alertErr) {
+        console.error('[ALERT] Failed to send alert (non-critical):', alertErr.message);
+      }
+    }
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ ...result, runAt })
+      body: JSON.stringify({ ...result, runAt, alertsSent: newlyFailed.length })
     };
   } catch (error) {
     console.error('[SCHEDULED] Order status sync failed:', error);

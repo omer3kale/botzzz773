@@ -1303,8 +1303,8 @@
             const startCount = o.start_count != null ? o.start_count : "—";
             const link = o.link || "";
             const shortLink = link.length > 45 ? link.slice(0, 45) + "…" : link;
-            const created = smmTimeAgo(o.created_at);
-            const updated = smmTimeAgo(o.updated_at);
+            const created = smmFormatDate(o.created_at);
+            const updated = smmFormatDate(o.updated_at);
             const pct = o.quantity > 0 ? Math.round((o.completed || 0) / o.quantity * 100) : 0;
             return `<tr>
                 <td><strong>#${o.id}</strong></td>
@@ -1338,6 +1338,10 @@
         if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
         if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
         return `${Math.floor(diff / 86400)}d ago`;
+    }
+    function smmFormatDate(iso) {
+        if (!iso) return "—";
+        return new Date(iso).toLocaleString('tr-TR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' });
     }
 
     // SMM — Edit
