@@ -130,6 +130,6 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
-# Scheduled function: Refill status sync every 2 hours
+# Scheduled function: Refill status sync every 4 hours
 [functions."refill-status-sync"]
-  schedule = "0 */2 * * *"
+  schedule = "0 */4 * * *"

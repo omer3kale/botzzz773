@@ -524,7 +524,6 @@
                 <div class="ig-stats-grid">
                     <div class="ig-stat-card total"><div class="ig-stat-icon"><i class="fas fa-users"></i></div><div class="ig-stat-value" id="twStatTotal">-</div><div class="ig-stat-label">Total Accounts</div></div>
                     <div class="ig-stat-card pending"><div class="ig-stat-icon"><i class="fas fa-clock"></i></div><div class="ig-stat-value" id="twStatPending">-</div><div class="ig-stat-label">Pending</div></div>
-                    <div class="ig-stat-card photo_done"><div class="ig-stat-icon"><i class="fas fa-image"></i></div><div class="ig-stat-value" id="twStatPhotoDone">-</div><div class="ig-stat-label">Photo Done</div></div>
                     <div class="ig-stat-card completed"><div class="ig-stat-icon"><i class="fas fa-check-circle"></i></div><div class="ig-stat-value" id="twStatCompleted">-</div><div class="ig-stat-label">Completed</div></div>
                     <div class="ig-stat-card error_tw"><div class="ig-stat-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="ig-stat-value" id="twStatError">-</div><div class="ig-stat-label">Error</div></div>
                 </div>
@@ -1002,7 +1001,7 @@
             const total = allTwitterAccounts.length;
             document.getElementById('twStatTotal').textContent = total;
             document.getElementById('twStatPending').textContent = allTwitterAccounts.filter(a => !a.warmup_status || a.warmup_status === 'pending').length;
-            document.getElementById('twStatPhotoDone').textContent = allTwitterAccounts.filter(a => a.warmup_status === 'photo_done').length;
+
             document.getElementById('twStatCompleted').textContent = allTwitterAccounts.filter(a => a.warmup_status === 'completed').length;
             document.getElementById('twStatError').textContent = allTwitterAccounts.filter(a => a.warmup_status === 'error').length;
             document.getElementById('twCount').textContent = total;
@@ -1028,7 +1027,7 @@
             const bio = acc.bio ? (acc.bio.length > 30 ? acc.bio.substring(0, 30) + '...' : acc.bio) : '-';
             const city = acc.city || '-';
             const lastTweet = acc.last_tweet ? (acc.last_tweet.length > 25 ? acc.last_tweet.substring(0, 25) + '...' : acc.last_tweet) : '-';
-            const avatarUrl = `https://unavatar.io/twitter/${username}`;
+            const avatarUrl = acc.profile_image_url || `https://unavatar.io/twitter/${username}`;
             html += `<tr><td style="color:#555;">${i+1}</td><td><div class="ig-username-cell"><img class="tw-avatar" src="${avatarUrl}" alt="${username}" onerror="this.outerHTML='<div class=tw-avatar-fallback>${initials}</div>'"><div><div class="ig-username-text"><a href="https://x.com/${username}" target="_blank">${username}</a></div></div></div></td><td style="color:#888;font-size:12px;">${acc.email || '-'}</td><td>${gender}</td><td>${dbBadge}</td><td>${twBadge}</td><td>${warmupBadge}</td><td style="color:#888;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.bio || '')}">${escapeHtml(bio)}</td><td style="color:#888;font-size:12px;">${escapeHtml(city)}</td><td style="color:#888;font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeAttr(acc.last_tweet || '')}">${escapeHtml(lastTweet)}</td><td style="color:#666;font-size:12px;">${created}</td><td><button class="btn-ig btn-ig-danger btn-ig-sm" onclick="confirmDeleteTwitter('${username}')" title="Delete"><i class="fas fa-trash"></i></button></td></tr>`;
         });
         html += '</tbody></table>';
@@ -1089,6 +1088,42 @@
             if (data.success) { showToast(`${data.deleted_count} accounts cleaned`, 'success'); loadTwitterAccounts(); }
             else showToast('Error: ' + (data.error || 'Unknown'), 'error');
         } catch (err) { showToast('Cleanup error: ' + err.message, 'error'); }
+    }
+
+    // ─── Fetch Bios & Profile Photos (fxtwitter API) ───
+    function confirmFetchBios() {
+        const accounts = allTwitterAccounts.filter(a => a.username);
+        if (accounts.length === 0) { showToast('No accounts to fetch bios for', 'info'); return; }
+        document.getElementById('modalTitle').textContent = 'Fetch Bios & Photos';
+        document.getElementById('modalText').textContent = `Fetch bio and profile photo for ${accounts.length} accounts via fxtwitter API?`;
+        document.getElementById('modalConfirmBtn').onclick = doFetchAllBios;
+        document.getElementById('confirmModal').classList.add('show');
+    }
+    async function doFetchAllBios() {
+        closeIgModal();
+        const accounts = allTwitterAccounts.filter(a => a.username);
+        if (accounts.length === 0) return;
+        let done = 0, success = 0, fail = 0;
+        showToast(`Fetching bios: 0/${accounts.length}...`, 'info');
+
+        // Process in parallel batches of 5
+        const BATCH = 5;
+        for (let i = 0; i < accounts.length; i += BATCH) {
+            const batch = accounts.slice(i, i + BATCH);
+            const results = await Promise.allSettled(batch.map(acc =>
+                fetch('/.netlify/functions/tw-accounts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: acc.username })
+                }).then(r => r.json()).then(d => {
+                    if (d.success) { success++; } else { fail++; }
+                }).catch(() => { fail++; })
+            ));
+            done += batch.length;
+            showToast(`Fetching bios: ${done}/${accounts.length}...`, 'info');
+        }
+        showToast(`Bios fetched. ✓ ${success}  ✗ ${fail}`, fail > 0 ? 'warning' : 'success');
+        loadTwitterAccounts();
     }
 
     // ─── Twitter Live Check (local server) ───

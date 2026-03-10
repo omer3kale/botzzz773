@@ -1,7 +1,8 @@
 const axios = require('axios');
 const { supabaseAdmin } = require('./utils/supabase');
 const { createLogger, serializeError } = require('./utils/logger');
-const { performOrderStatusSync } = require('./orders');
+// Order sync removed — already handled by sync-order-status.js (every 5min)
+// const { performOrderStatusSync } = require('./orders');
 const { convertToUSD } = require('./utils/currency-converter');
 const { logLowBalanceNotification, logFailedOrderNotification } = require('./notification-logger');
 
@@ -396,37 +397,26 @@ ${telegramMessage}
 }
 
 async function refreshProviderBalances(providers) {
-  let refreshed = 0;
-  let attempted = 0;
+  const eligible = providers.filter(p => p.api_url && p.api_key);
+  if (eligible.length === 0) return;
 
-  for (const provider of providers) {
-    if (!provider.api_url || !provider.api_key) {
-      continue;
-    }
-
-    attempted++;
-
+  const results = await Promise.allSettled(eligible.map(async (provider) => {
     try {
-      // Call provider API to get current balance
-      const response = await axios.post(
-        `${provider.api_url}/balance`,
-        {},
-        {
-          headers: {
-            'Authorization': `Bearer ${provider.api_key}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 10000
-        }
-      );
+      const params = new URLSearchParams();
+      params.append('key', provider.api_key);
+      params.append('action', 'balance');
+
+      const response = await axios.post(provider.api_url, params, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 10000
+      });
 
       if (response.data && typeof response.data.balance !== 'undefined') {
         const newBalance = Number(response.data.balance);
-        
-        // Update provider balance in database
+
         const { error: updateError } = await supabaseAdmin
           .from('providers')
-          .update({ balance: newBalance })
+          .update({ balance: newBalance, last_balance_sync: new Date().toISOString() })
           .eq('id', provider.id);
 
         if (!updateError) {
@@ -435,17 +425,18 @@ async function refreshProviderBalances(providers) {
             balance: newBalance,
             currency: provider.currency
           });
-          refreshed++;
+          return true;
         }
       }
+      return false;
     } catch (err) {
-      // Silently skip if API doesn't support balance endpoint
-      // Balance will be used from manual updates or webhook sync
+      return false;
     }
-  }
+  }));
 
+  const refreshed = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
   if (refreshed > 0) {
-    logger.info('Provider balance refresh completed', { refreshed, attempted });
+    logger.info('Provider balance refresh completed', { refreshed, attempted: eligible.length });
   }
 }
 
@@ -868,50 +859,8 @@ exports.handler = async (event = {}) => {
       }
     })();
 
-    const summary = [];
-    const syncPromises = [];
-    
-    // Queue all provider syncs (non-blocking)
-    for (const provider of providers) {
-      const entry = {
-        providerId: provider.id,
-        providerName: provider.name,
-        orderSync: null
-      };
-
-      try {
-        logger.info('Queueing provider order sync', { providerId: provider.id, limit: orderSyncLimit });
-        
-        const syncPromise = performOrderStatusSync({ providerId: provider.id, limit: orderSyncLimit })
-          .then(orderResult => {
-            entry.orderSync = orderResult;
-            if (!orderResult.success) {
-              logger.warn('Order sync returned errors', { providerId: provider.id, error: orderResult.error });
-            }
-            return entry;
-          })
-          .catch(providerError => {
-            entry.orderSync = { success: false, error: providerError.message };
-            logger.error('Provider automation failed', {
-              providerId: provider.id,
-              error: serializeError(providerError)
-            });
-            return entry;
-          });
-        
-        syncPromises.push(syncPromise);
-      } catch (providerError) {
-        entry.orderSync = { success: false, error: providerError.message };
-        logger.error('Provider automation setup error', {
-          providerId: provider.id,
-          error: serializeError(providerError)
-        });
-        syncPromises.push(Promise.resolve(entry));
-      }
-    }
-
-    // Run failed order and balance alerts in parallel with syncs (don't block on sync completion)
-    // This way alerts can execute while syncs are still running
+    // Order sync removed from here — sync-order-status.js handles it every 5min
+    // This function now only handles: balance checks + failed order alerts + low balance alerts
     
     // Calculate 24 hours ago for filtering failed orders
     const now = new Date();
@@ -1065,15 +1014,10 @@ exports.handler = async (event = {}) => {
       }
     })(); // End of alertsPromise async function - invoke it
 
-    // Wait for syncs, failed order alerts, and balance checks to complete in parallel
-    const [syncResults] = await Promise.all([
-      Promise.all(syncPromises).then(results => {
-        summary.length = 0;
-        summary.push(...results);
-        return results;
-      }),
-      alertsPromise,  // Failed order alerts run in parallel
-      balanceCheckPromise  // Balance checks run in parallel
+    // Wait for failed order alerts and balance checks to complete
+    await Promise.all([
+      alertsPromise,
+      balanceCheckPromise
     ]);
 
     return {
@@ -1082,9 +1026,8 @@ exports.handler = async (event = {}) => {
       body: JSON.stringify({
         success: true,
         runAt,
-        providersProcessed: summary.length,
         balanceAlerts: balanceAlertInfo,
-        summary
+        note: 'Order sync handled by sync-order-status (every 5min)'
       })
     };
   } catch (error) {

@@ -111,6 +111,7 @@ exports.handler = async (event) => {
       }
 
       let bio = '';
+      let profileImageUrl = null;
 
       try {
         const res = await fetch(`https://api.fxtwitter.com/${username}`, {
@@ -120,6 +121,7 @@ exports.handler = async (event) => {
           const data = await res.json();
           if (data.code === 200 && data.user) {
             bio = data.user.description || '';
+            profileImageUrl = data.user.avatar_url || data.user.profile_image_url || data.user.avatar || null;
           }
         } else if (res.status === 404) {
           bio = '[DELETED]';
@@ -129,10 +131,15 @@ exports.handler = async (event) => {
         return { statusCode: 500, headers, body: JSON.stringify({ error: 'Failed to fetch bio: ' + e.message }) };
       }
 
-      // Only update bio - never touch last_tweet (that comes from xwarmup bot)
+      // Update bio and profile image - never touch last_tweet (that comes from xwarmup bot)
+      const updatePayload = { bio };
+      if (profileImageUrl) {
+        updatePayload.profile_image_url = profileImageUrl;
+      }
+
       const { error: updateErr } = await db
         .from('twitter_accounts')
-        .update({ bio })
+        .update(updatePayload)
         .eq('username', username);
 
       if (updateErr) {
@@ -142,7 +149,7 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200, headers,
-        body: JSON.stringify({ success: true, bio, message: 'Bio updated' })
+        body: JSON.stringify({ success: true, bio, profile_image_url: profileImageUrl, message: 'Bio updated' })
       };
     }
 

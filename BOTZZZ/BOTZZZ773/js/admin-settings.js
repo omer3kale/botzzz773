@@ -2084,7 +2084,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showSettingsSection('general');
     loadProviders();
 });
-// Refresh all provider balances sequentially
+// Refresh all provider balances in parallel
 async function refreshProviderBalances() {
     try {
         const token = localStorage.getItem('token');
@@ -2103,46 +2103,43 @@ async function refreshProviderBalances() {
         const content = `
             <div style="padding: 20px; text-align: center;">
                 <i class="fas fa-sync fa-spin" style="font-size: 36px; color: var(--admin-accent); margin-bottom: 12px;"></i>
-                <p id="refreshBalanceStatus" style="margin: 6px 0; color: #ccc;">Starting...</p>
-                <p id="refreshBalanceSummary" style="margin: 6px 0; color: #888; font-size: 14px;">0 completed</p>
+                <p id="refreshBalanceStatus" style="margin: 6px 0; color: #ccc;">Querying ${providers.length} providers...</p>
+                <p id="refreshBalanceSummary" style="margin: 6px 0; color: #888; font-size: 14px;">0 / ${providers.length} completed</p>
             </div>
         `;
         createModal('Refreshing provider balances', content, '', false);
         let successCount = 0, failCount = 0;
-        const statusEl = () => document.getElementById('refreshBalanceStatus');
         const summaryEl = () => document.getElementById('refreshBalanceSummary');
-        for (const provider of providers) {
-            const statusNode = statusEl();
-            if (statusNode) {
-                statusNode.textContent = `Querying balance for ${provider.name}...`;
-            }
-            try {
-                const response = await fetch('/.netlify/functions/providers', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                    },
-                    body: JSON.stringify({ action: 'test', providerId: provider.id })
-                });
-                const data = await response.json();
-                if (!response.ok || !data.success) {
-                    throw new Error(data.error || 'Balance refresh failed');
-                }
-                successCount += 1;
-            } catch (error) {
-                console.error('[BALANCE REFRESH]', provider.name, error);
-                failCount += 1;
-            }
-            const summaryNode = summaryEl();
-            if (summaryNode) {
-                summaryNode.textContent = `Completed: ${successCount + failCount}/${providers.length}  Success: ${successCount}  Failed: ${failCount}`;
-            }
-        }
+        const statusEl = () => document.getElementById('refreshBalanceStatus');
+
+        const promises = providers.map(provider =>
+            fetch('/.netlify/functions/providers', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ action: 'test', providerId: provider.id })
+            })
+            .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+            .then(({ ok, data }) => {
+                if (!ok || !data.success) throw new Error(data.error || 'Failed');
+                successCount++;
+            })
+            .catch(err => {
+                console.error('[BALANCE REFRESH]', provider.name, err);
+                failCount++;
+            })
+            .finally(() => {
+                const node = summaryEl();
+                if (node) node.textContent = `${successCount + failCount} / ${providers.length} completed  ·  ✓ ${successCount}  ✗ ${failCount}`;
+            })
+        );
+
+        await Promise.allSettled(promises);
+
         const statusNode = statusEl();
-        if (statusNode) {
-            statusNode.textContent = 'Done';
-        }
+        if (statusNode) statusNode.textContent = 'Done';
         setTimeout(() => {
             closeModal();
             loadProviders();
