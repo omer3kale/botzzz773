@@ -733,7 +733,7 @@ async function loadPayments() {
                         <td>${escapeHtml(userLabel)}</td>
                         <td>${balanceDisplay}</td>
                         <td>${amountDisplay}</td>
-                        <td><span class="method-badge" title="Kullanılan ödeme yöntemi">${escapeHtml(methodLabel)}</span></td>
+                        <td><span class="method-badge" title="Payment method used">${escapeHtml(methodLabel)}</span></td>
                         <td><span class="status-badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
                          <td><span class="risk-badge low">Low</span></td>
                         <td>${escapeHtml(createdDate)}</td>

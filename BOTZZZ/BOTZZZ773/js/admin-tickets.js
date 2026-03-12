@@ -560,13 +560,13 @@ async function viewTicket(ticketId) {
         if (!response.ok) {
             const errText = await response.text();
             console.error('View ticket error:', response.status, errText);
-            showNotification('Ticket detayları yüklenemedi. Lütfen oturumunuzu doğrulayın.', 'error');
+            showNotification('Failed to load ticket details. Please verify your session.', 'error');
             return;
         }
 
         const data = await response.json();
         if (!data || !data.ticket) {
-            showNotification('Ticket bulunamadı.', 'error');
+            showNotification('Ticket not found.', 'error');
             return;
         }
         
@@ -1067,7 +1067,7 @@ async function loadTickets() {
             // Graceful handling for auth issues
             if (response.status === 401 || response.status === 403) {
                 tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; color: #ef4444;">Authorization required. Please sign in again.</td></tr>';
-                showNotification('Oturum gerekli: Lütfen yeniden giriş yapın.', 'error');
+                showNotification('Session required. Please sign in again.', 'error');
                 const filtersBar = document.querySelector('.filter-bar');
                 if (filtersBar) filtersBar.style.display = 'none';
                 // Optionally, redirect to signin after short delay

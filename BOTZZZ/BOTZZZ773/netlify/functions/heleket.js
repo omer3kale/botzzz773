@@ -307,14 +307,18 @@ async function handleWebhook(body, headers, rawBody = '') {
       return respond(headers, 400, { error: 'Invalid order data' });
     }
 
-    console.log('[HELEKET WEBHOOK] Creating new payment record. Order parts:', parts, 'User ID:', userId);
+    // Use original invoice amount (payload.amount), not the actual crypto payment amount
+    // (payload.payment_amount_usd) which may include Heleket's commission/network fees
+    const creditAmount = parseFloat(payload.amount || payload.payment_amount_usd || payload.payment_amount || 0);
+
+    console.log('[HELEKET WEBHOOK] Creating new payment record. Order parts:', parts, 'User ID:', userId, 'Invoice amount:', payload.amount, 'Paid USD:', payload.payment_amount_usd, 'Credit:', creditAmount);
 
     // Payment kaydı oluştur (completed olarak)
     const { data: newPayment, error: insertError } = await supabaseAdmin
       .from('payments')
       .insert({
         user_id: userId,
-        amount: parseFloat(payload.payment_amount_usd || payload.payment_amount || 0),
+        amount: creditAmount,
         method: 'heleket',
         status: 'completed',
         transaction_id: orderId,
@@ -322,6 +326,7 @@ async function handleWebhook(body, headers, rawBody = '') {
           gateway: 'heleket',
           heleket_uuid: payload.uuid,
           heleket_status: normalizedStatus,
+          invoice_amount: payload.amount,
           payment_amount: payload.payment_amount,
           payment_amount_usd: payload.payment_amount_usd,
           first_webhook: new Date().toISOString(),
@@ -369,21 +374,31 @@ async function handleWebhook(body, headers, rawBody = '') {
     gateway: 'heleket',
     heleket_uuid: payload.uuid,
     heleket_status: normalizedStatus,
+    invoice_amount: payload.amount,
     payment_amount: payload.payment_amount,
     payment_amount_usd: payload.payment_amount_usd,
     last_webhook: new Date().toISOString(),
     raw_webhook: body
   };
 
+  // Use original invoice amount if available, keep existing amount as fallback
+  const invoiceAmount = parseFloat(payload.amount);
+  const updateFields = { status: 'completed', details: detailPatch };
+  if (invoiceAmount > 0 && invoiceAmount !== payment.amount) {
+    updateFields.amount = invoiceAmount;
+  }
+
   if (HELEKET_SUCCESS_STATUSES.has(normalizedStatus) && payment.status !== 'completed') {
-    console.log('[HELEKET WEBHOOK] Payment successful, updating to completed. User ID:', userId);
+    console.log('[HELEKET WEBHOOK] Payment successful, updating to completed. User ID:', payment.user_id);
     await supabaseAdmin
       .from('payments')
-      .update({ status: 'completed', details: detailPatch })
+      .update(updateFields)
       .eq('transaction_id', orderId);
 
-    console.log('[HELEKET WEBHOOK] Crediting user balance. Amount:', payment.amount, 'User ID:', userId);
-    await creditUserBalance(payment, {
+    // Credit the invoice amount, not the payment_amount_usd
+    const creditPayment = invoiceAmount > 0 ? { ...payment, amount: invoiceAmount } : payment;
+    console.log('[HELEKET WEBHOOK] Crediting user balance. Amount:', creditPayment.amount, 'User ID:', payment.user_id);
+    await creditUserBalance(creditPayment, {
       uuid: payload.uuid,
       status: normalizedStatus,
       txid: payload.txid || null

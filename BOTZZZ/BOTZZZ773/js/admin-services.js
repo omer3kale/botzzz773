@@ -1035,7 +1035,7 @@ async function addService() {
                                 <input type="number" name="markup" placeholder="40" step="0.00001" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
                             </div>
                         </div>
-                        <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
+                        <small style="color: #94a3b8;">Auto-calculated when markup or provider cost changes.</small>
                     </div>
 
                     <div class="add-service-card">
@@ -1413,7 +1413,7 @@ async function editService(serviceId) {
                                 <input type="number" name="markup" step="0.00001" value="${markupValue !== null ? markupValue : ''}" oninput="calculateRetailRateFromMarkup(this.closest('form'))">
                             </div>
                         </div>
-                        <small style="color: #94a3b8;">Markup ve provider cost değiştiğinde otomatik hesaplanır.</small>
+                        <small style="color: #94a3b8;">Auto-calculated when markup or provider cost changes.</small>
                     </div>
 
                     <div class="add-service-card">

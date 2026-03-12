@@ -1587,6 +1587,11 @@ async function syncOrderStatuses({ silent = false, force = false, orderIds = nul
         if (Array.isArray(orderIds) && orderIds.length > 0) {
             payload.orderIds = orderIds;
         }
+        // Limit orders per sync to avoid 504 timeout (26s Netlify limit)
+        // Auto-sync uses 50, manual sync uses 100. Cron handles the full batch every 5min.
+        if (!payload.orderIds) {
+            payload.limit = silent ? 50 : 100;
+        }
 
         const response = await fetch('/.netlify/functions/orders', {
                 method: 'POST',
@@ -1922,25 +1927,9 @@ async function initializeOrdersPage() {
     updateOrdersSyncStatus('Loading orders...');
     await loadOrders({ skipSync: true });
 
-    // Optionally run provider sync in background
-    const syncOnLoadRaw = localStorage.getItem('ordersSyncOnLoad');
-    const syncOnLoad = syncOnLoadRaw === null ? true : (syncOnLoadRaw === 'true');
-    if (syncOnLoad) {
-        updateOrdersSyncStatus('Provider sync running...', 'info');
-        try {
-            await syncOrderStatuses({ silent: true, force: true });
-            refreshOrdersAfterAdminChange();
-        } catch (error) {
-            console.warn('[ORDERS] Background provider sync failed:', error?.message || error);
-            // Show friendly error instead of technical timeout
-            const friendlyMsg = error?.name === 'TimeoutError' 
-                ? 'Sync timeout - try manual sync later' 
-                : 'Sync failed - check connection';
-            updateOrdersSyncStatus(friendlyMsg, 'error');
-        }
-    } else {
-        updateOrdersSyncStatus('Sync on load disabled', 'warning');
-    }
+    // No auto-sync on page load — cron handles sync every 5 min.
+    // Admin can use manual Sync button for on-demand refresh.
+    updateOrdersSyncStatus('Loaded from DB', 'success');
     
     // Try to enable real-time updates first
     const realtimeActive = initializeRealtimeOrders();
@@ -1956,8 +1945,7 @@ function openOrdersSettings() {
     const debounceMs = window.ordersSearchDebounceMs || 300;
     const refreshRaw = localStorage.getItem('ordersRefreshIntervalMs');
     const refreshMs = refreshRaw ? parseInt(refreshRaw, 10) : 30000;
-    const syncOnLoadRaw = localStorage.getItem('ordersSyncOnLoad');
-    const syncOnLoad = syncOnLoadRaw === null ? true : (syncOnLoadRaw === 'true');
+
 
     const content = `
         <div class="settings-modal">
@@ -1982,13 +1970,7 @@ function openOrdersSettings() {
                     <input class="settings-input" type="number" id="cfgSearchDebounce" min="150" max="1000" step="50" value="${debounceMs}" />
                     <div class="settings-help">Yazarken arama gecikmesi • 150–1000 ms</div>
                 </div>
-                <div class="settings-item">
-                    <label class="settings-inline">
-                        <input type="checkbox" id="cfgSyncOnLoad" ${syncOnLoad ? 'checked' : ''} />
-                        Sync providers on page load
-                    </label>
-                    <div class="settings-help">Açılışta provider senkronizasyonu çalıştırılır</div>
-                </div>
+
             </div>
         </div>
     `;
@@ -2005,8 +1987,6 @@ function saveOrdersSettings() {
     const perPage = parseInt(document.getElementById('cfgOrdersPerPage')?.value || '50', 10);
     const refreshSec = parseInt(document.getElementById('cfgRefreshSeconds')?.value || '30', 10);
     const debounce = parseInt(document.getElementById('cfgSearchDebounce')?.value || '300', 10);
-    const syncOnLoad = !!document.getElementById('cfgSyncOnLoad')?.checked;
-
     const validPerPage = Number.isFinite(perPage) ? Math.min(Math.max(perPage, 10), 100) : 50;
     const validRefreshMs = Number.isFinite(refreshSec) ? Math.min(Math.max(refreshSec, 10), 120) * 1000 : 30000;
     const validDebounce = Number.isFinite(debounce) ? Math.min(Math.max(debounce, 150), 1000) : 300;
@@ -2014,8 +1994,6 @@ function saveOrdersSettings() {
     localStorage.setItem('ordersPerPage', String(validPerPage));
     localStorage.setItem('ordersRefreshIntervalMs', String(validRefreshMs));
     localStorage.setItem('ordersSearchDebounceMs', String(validDebounce));
-    localStorage.setItem('ordersSyncOnLoad', String(syncOnLoad));
-
     // Apply immediately
     window.ordersPerPage = validPerPage;
     window.ordersSearchDebounceMs = validDebounce;
@@ -2662,6 +2640,37 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// Copy Order Numbers
+function copyOrderNumbers() {
+    const selectedOrders = getSelectedOrders();
+    if (selectedOrders.length === 0) {
+        showNotification('No orders selected', 'error');
+        return;
+    }
+    
+    const orderNumbers = [];
+    selectedOrders.forEach(order => {
+        const orderNum = order.order_number || order.public_id || order.id;
+        if (orderNum) {
+            const cleanNum = String(orderNum).replace(/^#/, '');
+            orderNumbers.push(cleanNum);
+        }
+    });
+    
+    if (orderNumbers.length === 0) {
+        showNotification('Selected orders have no order numbers', 'error');
+        return;
+    }
+    
+    const idsText = orderNumbers.join(',');
+    
+    navigator.clipboard.writeText(idsText).then(() => {
+        showNotification(`Copied ${orderNumbers.length} order number(s): ${idsText}`, 'success');
+    }).catch(() => {
+        showNotification('Failed to copy to clipboard', 'error');
+    });
+}
+
 // Copy Provider Order IDs
 function copyProviderOrderIds() {
     const selectedOrders = getSelectedOrders();
@@ -2794,35 +2803,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // Set up pagination buttons
-    const prevPageBtn = document.getElementById('prevPage');
-    const nextPageBtn = document.getElementById('nextPage');
-    
-    if (prevPageBtn) {
-        prevPageBtn.addEventListener('click', () => {
-            console.log('[PAGINATION] Previous button clicked. Current page:', window.ordersCurrentPage);
-            if (window.ordersCurrentPage > 1) {
-                window.ordersCurrentPage--;
-                console.log('[PAGINATION] Moving to page:', window.ordersCurrentPage);
-                loadOrders({ skipSync: true });
-            } else {
-                console.log('[PAGINATION] Already on first page, cannot go back');
-            }
-        });
-    }
-    
-    if (nextPageBtn) {
-        nextPageBtn.addEventListener('click', () => {
-            console.log('[PAGINATION] Next button clicked. Current page:', window.ordersCurrentPage, 'Total pages:', window.ordersTotalPages);
-            if (window.ordersCurrentPage < window.ordersTotalPages) {
-                window.ordersCurrentPage++;
-                console.log('[PAGINATION] Moving to page:', window.ordersCurrentPage);
-                loadOrders({ skipSync: true });
-            } else {
-                console.log('[PAGINATION] Already on last page, cannot go forward');
-            }
-        });
-    }
+    // Pagination buttons are handled via onclick="handlePrevPage()/handleNextPage()" in HTML
+    // No addEventListener needed here — that would cause double-firing
     
     // Filter listeners removed - filters deprecated
 
@@ -2933,12 +2915,6 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         // Get search query from input
         const searchInput = document.getElementById('orderSearch');
         const searchQuery = searchInput ? searchInput.value.trim() : '';
-        
-        // If search is cleared, reset to page 1
-        if (!searchQuery && window.ordersCurrentPage !== 1) {
-            console.log('[ORDERS] Search cleared - resetting to page 1');
-            window.ordersCurrentPage = 1;
-        }
         
         // Check if this is a comma-separated search (bulk order lookup)
         const isCommaSeparatedSearch = searchQuery.includes(',');
@@ -3242,16 +3218,23 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                 const profitValue = (customerCharge !== null && providerCost !== null && providerCurrency === defaultCurrency)
                     ? Number((customerCharge - providerCost).toFixed(5))
                     : null;
-                const profitPercent = (profitValue !== null && customerCharge !== null && customerCharge !== 0)
+                const marginPercent = (profitValue !== null && customerCharge !== null && customerCharge !== 0)
                     ? ((profitValue / customerCharge) * 100)
                     : null;
+                const markupPercent = (profitValue !== null && providerCost !== null && providerCost !== 0)
+                    ? ((profitValue / providerCost) * 100)
+                    : null;
                 const profitClass = profitValue !== null && profitValue < 0 ? 'profit-negative' : 'profit-positive';
-                                const profitMarkup = profitValue !== null
-                                        ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue, 5)}</span>`
-                                            + (profitPercent !== null
-                                                ? `<br><span class="cell-secondary ${profitClass}">${profitPercent > 0 ? '+' : ''}${(window.formatTrimZeros ? window.formatTrimZeros(profitPercent, 5) : profitPercent.toFixed(1))}%</span>`
-                                                : '')
-                                        : '';
+                const fmtPct = (v) => window.formatTrimZeros ? window.formatTrimZeros(v, 2) : v.toFixed(1);
+                const profitMarkup = profitValue !== null
+                    ? `<span class="cell-secondary ${profitClass}">Profit: ${formatCurrency(profitValue, 5)}</span>`
+                        + (marginPercent !== null
+                            ? `<br><span class="cell-secondary" style="color:#60a5fa;" title="Margin: profit as % of IN">Margin ${marginPercent > 0 ? '+' : ''}${fmtPct(marginPercent)}%</span>`
+                            : '')
+                        + (markupPercent !== null
+                            ? `<br><span class="cell-secondary" style="color:#a78bfa;" title="Markup: profit as % of OUT">Markup ${markupPercent > 0 ? '+' : ''}${fmtPct(markupPercent)}%</span>`
+                            : '')
+                    : '';
 
                 const providerDotKey = providerStatusKey || 'pending';
                 const providerStatusValue = providerStatusLabel || 'Provider status pending';
@@ -3832,14 +3815,14 @@ async function bulkResendSelectedOrders() {
 async function bulkCancelSelectedOrders() {
     const resolvedOrders = getSelectedOrders();
     if (resolvedOrders.length === 0) {
-        showNotification('İptal edilecek sipariş bulunamadı. Lütfen tekrar seçin.', 'error');
+        showNotification('No orders found to cancel. Please select again.', 'error');
         return;
     }
 
     const confirmationLines = [
-        `${resolvedOrders.length} siparişi iptal edip iade etmek istediğinize emin misiniz?`,
-        'Her sipariş için bakiye iade edilecektir.',
-        'Bu işlem geri alınamaz.'
+        `Are you sure you want to cancel and refund ${resolvedOrders.length} orders?`,
+        'Balance will be refunded for each order.',
+        'This action cannot be undone.'
     ];
 
     if (!confirm(confirmationLines.join('\n\n'))) {
@@ -3860,11 +3843,11 @@ async function bulkCancelSelectedOrders() {
         }
 
         if (results.success.length > 0 && results.failed.length === 0) {
-            showNotification(`${results.success.length} sipariş iptal edildi ve iade yapıldı.`, 'success');
+            showNotification(`${results.success.length} orders cancelled and refunded.`, 'success');
         } else if (results.success.length > 0) {
-            showNotification(`${results.success.length} iptal edildi, ${results.failed.length} başarısız.`, 'warning');
+            showNotification(`${results.success.length} cancelled, ${results.failed.length} failed.`, 'warning');
         } else {
-            showNotification('Seçili siparişler iptal edilemedi.', 'error');
+            showNotification('Failed to cancel selected orders.', 'error');
         }
 
         refreshOrdersAfterAdminChange();
@@ -3981,12 +3964,12 @@ async function submitOrderResend(orderId) {
 
 async function submitOrderDelete(orderId) {
     if (!orderId) {
-        throw new Error('Order ID gerekli');
+        throw new Error('Order ID is required');
     }
 
     const token = localStorage.getItem('token');
     if (!token) {
-        throw new Error('Oturum geçersiz. Tekrar giriş yapın.');
+        throw new Error('Session expired. Please sign in again.');
     }
 
     const controller = new AbortController();
@@ -4031,7 +4014,7 @@ async function submitOrderDelete(orderId) {
         return data || { success: true };
     } catch (error) {
         if (error.name === 'AbortError') {
-            throw new Error('İstek timeout. Lütfen tekrar deneyin.');
+            throw new Error('Request timed out. Please try again.');
         }
         throw error;
     } finally {
@@ -4041,7 +4024,63 @@ async function submitOrderDelete(orderId) {
 
 // Alias for cancel (DELETE = cancel + refund)
 async function submitOrderCancel(orderId) {
-    return submitOrderDelete(orderId);
+    if (!orderId) {
+        throw new Error('Order ID is required');
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+        throw new Error('Session expired. Please sign in again.');
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    try {
+        const response = await fetch('/.netlify/functions/orders', {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                orderId: String(orderId).trim()
+                // No action: 'delete' — this triggers handleCancelOrder (cancel + refund)
+            }),
+            signal: controller.signal
+        });
+
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('token');
+            window.location.href = '/signin.html';
+            throw new Error('Session expired. Please sign in again.');
+        }
+
+        const contentType = response.headers.get('content-type');
+        let data;
+
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            console.error('[CANCEL ORDER] Non-JSON response:', text);
+            throw new Error('Invalid server response format');
+        }
+
+        if (!response.ok || data.error) {
+            const errorMsg = data.error || data.details || `Server error (${response.status})`;
+            throw new Error(errorMsg);
+        }
+
+        return data || { success: true };
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Request timed out. Please try again.');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeoutId);
+    }
 }
 
 // Resend failed order to provider

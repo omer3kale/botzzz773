@@ -1,5 +1,5 @@
 const { performOrderStatusSync } = require('./orders');
-const { sendFailedOrdersAlert } = require('./scheduled-provider-sync');
+const { sendFailedOrdersAlert } = require('./utils/failed-order-alerts');
 const { supabaseAdmin } = require('./utils/supabase');
 
 exports.handler = async (event = {}) => {

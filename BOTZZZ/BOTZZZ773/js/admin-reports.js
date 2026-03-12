@@ -295,7 +295,7 @@ function updateCharts() {
         console.log('[REPORTS] Initializing new chart');
         initializeChart();
         fillProfitTable();  // Tablo da görünürse güncelle
-        showNotification(`Kâr raporu güncellendi: ${dateRangeLabel(selectedDateRange)}`, 'success');
+        showNotification(`Profit report updated: ${dateRangeLabel(selectedDateRange)}`, 'success');
     }).catch(error => {
         console.error('[REPORTS] Error updating charts:', error);
         showNotification('Error updating profit report: ' + error.message, 'error');

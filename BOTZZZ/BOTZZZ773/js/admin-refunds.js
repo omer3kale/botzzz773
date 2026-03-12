@@ -224,7 +224,7 @@ async function loadRefunds() {
     } catch (error) {
         console.error('Load refunds error:', error);
         tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load refunds. Please refresh.</td></tr>';
-        showNotification('Refunds yüklenemedi. Lütfen tekrar deneyin.', 'error');
+        showNotification('Failed to load refunds. Please try again.', 'error');
     } finally {
         refundsLoading = false;
     }

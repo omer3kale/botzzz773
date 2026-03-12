@@ -15,6 +15,7 @@ if (typeof globalThis === 'object') {
 const { supabase, supabaseAdmin } = require('./utils/supabase');
 const { withRateLimit } = require('./utils/rate-limit');
 const { createLogger, serializeError } = require('./utils/logger');
+const { sendFailedOrdersAlert } = require('./utils/failed-order-alerts');
 const { randomUUID } = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -523,11 +524,8 @@ function resolveProviderOrderIdFromRecord(order) {
 }
 
 function buildStatusSummary(order) {
-  const lockedCustomerStatus = isCustomerStatusLocked(order)
-    ? 'in progress'
-    : null;
-  const customerRaw = lockedCustomerStatus
-    ?? order?.customer_status
+  // Use the actual customer_status from DB — lock only prevents sync from overwriting it
+  const customerRaw = order?.customer_status
     ?? order?.customerStatus
     ?? order?.status
     ?? order?.order_status
@@ -2107,6 +2105,32 @@ async function handleCreateOrder(user, data, headers) {
       order.failure_code = 'provider_api_error';
       
       console.log(`[ORDER] Silent failure applied - customer sees success, admin can review`);
+
+      // ============= INSTANT FAIL ALERT =============
+      try {
+        const enrichedOrder = {
+          id: order.id,
+          order_number: orderDisplayNumber || order.order_number,
+          provider_order_id: order.provider_order_id || null,
+          user_id: order.user_id,
+          service_id: order.service_id,
+          status: 'failed',
+          charge: order.charge,
+          quantity: order.quantity,
+          created_at: order.created_at,
+          username: user?.email || user?.username || 'N/A',
+          serviceName: service?.name || 'N/A',
+          servicePublicId: service?.public_id || 'N/A',
+          providerName: service?.provider?.name || 'N/A',
+          failureReason: providerErrorMessage
+        };
+        // Fire and forget — don't block the response
+        sendFailedOrdersAlert([enrichedOrder]).catch(err =>
+          console.error('[ORDER] Instant fail alert error (non-critical):', err.message)
+        );
+      } catch (alertErr) {
+        console.error('[ORDER] Instant fail alert setup error:', alertErr.message);
+      }
       
       // RETURN SUCCESS TO CUSTOMER (they never see the error)
       return {
@@ -2414,12 +2438,8 @@ async function handleUpdateOrder(user, data, headers) {
           }
         }
 
-        if (normalizedStatus === 'in progress') {
-          setCustomerStatusLock(true, 'admin_in_progress');
-          updates.customer_status = 'in progress';
-        } else {
-          setCustomerStatusLock(false);
-        }
+        // Lock order so provider sync won't overwrite admin's manual status change
+        setCustomerStatusLock(true, 'admin_status_change');
 
         // Process refund if status is being changed to cancelled and wasn't already cancelled
         const wasAlreadyCancelled = order.status === 'cancelled' || order.status === 'canceled';
@@ -2443,12 +2463,8 @@ async function handleUpdateOrder(user, data, headers) {
 
       if (normalizedCustomerStatusOverride) {
         updates.customer_status = normalizedCustomerStatusOverride;
-        if (normalizedCustomerStatusOverride === 'in progress') {
-          setCustomerStatusLock(true, 'admin_customer_status');
-          updates.customer_status = 'in progress';
-        } else {
-          setCustomerStatusLock(false);
-        }
+        // Lock so sync won't overwrite admin's manual customer_status change
+        setCustomerStatusLock(true, 'admin_customer_status');
       }
 
       if (nextMeta) {
@@ -3179,10 +3195,10 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   const statusesToSync = ['pending', 'processing', 'in progress', 'refilling'];
   const providerFilter = providerId ? String(providerId) : null;
 
-  // Sync in batches of 200 to avoid timeout
-  // If > 200 orders, fetch and process 200 at a time
+  // Fetch in batches, capped by limit parameter to avoid timeout
+  const effectiveLimit = Math.min(limit, 400);
   const FETCH_BATCH_SIZE = 200;
-  const MAX_FETCH_BATCHES = 2; // Process up to 400 orders (2 batches of 200)
+  const MAX_FETCH_BATCHES = Math.ceil(effectiveLimit / FETCH_BATCH_SIZE);
   const allOrdersData = [];
   
   for (let batchNum = 0; batchNum < MAX_FETCH_BATCHES; batchNum++) {
@@ -3200,7 +3216,10 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       ordersQuery = ordersQuery.or(`status.in.(${statusesToSync.join(',')}),and(status.eq.completed,customer_status.neq.completed)`);
     }
 
+    // Prioritize orders that were never synced or synced longest ago
+    // This ensures all active orders eventually get synced even when count > limit
     const { data: batchOrdersData, error: ordersError } = await ordersQuery
+      .order('last_status_sync', { ascending: true, nullsFirst: true })
       .range(batchNum * FETCH_BATCH_SIZE, (batchNum + 1) * FETCH_BATCH_SIZE - 1);
 
     if (ordersError) {
@@ -3226,13 +3245,14 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
     console.log(`[ORDER SYNC] Fetched batch ${batchNum}: ${batchOrdersData.length} orders`);
     allOrdersData.push(...batchOrdersData);
     
-    // If less than full batch, we've reached the end
-    if (batchOrdersData.length < FETCH_BATCH_SIZE) {
+    // Stop if we've reached the effective limit or less than full batch
+    if (allOrdersData.length >= effectiveLimit || batchOrdersData.length < FETCH_BATCH_SIZE) {
       break;
     }
   }
 
-  const ordersData = allOrdersData;
+  // Trim to effective limit
+  const ordersData = allOrdersData.slice(0, effectiveLimit);
 
   if (ordersData.length === 0) {
     return { success: true, updated: 0, results: [] };
@@ -3427,7 +3447,13 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       };
 
       if (normalizedStatus) {
-        updatePayload.status = normalizedStatus;
+        // If admin locked this order, don't overwrite status or customer_status
+        // Only update provider_status and provider_response (already set above)
+        if (isCustomerStatusLocked(order)) {
+          console.log(`[ORDER SYNC] Order ${order.order_number}: admin-locked, skipping status update (provider: ${normalizedStatus})`);
+        } else {
+          updatePayload.status = normalizedStatus;
+        }
 
         if (!isCustomerStatusLocked(order)) {
           // Sync customer_status with provider status based on rules:
@@ -3585,11 +3611,16 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
         errorMessage = typeof syncError === 'object' ? JSON.stringify(syncError) : String(syncError);
       }
       
-      // Check if this is a rate limit error - if so, don't mark as failed, just return error
+      // Check if this is a transient error (rate limit, timeout, network) — don't mark as failed, retry next sync
       const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests') || errorMessage.includes('Rate limited');
+      const isNetworkError = errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ECONNRESET') 
+        || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ENOTFOUND')
+        || errorMessage.includes('timeout') || errorMessage.includes('socket hang up')
+        || errorMessage.includes('network') || errorMessage.includes('EAI_AGAIN');
+      const isTransientError = isRateLimit || isNetworkError;
       
-      if (!isRateLimit) {
-        // Only mark as failed if it's NOT a rate limit error
+      if (!isTransientError) {
+        // Permanent error from provider (e.g. "Incorrect order ID", "Order not found") — mark as failed
         const failurePayload = {
           // Preserve canceled status if already canceled; otherwise mark failed
           status: (order.status === 'canceled' || order.status === 'cancelled') ? order.status : 'failed',
@@ -3611,8 +3642,13 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
           console.error('[ORDER SYNC] Failed to mark order as failed:', order.id, updateError);
         }
       } else {
-        // Rate limit - just log the error, don't mark as failed
-        console.warn(`[ORDER SYNC] Rate limit encountered for order ${order.id}, will retry in next sync cycle`);
+        // Transient error (rate limit, timeout, network) — just update last_status_sync, will retry next cycle
+        console.warn(`[ORDER SYNC] Transient error for order ${order.id} (${isRateLimit ? 'rate limit' : 'network'}), will retry next sync cycle`);
+        try {
+          await supabaseAdmin.from('orders').update({ last_status_sync: nowIso }).eq('id', order.id);
+        } catch (updateError) {
+          console.error('[ORDER SYNC] Failed to update last_status_sync:', order.id, updateError);
+        }
       }
       
       return {
@@ -3667,7 +3703,7 @@ async function handleSyncOrderStatuses(user, data, headers) {
 
   try {
     const orderIds = Array.isArray(data.orderIds) ? data.orderIds : null;
-    const limit = Number.isFinite(data.limit) ? data.limit : 200;  // Max 200 to avoid timeout (200 orders ≈ 27s at 1.34s/batch, safe within 26s limit with 4s buffer)
+    const limit = Number.isFinite(data.limit) ? data.limit : 100;
     const providerId = data.providerId ?? data.provider_id ?? null;
     const result = await performOrderStatusSync({ orderIds, providerId, limit });
 
