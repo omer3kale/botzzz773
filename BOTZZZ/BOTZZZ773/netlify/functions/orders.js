@@ -2124,12 +2124,10 @@ async function handleCreateOrder(user, data, headers) {
           providerName: service?.provider?.name || 'N/A',
           failureReason: providerErrorMessage
         };
-        // Fire and forget — don't block the response
-        sendFailedOrdersAlert([enrichedOrder]).catch(err =>
-          console.error('[ORDER] Instant fail alert error (non-critical):', err.message)
-        );
+        // Must await — Netlify kills the process after response, fire-and-forget won't complete
+        await sendFailedOrdersAlert([enrichedOrder]);
       } catch (alertErr) {
-        console.error('[ORDER] Instant fail alert setup error:', alertErr.message);
+        console.error('[ORDER] Instant fail alert error (non-critical):', alertErr.message);
       }
       
       // RETURN SUCCESS TO CUSTOMER (they never see the error)
