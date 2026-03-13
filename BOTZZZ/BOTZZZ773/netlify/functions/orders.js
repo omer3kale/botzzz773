@@ -3985,9 +3985,11 @@ async function submitOrderToProvider(provider, orderData) {
     params.append('action', 'add');
     params.append('service', orderData.service);
     params.append('link', orderData.link);
-    params.append('quantity', orderData.quantity);
+    // Custom comments: send only `comments`, NOT `quantity` (per API spec)
     if (orderData.comments) {
       params.append('comments', orderData.comments);
+    } else {
+      params.append('quantity', orderData.quantity);
     }
     
     console.log(`[PROVIDER] Calling ${provider.api_url}`);
@@ -5250,7 +5252,8 @@ async function handleResendOrder(user, body, headers) {
           providerResponse = await submitOrderToProvider(provider, {
             service: order.service.provider_service_id,
             link: order.link,
-            quantity: order.quantity
+            quantity: order.quantity,
+            comments: order.comments || undefined
           });
 
           if (!providerResponse) {

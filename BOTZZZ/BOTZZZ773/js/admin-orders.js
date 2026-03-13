@@ -3181,7 +3181,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                 const linkHref = order.link ? encodeURI(order.link) : null;
                 const commentText = extractOrderComments(order);
                 const hasComments = Boolean(commentText && commentText.trim().length > 0);
-                const commentsPayload = hasComments ? escapeHtml(encodeURIComponent(commentText)) : '';
+                const commentsPayload = hasComments ? encodeURIComponent(commentText).replace(/'/g, '%27') : '';
                 const commentsButton = hasComments
                     ? `<button type="button" class="btn-icon" onclick="event.stopPropagation(); showOrderComments('${escapeHtml(orderViewTarget)}', '${commentsPayload}')" title="View comments"><i class="fas fa-file-lines"></i></button>`
                     : '';
@@ -3606,7 +3606,7 @@ async function loadFailedOrders() {
                 const linkHref = order.link ? encodeURI(order.link) : null;
                 const commentText = extractOrderComments(order);
                 const hasComments = Boolean(commentText && commentText.trim().length > 0);
-                const commentsPayload = hasComments ? escapeHtml(encodeURIComponent(commentText)) : '';
+                const commentsPayload = hasComments ? encodeURIComponent(commentText).replace(/'/g, '%27') : '';
                 const commentsButton = hasComments
                     ? `<button type="button" class="btn-icon" onclick="event.stopPropagation(); showOrderComments('${escapeHtml(orderViewTarget)}', '${commentsPayload}')" title="View comments"><i class="fas fa-file-lines"></i></button>`
                     : '';

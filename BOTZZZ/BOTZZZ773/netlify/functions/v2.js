@@ -495,7 +495,8 @@ exports.handler = async (event) => {
             user_id: user.id, service_id: sData.id, service_name: sData.name, link: params.link, quantity: qty, overflow_quantity: overflowPercent > 0 ? providerQtyForOrder : null, charge: charge, original_charge: charge,
               order_number: orderNumber, status: 'pending', customer_status: 'pending', mode: 'API', provider_currency: 'USD', external_order_id: idempotencyKey || null,
               provider_id: providerIdForOrder,
-              provider_name: providerNameForOrder
+              provider_name: providerNameForOrder,
+              comments: normalizedComments || null
           }).select('id, order_number').single();
 
           newOrder = insertResult.data;
@@ -581,11 +582,14 @@ exports.handler = async (event) => {
             if (overflowPercent > 0) {
               console.log(`[V2 PROVIDER] Overflow ${overflowPercent}%: customer qty=${qty}, provider qty=${providerQty}`);
             }
+            // Custom comments services: send only `comments`, NOT `quantity` (per API spec)
             const pParams = new URLSearchParams({ 
-              key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link, quantity: providerQty 
+              key: sData.provider.api_key, action: 'add', service: providerServiceId, link: params.link
             });
             if (normalizedComments) {
               pParams.append('comments', normalizedComments);
+            } else {
+              pParams.append('quantity', providerQty);
             }
             console.log('[V2 PROVIDER] Request params:', { service: providerServiceId, link: params.link, quantity: qty, hasComments: !!normalizedComments });
             const pRes = await axios.post(sData.provider.api_url, pParams, { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });

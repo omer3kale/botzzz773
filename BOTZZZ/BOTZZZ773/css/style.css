@@ -3664,3 +3664,28 @@ body.popup-mode .page-header {
     z-index: 10;
     color: var(--text-white);
 }
+
+/* ========================================
+   MOBILE HOTFIX OVERRIDES (PUBLIC PAGES)
+   ======================================== */
+@media (max-width: 768px) {
+    .service-filter .container {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+
+    .search-box,
+    .search-input {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .filter-buttons {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .filter-btn {
+        white-space: nowrap;
+    }
+}

@@ -193,8 +193,7 @@ body.popup-mode .admin-main {
 
 @media (max-width: 480px) {
     .admin-logo {
-        font-size: 16px;
-        letter-spacing: 0.04em;
+        display: none !important;
     }
 }
 
@@ -5228,3 +5227,134 @@ tr[data-status="error"]:hover {
     }
 }
 
+
+/* ========================================
+   MOBILE HOTFIX OVERRIDES (ADMIN)
+   ======================================== */
+@media (max-width: 1024px) {
+    .admin-main {
+        margin-left: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 16px !important;
+    }
+
+    .admin-sidebar {
+        width: min(86vw, 320px) !important;
+    }
+
+    .admin-page-header,
+    .page-actions,
+    .filter-bar,
+    .filter-group,
+    .bulk-action-controls {
+        flex-wrap: wrap !important;
+        gap: 10px !important;
+    }
+
+    .admin-search,
+    .admin-search input,
+    .filter-select,
+    .filter-group input {
+        min-width: 0 !important;
+        width: 100% !important;
+    }
+
+    .table-container,
+    .users-table-panel,
+    .services-table-panel,
+    .orders-table-panel,
+    .payments-table-panel,
+    .tickets-table-panel {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .admin-table {
+        width: max-content !important;
+        min-width: 760px !important;
+    }
+}
+
+@media (max-width: 768px) {
+    /* Allow table scrolling inside main content */
+    .admin-main {
+        overflow-x: visible !important;
+    }
+
+    .admin-header {
+        padding: 0 12px !important;
+        gap: 8px !important;
+    }
+
+    /* HIDE LOGO ON MOBILE - Give space to search bar */
+    .admin-logo {
+        display: none !important;
+    }
+
+    .admin-header-right {
+        min-width: 0 !important;
+        flex: 1 !important;
+        gap: 8px !important;
+    }
+
+    /* Search bar - WIDE on mobile, no logo means more space */
+    .admin-search {
+        display: flex !important;
+        align-items: center !important;
+        flex: 1 !important;
+        flex-basis: 100% !important;
+        padding: 0 12px 0 44px !important;
+        height: 48px !important;
+        position: relative !important;
+        width: 100% !important;
+    }
+
+    .admin-search i {
+        position: absolute !important;
+        left: 12px !important;
+        font-size: 16px !important;
+        pointer-events: none !important;
+    }
+
+    .admin-search input {
+        flex: 1 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 12px 8px !important;
+        font-size: 16px !important;
+        height: 24px !important;
+        background: transparent !important;
+        border: none !important;
+    }
+
+    /* TABLE SCROLLING FIX - ALL COLUMNS VISIBLE */
+    .table-container,
+    .orders-table-panel {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scroll-behavior: smooth !important;
+        width: 100% !important;
+    }
+
+    .admin-table {
+        width: max-content !important;
+        table-layout: auto !important;
+        min-width: 100% !important;
+    }
+
+    .admin-table th,
+    .admin-table td {
+        padding: 12px 8px !important;
+        word-wrap: break-word !important;
+        white-space: normal !important;
+        font-size: 13px !important;
+    }
+
+    /* Ensure all columns are visible - no hiding */
+    .admin-table td,
+    .admin-table th {
+        display: table-cell !important;
+        visibility: visible !important;
+    }
+}
