@@ -387,15 +387,18 @@ function viewUser(userId) {
             </div>
         </div>
     `;
-    
+
     const actions = `
         <button type="button" class="btn-secondary" onclick="editUser('${userId}')">
             <i class="fas fa-edit"></i> Edit User
         </button>
         <button type="button" class="btn-primary" onclick="closeModal()">Close</button>
     `;
-    
+
     createModal(`User: ${user.username}`, content, actions);
+
+    // Load change history asynchronously
+    loadUserChangeHistory(userId);
 }
 
 // Edit user
@@ -1080,5 +1083,154 @@ function updateDiscountPreview() {
         previewDiv.style.display = 'block';
     } else {
         previewDiv.style.display = 'none';
+    }
+}
+
+// ==========================================
+// USER CHANGE HISTORY & REVERT
+// ==========================================
+async function loadUserChangeHistory(userId) {
+    const modalBody = document.querySelector('#activeModal .modal-body');
+    if (!modalBody) return;
+
+    // Append a change history section
+    const historySection = document.createElement('div');
+    historySection.className = 'user-detail-section';
+    historySection.innerHTML = `
+        <h4><i class="fas fa-history"></i> Change History</h4>
+        <div id="changeHistoryContent" style="min-height: 40px;">
+            <div style="text-align: center; padding: 12px; color: var(--admin-gray-text);">
+                <i class="fas fa-spinner fa-spin"></i> Loading change history...
+            </div>
+        </div>
+    `;
+    modalBody.querySelector('.user-details').appendChild(historySection);
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'get-activity-logs', userId: userId })
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch logs');
+
+        const data = await response.json();
+        const logs = data.logs || [];
+        const container = document.getElementById('changeHistoryContent');
+
+        if (logs.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 12px; color: var(--admin-gray-text); font-size: 13px;">
+                    No change history found
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = logs.map(log => {
+            const date = new Date(log.created_at).toLocaleString();
+            const changes = log.details?.changes || {};
+            const changeFields = Object.entries(changes);
+
+            let actionLabel = '';
+            let actionColor = '';
+            switch (log.action) {
+                case 'profile_update':
+                    actionLabel = 'Profile Update';
+                    actionColor = '#2bc3a4';
+                    break;
+                case 'admin_profile_update':
+                    actionLabel = 'Admin Edit';
+                    actionColor = '#fbbf24';
+                    break;
+                case 'password_change':
+                    actionLabel = 'Password Changed';
+                    actionColor = '#ff8a4a';
+                    break;
+                case 'profile_revert':
+                    actionLabel = 'Reverted';
+                    actionColor = '#ef4444';
+                    break;
+                default:
+                    actionLabel = log.action;
+                    actionColor = '#64748b';
+            }
+
+            const changesHtml = changeFields.length > 0
+                ? changeFields.map(([field, vals]) => `
+                    <div style="display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 2px 0;">
+                        <span style="color: var(--admin-gray-text); min-width: 80px;">${field}:</span>
+                        <span style="color: #ef4444; text-decoration: line-through;">${vals.old ?? '(empty)'}</span>
+                        <span style="color: var(--admin-gray-text);">→</span>
+                        <span style="color: #2bc3a4;">${vals.new ?? '(empty)'}</span>
+                    </div>
+                `).join('')
+                : '<div style="font-size: 12px; color: var(--admin-gray-text);">No field details</div>';
+
+            const revertBtn = (log.action === 'profile_update' || log.action === 'admin_profile_update') && changeFields.length > 0
+                ? `<button onclick="revertProfileChange('${log.id}', '${userId}')" class="btn-sm" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer; margin-top: 4px;">
+                    <i class="fas fa-undo"></i> Revert
+                   </button>`
+                : '';
+
+            return `
+                <div style="border-bottom: 1px solid var(--admin-border); padding: 10px 0;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="background: ${actionColor}22; color: ${actionColor}; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${actionLabel}</span>
+                        <span style="font-size: 11px; color: var(--admin-gray-text);">${date}</span>
+                    </div>
+                    ${changesHtml}
+                    ${revertBtn}
+                </div>
+            `;
+        }).join('');
+
+    } catch (error) {
+        console.error('Failed to load change history:', error);
+        const container = document.getElementById('changeHistoryContent');
+        if (container) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 12px; color: #ef4444; font-size: 13px;">
+                    Failed to load change history
+                </div>
+            `;
+        }
+    }
+}
+
+async function revertProfileChange(logId, userId) {
+    if (!confirm('Are you sure you want to revert this change?')) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'revert-profile-change', logId: logId })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to revert');
+        }
+
+        showNotification('Change reverted successfully!', 'success');
+
+        // Refresh user data and modal
+        await populateUsersTable();
+        closeModal();
+        setTimeout(() => viewUser(userId), 400);
+
+    } catch (error) {
+        console.error('Revert error:', error);
+        showNotification(error.message || 'Failed to revert change', 'error');
     }
 }

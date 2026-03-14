@@ -259,9 +259,18 @@
     const userDropdown = document.getElementById('userDropdown');
 
     if (userMenuBtn && userDropdown) {
+        // Move dropdown to body so it's not clipped by sidebar overflow
+        document.body.appendChild(userDropdown);
+
         userMenuBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            userDropdown.classList.toggle('show');
+            const isShowing = userDropdown.classList.toggle('show');
+            if (isShowing) {
+                const rect = userMenuBtn.getBoundingClientRect();
+                userDropdown.style.left = rect.left + 'px';
+                userDropdown.style.top = 'auto';
+                userDropdown.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+            }
         });
 
         // Close dropdown when clicking outside
@@ -297,12 +306,7 @@
         }, 1000);
     }
 
-    const logoutBtn = document.getElementById('logoutBtn');
     const logoutLink = document.getElementById('logoutLink');
-
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
 
     if (logoutLink) {
         logoutLink.addEventListener('click', (e) => {
@@ -1370,6 +1374,7 @@
     const refundsHistoryBody = document.getElementById('refundsHistoryBody');
     const refreshRefundsBtn = document.getElementById('refreshRefundsBtn');
     const refreshRefillsBtn = document.getElementById('refreshRefillsBtn');
+    const accountView = document.getElementById('accountView');
 
     const ORDER_AUTO_REFRESH_INTERVAL_MS = 25000;
     let ordersAutoRefreshHandle = null;
@@ -1395,6 +1400,7 @@
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
         if (refillsView) refillsView.classList.add('hidden');
+        if (accountView) accountView.classList.add('hidden');
 
         setActiveSidebarLink(ordersLink);
     }
@@ -1404,6 +1410,7 @@
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
         if (refillsView) refillsView.classList.add('hidden');
+        if (accountView) accountView.classList.add('hidden');
         if (dashboardContent) dashboardContent.classList.remove('hidden');
 
         setActiveSidebarLink(dashboardLink);
@@ -1415,6 +1422,7 @@
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.remove('hidden');
         if (refillsView) refillsView.classList.add('hidden');
+        if (accountView) accountView.classList.add('hidden');
 
         setActiveSidebarLink(refundsLink);
 
@@ -1431,6 +1439,7 @@
         if (paymentsView) paymentsView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
         if (refillsView) refillsView.classList.remove('hidden');
+        if (accountView) accountView.classList.add('hidden');
 
         setActiveSidebarLink(refillsLink);
         loadRefillRequests();
@@ -2352,7 +2361,8 @@
         if (ordersView) ordersView.classList.add('hidden');
         if (refundsView) refundsView.classList.add('hidden');
         if (refillsView) refillsView.classList.add('hidden');
-        
+        if (accountView) accountView.classList.add('hidden');
+
         // Show payments view
         if (paymentsView) paymentsView.classList.remove('hidden');
 
@@ -2518,6 +2528,184 @@
     }
 
     // Refresh button removed; payments auto-refresh via events
+
+    // ==========================================
+    // ACCOUNT SETTINGS VIEW
+    // ==========================================
+    function showAccountView() {
+        if (dashboardContent) dashboardContent.classList.add('hidden');
+        if (ordersView) ordersView.classList.add('hidden');
+        if (paymentsView) paymentsView.classList.add('hidden');
+        if (refundsView) refundsView.classList.add('hidden');
+        if (refillsView) refillsView.classList.add('hidden');
+        if (accountView) accountView.classList.remove('hidden');
+
+        setActiveSidebarLink(null);
+        populateAccountForm();
+    }
+
+    function populateAccountForm() {
+        const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+        const fullName = currentUser.full_name || '';
+        const nameParts = fullName.split(' ');
+        const firstName = nameParts[0] || '';
+        const lastName = nameParts.slice(1).join(' ') || '';
+
+        const firstNameEl = document.getElementById('accountFirstName');
+        const lastNameEl = document.getElementById('accountLastName');
+        const emailEl = document.getElementById('accountEmail');
+        const usernameEl = document.getElementById('accountUsername');
+
+        if (firstNameEl) firstNameEl.value = firstName;
+        if (lastNameEl) lastNameEl.value = lastName;
+        if (emailEl) emailEl.value = currentUser.email || '';
+        if (usernameEl) usernameEl.value = currentUser.username || '';
+    }
+
+    // Account link in user dropdown
+    const accountLink = document.querySelector('a[href="#account"]');
+    if (accountLink) {
+        accountLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showAccountView();
+            if (userDropdown) userDropdown.classList.remove('show');
+        });
+    }
+
+    // Handle #account hash on page load (e.g. from external link dashboard.html#account)
+    if (window.location.hash === '#account') {
+        showAccountView();
+    }
+
+    // Profile form submit
+    const profileForm = document.getElementById('profileForm');
+    if (profileForm) {
+        profileForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const saveBtn = document.getElementById('saveProfileBtn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> Saving...';
+
+            try {
+                const firstName = document.getElementById('accountFirstName').value.trim();
+                const lastName = document.getElementById('accountLastName').value.trim();
+                const email = document.getElementById('accountEmail').value.trim();
+                const username = document.getElementById('accountUsername').value.trim();
+
+                if (!email) {
+                    showToast('Email is required', 'error');
+                    return;
+                }
+                if (!username) {
+                    showToast('Username is required', 'error');
+                    return;
+                }
+
+                const fullName = [firstName, lastName].filter(Boolean).join(' ');
+
+                const response = await fetch('/.netlify/functions/users', {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        full_name: fullName,
+                        email: email,
+                        username: username
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to update profile');
+                }
+
+                // Update local user data
+                if (data.user) {
+                    Object.assign(user, data.user);
+                    localStorage.setItem('user', JSON.stringify(user));
+                    updateUserDisplay();
+                }
+
+                showToast('Profile updated successfully', 'success');
+            } catch (error) {
+                console.error('Profile update error:', error);
+                showToast(error.message || 'Failed to update profile', 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = originalText;
+            }
+        });
+    }
+
+    // Password form submit
+    const passwordForm = document.getElementById('passwordForm');
+    if (passwordForm) {
+        passwordForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const changeBtn = document.getElementById('changePasswordBtn');
+            const originalText = changeBtn.innerHTML;
+
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                showToast('All password fields are required', 'error');
+                return;
+            }
+
+            if (newPassword.length < 8) {
+                showToast('New password must be at least 8 characters', 'error');
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                showToast('New passwords do not match', 'error');
+                return;
+            }
+
+            changeBtn.disabled = true;
+            changeBtn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px;"></div> Updating...';
+
+            try {
+                const response = await fetch('/.netlify/functions/auth', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'change-password',
+                        currentPassword: currentPassword,
+                        newPassword: newPassword
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to change password');
+                }
+
+                // Clear form
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmPassword').value = '';
+
+                showToast('Password updated successfully', 'success');
+            } catch (error) {
+                console.error('Password change error:', error);
+                showToast(error.message || 'Failed to change password', 'error');
+            } finally {
+                changeBtn.disabled = false;
+                changeBtn.innerHTML = originalText;
+            }
+        });
+    }
 
     // Initialize
     updateUserDisplay();

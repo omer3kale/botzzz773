@@ -630,8 +630,7 @@ function updateNavigation(isLoggedIn, user = null) {
                     </button>
                     <div class="user-dropdown">
                         <a href="dashboard.html"><i class="fas fa-home"></i> Dashboard</a>
-                        <a href="addfunds.html"><i class="fas fa-wallet"></i> Add Funds</a>
-                        <a href="tickets.html"><i class="fas fa-ticket-alt"></i> Tickets</a>
+                        <a href="dashboard.html#account"><i class="fas fa-user-cog"></i> Account</a>
                         <a href="#" class="logout-link"><i class="fas fa-sign-out-alt"></i> Logout</a>
                     </div>
                 </div>

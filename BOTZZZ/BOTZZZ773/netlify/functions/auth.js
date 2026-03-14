@@ -97,6 +97,8 @@ const baseHandler = async (event) => {
         return await handleForgotPassword(data, headers);
       case 'reset-password':
         return await handleResetPassword(data, headers);
+      case 'change-password':
+        return await handleChangePassword(data, event.headers, headers);
       default:
         return {
           statusCode: 400,
@@ -970,4 +972,122 @@ Best regards, Botzzz773 Team
 async function handleGoogleSignUp(data, headers) {
   // Google sign-up is the same as sign-in (auto-creates account if doesn't exist)
   return await handleGoogleSignIn(data, headers);
+}
+
+// Change Password Handler (for logged-in users)
+async function handleChangePassword(data, requestHeaders, headers) {
+  try {
+    const { currentPassword, newPassword } = data;
+
+    if (!currentPassword || !newPassword) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Current password and new password are required' })
+      };
+    }
+
+    if (newPassword.length < 8) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'New password must be at least 8 characters' })
+      };
+    }
+
+    // Verify JWT from Authorization header
+    const authHeader = requestHeaders.authorization || requestHeaders.Authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Authentication required' })
+      };
+    }
+
+    const decoded = verifyToken(authHeader.substring(7));
+    if (!decoded) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Invalid or expired token' })
+      };
+    }
+
+    // Fetch user with password hash
+    const { data: user, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', decoded.userId)
+      .single();
+
+    if (fetchError || !user) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'User not found' })
+      };
+    }
+
+    // Google OAuth users cannot change password
+    if (user.password_hash === 'GOOGLE_OAUTH') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Google OAuth accounts cannot change password' })
+      };
+    }
+
+    // Verify current password
+    const isValid = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!isValid) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Current password is incorrect' })
+      };
+    }
+
+    // Hash new password and update
+    const newHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    const { error: updateError } = await supabaseAdmin
+      .from('users')
+      .update({ password_hash: newHash })
+      .eq('id', decoded.userId);
+
+    if (updateError) {
+      console.error('Password update error:', updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to update password' })
+      };
+    }
+
+    // Log password change to activity_logs
+    try {
+      await supabaseAdmin.from('activity_logs').insert({
+        user_id: decoded.userId,
+        action: 'password_change',
+        details: { timestamp: new Date().toISOString() }
+      });
+    } catch (logError) {
+      console.error('Failed to log password change:', logError);
+    }
+
+    logger.info('Password changed successfully', { userId: decoded.userId });
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, message: 'Password updated successfully' })
+    };
+  } catch (error) {
+    logger.error('Change password error', { error: serializeError(error) });
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
 }

@@ -440,16 +440,15 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .user-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    right: 0;
+    position: fixed;
     background: var(--bg-darker);
     border: 1px solid rgba(43, 195, 164, 0.25);
-    border-radius: var(--radius-md);
-    min-width: 150px;
-    padding: var(--spacing-xs);
+    border-radius: 8px;
+    width: 140px;
+    padding: 4px;
     display: none;
     box-shadow: var(--shadow-dark);
+    z-index: 1000;
 }
 
 .user-dropdown.show {
@@ -458,10 +457,10 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .dropdown-item {
     display: block;
-    padding: var(--spacing-xs) var(--spacing-sm);
+    padding: 6px 12px;
     color: var(--text-gray);
-    font-size: 0.9rem;
-    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    border-radius: 6px;
     transition: var(--transition-fast);
 }
 
@@ -1704,6 +1703,152 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     color: rgba(255, 255, 255, 0.8);
     line-height: 1.5;
 }
+/* ==========================================
+   ACCOUNT SETTINGS VIEW STYLES
+   ========================================== */
+.account-view {
+    flex: 1;
+    padding: 1.5rem;
+    max-width: 800px;
+    margin: 0;
+}
+
+.account-view.hidden {
+    display: none !important;
+}
+
+.account-header {
+    margin-bottom: 1.5rem;
+}
+
+.account-header h2 {
+    margin: 0;
+    color: var(--text-white);
+    font-size: 1.4rem;
+    font-weight: 700;
+}
+
+.account-header p {
+    margin: 0.25rem 0 0;
+    color: var(--text-gray);
+    font-size: 0.9rem;
+}
+
+.account-card {
+    background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
+    border: 1px solid rgba(43, 195, 164, 0.25);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.account-card-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-white);
+}
+
+.account-card-title svg {
+    color: var(--primary-pink);
+    flex-shrink: 0;
+}
+
+.account-form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.account-card .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+}
+
+.account-card .form-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-light-gray);
+}
+
+.account-card .form-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--bg-black);
+    border: 1px solid rgba(43, 195, 164, 0.25);
+    border-radius: 10px;
+    color: var(--text-white);
+    font-size: 0.9rem;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+}
+
+.account-card .form-input:focus {
+    outline: none;
+    border-color: rgba(255, 138, 74, 0.6);
+    box-shadow: 0 0 0 3px rgba(43, 195, 164, 0.18);
+}
+
+.account-card .form-input::placeholder {
+    color: var(--text-gray);
+    opacity: 0.5;
+}
+
+.account-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
+.account-form-actions .btn-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 2rem;
+    background: var(--gradient-primary);
+    border: none;
+    border-radius: 12px;
+    color: var(--bg-black);
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: var(--shadow-pink);
+}
+
+.account-form-actions .btn-submit:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-pink-lg);
+}
+
+.account-form-actions .btn-submit:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+@media (max-width: 600px) {
+    .account-view {
+        padding: 1rem;
+    }
+
+    .account-form-row {
+        grid-template-columns: 1fr;
+    }
+
+    .account-card {
+        padding: 1rem;
+    }
+}
+
 /* ==========================================
    REFUNDS VIEW STYLES
    ========================================== */

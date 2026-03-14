@@ -171,7 +171,7 @@ exports.handler = async (event) => {
     const { action, userId, ...data } = bodyData;
 
     // Admin-only actions
-    const adminActions = ['list', 'create', 'update-any', 'delete'];
+    const adminActions = ['list', 'create', 'update-any', 'delete', 'get-activity-logs', 'revert-profile-change'];
     if (adminActions.includes(action) && user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -187,6 +187,12 @@ exports.handler = async (event) => {
         // Handle POST with action parameter
         if (action === 'list') {
           return await handleGet(user, headers);
+        }
+        if (action === 'get-activity-logs') {
+          return await handleGetActivityLogs(userId, headers);
+        }
+        if (action === 'revert-profile-change') {
+          return await handleRevertProfileChange(data.logId, headers);
         }
         return {
           statusCode: 400,
@@ -339,9 +345,11 @@ async function handleGet(user, headers) {
 async function handleUpdate(user, data, headers) {
   try {
     const targetUserId = data.userId || user.userId;
+    const isSelfUpdate = targetUserId === user.userId;
+    const isAdmin = user.role === 'admin';
 
     // Users can only update their own data unless admin
-    if (targetUserId !== user.userId && user.role !== 'admin') {
+    if (!isSelfUpdate && !isAdmin) {
       return {
         statusCode: 403,
         headers,
@@ -349,28 +357,70 @@ async function handleUpdate(user, data, headers) {
       };
     }
 
-    // Don't allow users to change their own role
-    if (data.role && targetUserId === user.userId && user.role !== 'admin') {
-      delete data.role;
-    }
-
     // Remove sensitive fields
     delete data.password_hash;
     delete data.userId;
 
-    // Handle service_discounts JSONB field
-    if (data.service_discounts !== undefined) {
-      // Ensure it's valid JSON object
-      if (typeof data.service_discounts === 'string') {
-        try {
-          data.service_discounts = JSON.parse(data.service_discounts);
-        } catch (e) {
-          console.error('Invalid service_discounts JSON:', e);
+    // Non-admin self-updates: only allow safe profile fields
+    const SELF_UPDATE_ALLOWED_FIELDS = ['full_name', 'username', 'email'];
+    if (isSelfUpdate && !isAdmin) {
+      const filteredData = {};
+      for (const field of SELF_UPDATE_ALLOWED_FIELDS) {
+        if (data[field] !== undefined) {
+          filteredData[field] = data[field];
+        }
+      }
+      data = filteredData;
+    } else {
+      // Admin path: keep existing logic
+      if (data.role && isSelfUpdate) {
+        delete data.role;
+      }
+      // Handle service_discounts JSONB field
+      if (data.service_discounts !== undefined) {
+        if (typeof data.service_discounts === 'string') {
+          try {
+            data.service_discounts = JSON.parse(data.service_discounts);
+          } catch (e) {
+            console.error('Invalid service_discounts JSON:', e);
+            data.service_discounts = {};
+          }
+        }
+        if (!data.service_discounts || typeof data.service_discounts !== 'object') {
           data.service_discounts = {};
         }
       }
-      if (!data.service_discounts || typeof data.service_discounts !== 'object') {
-        data.service_discounts = {};
+    }
+
+    if (Object.keys(data).length === 0) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'No valid fields to update' })
+      };
+    }
+
+    // Fetch current user data for audit trail
+    const { data: currentUser, error: fetchError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', targetUserId)
+      .single();
+
+    if (fetchError || !currentUser) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'User not found' })
+      };
+    }
+
+    // Build changes object for audit log
+    const changes = {};
+    for (const [key, newValue] of Object.entries(data)) {
+      const oldValue = currentUser[key];
+      if (String(oldValue ?? '') !== String(newValue ?? '')) {
+        changes[key] = { old: oldValue, new: newValue };
       }
     }
 
@@ -390,6 +440,22 @@ async function handleUpdate(user, data, headers) {
       };
     }
 
+    // Log profile change to activity_logs if there were actual changes
+    if (Object.keys(changes).length > 0) {
+      try {
+        await supabaseAdmin.from('activity_logs').insert({
+          user_id: targetUserId,
+          action: isAdmin && !isSelfUpdate ? 'admin_profile_update' : 'profile_update',
+          details: {
+            changes,
+            updated_by: isAdmin && !isSelfUpdate ? user.userId : undefined
+          }
+        });
+      } catch (logError) {
+        console.error('Failed to log profile update:', logError);
+      }
+    }
+
     delete updatedUser.password_hash;
 
     return {
@@ -402,6 +468,140 @@ async function handleUpdate(user, data, headers) {
     };
   } catch (error) {
     console.error('Update user error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleGetActivityLogs(targetUserId, headers) {
+  try {
+    if (!targetUserId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'userId is required' })
+      };
+    }
+
+    const { data: logs, error } = await supabaseAdmin
+      .from('activity_logs')
+      .select('*')
+      .eq('user_id', targetUserId)
+      .in('action', ['profile_update', 'admin_profile_update', 'password_change', 'profile_revert'])
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('Get activity logs error:', error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch activity logs' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ logs: logs || [] })
+    };
+  } catch (error) {
+    console.error('Get activity logs error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+async function handleRevertProfileChange(logId, headers) {
+  try {
+    if (!logId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'logId is required' })
+      };
+    }
+
+    // Fetch the activity log entry
+    const { data: logEntry, error: logError } = await supabaseAdmin
+      .from('activity_logs')
+      .select('*')
+      .eq('id', logId)
+      .single();
+
+    if (logError || !logEntry) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Activity log not found' })
+      };
+    }
+
+    if (!logEntry.details || !logEntry.details.changes) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'No changes to revert in this log entry' })
+      };
+    }
+
+    // Build revert data: apply old values
+    const revertData = {};
+    const revertChanges = {};
+    for (const [field, { old: oldValue, new: newValue }] of Object.entries(logEntry.details.changes)) {
+      revertData[field] = oldValue;
+      revertChanges[field] = { old: newValue, new: oldValue };
+    }
+
+    // Apply the revert
+    const { data: updatedUser, error: updateError } = await supabaseAdmin
+      .from('users')
+      .update(revertData)
+      .eq('id', logEntry.user_id)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Revert profile change error:', updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to revert changes' })
+      };
+    }
+
+    // Log the revert action
+    try {
+      await supabaseAdmin.from('activity_logs').insert({
+        user_id: logEntry.user_id,
+        action: 'profile_revert',
+        details: {
+          changes: revertChanges,
+          reverted_log_id: logId
+        }
+      });
+    } catch (revertLogError) {
+      console.error('Failed to log revert:', revertLogError);
+    }
+
+    delete updatedUser.password_hash;
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        user: updatedUser
+      })
+    };
+  } catch (error) {
+    console.error('Revert profile change error:', error);
     return {
       statusCode: 500,
       headers,
