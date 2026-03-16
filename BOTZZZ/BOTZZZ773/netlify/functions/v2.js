@@ -744,7 +744,7 @@ exports.handler = async (event) => {
              let res = {};
              if(mOrders) mOrders.forEach(o => {
                const status = o.customer_status_lock === 'admin'
-                 ? 'in progress'
+                 ? (o.customer_status || 'pending')
                  : (o.customer_status || 'pending');
                let chargeOut = o.charge;
                if (status === 'canceled' || status === 'cancelled') {
@@ -776,7 +776,7 @@ exports.handler = async (event) => {
          if (!oData) return errorResponse('Order not found');
          {
            const status = oData.customer_status_lock === 'admin'
-             ? 'in progress'
+             ? (oData.customer_status || 'pending')
              : (oData.customer_status || 'pending');
            let chargeOut = oData.charge;
            if (status === 'canceled' || status === 'cancelled') {

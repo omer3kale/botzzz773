@@ -469,7 +469,11 @@
     // Statuses that indicate order is actively in progress
     const CUSTOMER_INPROGRESS_STATUS_KEYS = new Set([
         'in-progress',
-        'inprogress',
+        'inprogress'
+    ]);
+
+    // Statuses that indicate order is partially completed
+    const CUSTOMER_PARTIAL_STATUS_KEYS = new Set([
         'partial',
         'partialcompleted',
         'partiallycompleted'
@@ -523,6 +527,15 @@
             return {
                 key: 'processing',
                 label: 'Processing',
+                raw: safeRaw
+            };
+        }
+
+        // Check if order is partially completed
+        if (CUSTOMER_PARTIAL_STATUS_KEYS.has(normalizedKey)) {
+            return {
+                key: 'partial',
+                label: 'Partial',
                 raw: safeRaw
             };
         }
@@ -1456,7 +1469,9 @@
 
     function buildCustomerFacingStatus(order = {}) {
         if (order?.customer_status_lock === 'admin') {
-            return coerceCustomerFacingStatusDescriptor('in progress', 'In Progress');
+            // Admin locked: show the customer_status the admin explicitly set
+            const adminStatus = order?.customer_status || order?.status || 'pending';
+            return coerceCustomerFacingStatusDescriptor(adminStatus);
         }
 
         // Check if order was cancelled by admin - these show as cancelled
