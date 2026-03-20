@@ -1760,7 +1760,8 @@ async function handleDuplicateService(data, headers) {
         cancel_supported: originalService.cancel_supported,
         dripfeed_supported: originalService.dripfeed_supported,
         subscription_supported: originalService.subscription_supported,
-        provider_metadata: originalService.provider_metadata
+        provider_metadata: originalService.provider_metadata,
+        overflow_percent: originalService.overflow_percent || 0
       })
       .select()
       .single();

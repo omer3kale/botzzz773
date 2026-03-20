@@ -1158,38 +1158,72 @@
         document.getElementById('progressCloseBtn').disabled = true;
         document.getElementById('progressModal').classList.add('show');
         const logEl = document.getElementById('progressLog');
-        for (let i = 0; i < allTwitterAccounts.length; i++) {
-            const acc = allTwitterAccounts[i]; const num = i + 1;
+
+        // Pre-create all log entries
+        for (let i = 0; i < total; i++) {
+            const acc = allTwitterAccounts[i];
             const entry = document.createElement('div'); entry.className = 'log-entry'; entry.id = `log-tw-${i}`;
-            entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-checking"><i class="fas fa-spinner fa-spin"></i> checking...</span>`;
-            logEl.appendChild(entry); logEl.scrollTop = logEl.scrollHeight;
-            let tw_status = 'error';
-            try {
-                const res = await fetch(`${TW_CHECKER_URL}/check_single`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: acc.username }) });
-                const data = await res.json();
-                if (data.success) tw_status = data.tw_status;
-            } catch (e) { tw_status = 'error'; }
-            if (tw_status === 'active' || tw_status === 'protected') {
-                activeCount++;
-                const label = tw_status === 'protected' ? '🔐 Protected' : '✅ Active';
-                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-active">${label}</span>`;
-            } else if (tw_status === 'suspended' || tw_status === 'not_found') {
-                suspendedCount++;
-                const label = tw_status === 'suspended' ? '🚫 Suspended' : '❌ Not Found';
-                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-deleted">${label}</span>`;
-            } else {
-                errorCount++;
-                const label = tw_status === 'locked' ? '🔒 Locked' : '❓ Unknown';
-                entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-error">${label}</span>`;
+            entry.innerHTML = `<span class="log-num">${i + 1}.</span> <span class="log-user">@${acc.username}</span> <span class="log-result-checking">⏳ waiting...</span>`;
+            logEl.appendChild(entry);
+        }
+
+        let completed = 0;
+        const BATCH_SIZE = 5;
+
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            const batch = allTwitterAccounts.slice(i, i + BATCH_SIZE);
+            const batchIndices = batch.map((_, idx) => i + idx);
+
+            // Mark batch as checking
+            batchIndices.forEach(idx => {
+                const entry = document.getElementById(`log-tw-${idx}`);
+                if (entry) entry.querySelector('span:last-child').outerHTML = `<span class="log-result-checking"><i class="fas fa-spinner fa-spin"></i> checking...</span>`;
+            });
+            logEl.scrollTop = logEl.scrollHeight;
+
+            const results = await Promise.allSettled(batch.map(async (acc, bIdx) => {
+                const idx = i + bIdx;
+                let tw_status = 'error';
+                try {
+                    const res = await fetch(`${TW_CHECKER_URL}/check_single`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: acc.username }), signal: AbortSignal.timeout(15000) });
+                    const data = await res.json();
+                    if (data.success) tw_status = data.tw_status;
+                } catch (e) { tw_status = 'error'; }
+                return { idx, tw_status, username: acc.username };
+            }));
+
+            // Update UI for each result in this batch
+            for (const r of results) {
+                if (r.status !== 'fulfilled') { errorCount++; completed++; continue; }
+                const { idx, tw_status, username } = r.value;
+                const entry = document.getElementById(`log-tw-${idx}`);
+                const num = idx + 1;
+
+                if (tw_status === 'active' || tw_status === 'protected') {
+                    activeCount++;
+                    const label = tw_status === 'protected' ? '🔐 Protected' : '✅ Active';
+                    if (entry) entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${username}</span> <span class="log-result-active">${label}</span>`;
+                } else if (tw_status === 'suspended' || tw_status === 'not_found') {
+                    suspendedCount++;
+                    const label = tw_status === 'suspended' ? '🚫 Suspended' : '❌ Not Found';
+                    if (entry) entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${username}</span> <span class="log-result-deleted">${label}</span>`;
+                } else {
+                    errorCount++;
+                    const label = tw_status === 'locked' ? '🔒 Locked' : '❓ Unknown';
+                    if (entry) entry.innerHTML = `<span class="log-num">${num}.</span> <span class="log-user">@${username}</span> <span class="log-result-error">${label}</span>`;
+                }
+                completed++;
             }
-            const pct = Math.round((num / total) * 100);
+
+            const pct = Math.round((completed / total) * 100);
             document.getElementById('progressBar').style.width = pct + '%';
-            document.getElementById('progressSub').textContent = `${num} / ${total} completed (${pct}%)`;
+            document.getElementById('progressSub').textContent = `${completed} / ${total} completed (${pct}%)`;
             document.getElementById('pgActive').textContent = activeCount;
             document.getElementById('pgDeleted').textContent = suspendedCount + notFoundCount;
             document.getElementById('pgError').textContent = errorCount;
             logEl.scrollTop = logEl.scrollHeight;
         }
+
         document.getElementById('progressSub').textContent = `Done! ${total} accounts checked.`;
         document.getElementById('progressCloseBtn').disabled = false;
         btn.disabled = false; btn.innerHTML = '<i class="fas fa-satellite-dish"></i> Check Accounts';

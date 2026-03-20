@@ -1332,7 +1332,7 @@ async function handleCreateOrder(user, data, headers) {
 
     // ============= STEP 2: GET AND VALIDATE SERVICE =============
     logger.debug('Fetching service details', { serviceId });
-    const { data: service, error: serviceError } = await supabase
+    const { data: service, error: serviceError } = await supabaseAdmin
       .from('services')
       .select('*, provider:providers(*)')
       .eq('id', serviceId)
@@ -5252,7 +5252,7 @@ async function handleResendOrder(user, body, headers) {
           providerResponse = await submitOrderToProvider(provider, {
             service: order.service.provider_service_id,
             link: order.link,
-            quantity: order.quantity,
+            quantity: order.overflow_quantity || order.quantity,
             comments: order.comments || undefined
           });
 
