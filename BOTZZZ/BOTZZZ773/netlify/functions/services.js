@@ -11,6 +11,12 @@ const logger = createLogger('services');
 const PUBLIC_ID_BASE = 7000;
 const hasServiceRoleKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 function logServiceError(message, error, meta) {
   logger.error(message, { error: serializeError(error), ...meta });
 }
@@ -416,7 +422,7 @@ async function ensurePublicIdsForAdmin(services = []) {
 
 const baseHandler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Content-Type': 'application/json'
@@ -666,178 +672,6 @@ async function handleGetServices(event, user, headers) {
       body: JSON.stringify({ error: 'Internal server error' })
     };
   }
-}
-
-async function fetchServicesFromProviders() {
-  try {
-    const { data: providers, error } = await supabaseAdmin
-      .from('services')
-      .select('id, provider_rate, rate, retail_rate, markup_percentage')
-      .eq('id', serviceId)
-      .single();
-
-    if (error) {
-      logServiceError('Fetch existing service before update failed', error);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({ error: 'Failed to fetch service for update' })
-      };
-    }
-
-    // Smart Markup Strategy for admin updates as well
-    // If provider_rate is changing, enforce global rules:
-    // - Provider ↑: keep existing markup%, adjust retail = provider * (1 + markup%)
-    // - Provider ↓: keep retail constant, recalc markup% = ((retail - provider)/provider)*100
-    try {
-      const prevProvider = Number(service?.provider_rate);
-      const prevRetail = Number(service?.rate ?? service?.retail_rate);
-      const prevMarkup = Number(service?.markup_percentage);
-      const nextProvider = numericProviderRate;
-
-      const hasPrevProvider = Number.isFinite(prevProvider) && prevProvider > 0;
-      const hasPrevRetail = Number.isFinite(prevRetail) && prevRetail > 0;
-      const hasPrevMarkup = Number.isFinite(prevMarkup);
-      const providerChanging = Number.isFinite(nextProvider) && hasPrevProvider && nextProvider !== prevProvider;
-
-      if (providerChanging && hasPrevMarkup) {
-        if (nextProvider > prevProvider) {
-          // Provider increased: keep markup%, adjust retail
-          const newRetail = Number((nextProvider * (1 + prevMarkup / 100)).toFixed(4));
-          updates.rate = newRetail;
-          updates.retail_rate = newRetail;
-          updates.markup_percentage = prevMarkup;
-          // If client attempted to override, enforce global rule
-        } else if (nextProvider < prevProvider) {
-          // Provider decreased: keep retail, recalc markup%
-          const retailToKeep = hasPrevRetail ? prevRetail : (resolvedRetailRate ?? null);
-          if (Number.isFinite(retailToKeep) && retailToKeep > 0) {
-            const newMarkup = Number((((retailToKeep - nextProvider) / nextProvider) * 100).toFixed(2));
-            updates.rate = retailToKeep;
-            updates.retail_rate = retailToKeep;
-            updates.markup_percentage = newMarkup;
-          } else if (hasPrevMarkup) {
-            // Fallback if no retail to keep: compute from markup
-            const newRetail = Number((nextProvider * (1 + prevMarkup / 100)).toFixed(4));
-            updates.rate = newRetail;
-            updates.retail_rate = newRetail;
-            updates.markup_percentage = prevMarkup;
-          }
-        }
-      }
-    } catch (smartErr) {
-      logger.warn('Smart markup strategy (admin update) skipped due to error', serializeError(smartErr));
-    }
-
-    const { data: updatedService, error: updateError } = await supabaseAdmin
-      .from('services')
-      .update(updates)
-      .eq('id', serviceId)
-      .select()
-      .single();
-      logServiceError('Failed to load providers for fallback', error);
-    if (updateError) {
-    }
-
-    if (!Array.isArray(providers) || !providers.length) {
-      return [];
-    }
-
-          details: updateError.message || updateError.hint || 'Unknown database error'
-
-    for (const provider of providers) {
-      if (!provider?.api_url || !provider?.api_key) {
-        continue;
-      }
-
-      try {
-        const params = new URLSearchParams();
-        params.append('key', provider.api_key);
-        params.append('action', 'services');
-
-        const response = await axios.post(provider.api_url, params, {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-          },
-          timeout: 20000
-        });
-
-        if (!Array.isArray(response.data)) {
-          logger.warn('Provider returned unexpected format', { provider: provider.name });
-          continue;
-        }
-
-        const providerServices = response.data
-          .map((service) => normalizeProviderService(provider, service))
-          .filter(Boolean);
-
-        allServices.push(...providerServices);
-      } catch (providerError) {
-        logServiceError('Failed to fetch services from provider', providerError, { provider: provider.name });
-      }
-    }
-
-    return allServices.filter((service) => service.status === 'active');
-  } catch (fallbackError) {
-    logServiceError('Fallback provider load failed', fallbackError);
-    return [];
-  }
-}
-
-function normalizeProviderService(provider, rawService) {
-  if (!rawService || typeof rawService !== 'object') {
-    return null;
-  }
-
-  const toNumber = (value, fallback = null) => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
-
-  const minQuantity = toNumber(rawService.min) ?? toNumber(rawService.min_order) ?? 1;
-  const maxQuantity = toNumber(rawService.max) ?? toNumber(rawService.max_order) ?? 100000;
-  const rate = toNumber(rawService.rate ?? rawService.price, 0);
-
-  const rawStatus = rawService.status ? String(rawService.status).toLowerCase() : 'active';
-  const normalizedStatus = ['active', 'enabled', 'running'].includes(rawStatus) ? 'active' : 'inactive';
-
-  const averageTime = normalizeAverageTime(
-    rawService.average_time ?? rawService.avg_time ?? rawService.time ?? rawService.expected_time
-  );
-
-  // Force USD if currency is missing or invalid - CRITICAL FIX
-  const currencyRaw = rawService.currency ?? rawService.price_currency ?? rawService.rate_currency ?? rawService.cur ?? 'USD';
-  const currency = normalizeCurrency(currencyRaw, 'USD');
-
-  return {
-    id: `${provider.id || provider.name}:${rawService.service || rawService.id || rawService.name}`,
-    provider_id: provider.id || null,
-    provider_service_id: String(rawService.service ?? rawService.id ?? rawService.name ?? ''),
-    name: String(rawService.name || rawService.service || 'Untitled Service'),
-    category: String(rawService.category || 'General'),
-    type: String(rawService.type || 'default'),
-    rate,
-    provider_rate: toNumber(rawService.rate),
-    retail_rate: rate,
-    markup_percentage: provider.markup,
-    min_quantity: minQuantity,
-    max_quantity: maxQuantity,
-    description: String(rawService.description || rawService.desc || ''),
-    status: normalizedStatus,
-    currency,
-    average_time: averageTime,
-    refill_supported: toBooleanFlag(rawService.refill ?? rawService.refill_support ?? rawService.needs_refill),
-    cancel_supported: toBooleanFlag(rawService.cancel ?? rawService.cancel_support ?? rawService.cancellable),
-    dripfeed_supported: toBooleanFlag(rawService.dripfeed ?? rawService.drip_feed ?? rawService.drip),
-    subscription_supported: toBooleanFlag(rawService.subscription ?? rawService.subscriptions ?? rawService.subscription_supported),
-    provider_metadata: rawService,
-    provider: {
-      id: provider.id,
-      name: provider.name,
-      status: provider.status,
-      markup: provider.markup
-    }
-  };
 }
 
 async function handleCreateService(user, data, headers) {
@@ -1307,7 +1141,6 @@ async function handleUpdateService(user, data, headers) {
 
 async function handleDeleteService(user, data, headers) {
   try {
-    // Only admins can delete services
     if (!user || user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -1326,17 +1159,23 @@ async function handleDeleteService(user, data, headers) {
       };
     }
 
+    // Nullify orders referencing this service (FK is RESTRICT, not CASCADE)
+    await supabaseAdmin
+      .from('orders')
+      .update({ service_id: null })
+      .eq('service_id', serviceId);
+
     const { error } = await supabaseAdmin
       .from('services')
       .delete()
       .eq('id', serviceId);
 
     if (error) {
-      logServiceError('Delete service validation error', error, { serviceId: body.id });
+      logServiceError('Delete service error', error, { serviceId });
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to delete service' })
+        body: JSON.stringify({ error: error.message || 'Failed to delete service' })
       };
     }
 
@@ -1346,7 +1185,7 @@ async function handleDeleteService(user, data, headers) {
       body: JSON.stringify({ success: true })
     };
   } catch (error) {
-    logServiceError('Delete service error', error, { serviceId: body?.id });
+    logServiceError('Delete service error', error, { serviceId });
     return {
       statusCode: 500,
       headers,

@@ -4,8 +4,15 @@ const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { syncProviderServices } = require('./sync-service-catalog');
 const { getPricingEngine } = require('./utils/pricing-engine');
+const { getExchangeRates } = require('./utils/currency-converter');
 
 const JWT_SECRET = process.env.JWT_SECRET;
+
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
 
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -58,7 +65,10 @@ function canonicalizeAction(rawAction, params) {
     testconnection: 'test',
     validate: 'test',
     'fetch-service-details': 'fetch-service-details',
-    fetchservicedetails: 'fetch-service-details'
+    fetchservicedetails: 'fetch-service-details',
+    'fetch-services': 'fetch-services',
+    fetchservices: 'fetch-services',
+    listservices: 'fetch-services'
   };
 
   let normalized = '';
@@ -120,58 +130,6 @@ function normalizeCurrency(value, fallback = 'USD') {
 }
 
 // Real-time exchange rates cache
-let exchangeRatesCache = null;
-let exchangeRatesCacheTime = null;
-const EXCHANGE_RATES_CACHE_TTL = 3600000; // 1 hour
-
-// Fetch real-time exchange rates from API
-async function fetchExchangeRates() {
-  const now = Date.now();
-  
-  // Return cached rates if still valid
-  if (exchangeRatesCache && exchangeRatesCacheTime && (now - exchangeRatesCacheTime < EXCHANGE_RATES_CACHE_TTL)) {
-    return exchangeRatesCache;
-  }
-  
-  try {
-    // Free API, no key required (1500 req/day limit)
-    const response = await axios.get('https://open.er-api.com/v6/latest/USD', {
-      timeout: 5000
-    });
-    
-    if (response.data && response.data.rates) {
-      exchangeRatesCache = response.data.rates;
-      exchangeRatesCacheTime = now;
-      console.log('[CURRENCY] Exchange rates updated successfully');
-      return exchangeRatesCache;
-    }
-  } catch (error) {
-    console.error('[CURRENCY] Failed to fetch exchange rates:', error.message);
-  }
-  
-  // Fallback to static rates if API fails
-  return {
-    USD: 1,
-    EUR: 1.09,
-    GBP: 1.27,
-    INR: 0.012,
-    TRY: 0.029,
-    BRL: 0.20,
-    NGN: 0.0007,
-    CAD: 0.71,
-    AUD: 0.65,
-    SGD: 0.74,
-    AED: 0.27,
-    SAR: 0.27,
-    PHP: 0.018,
-    RUB: 0.011,
-    MXN: 0.050,
-    ZAR: 0.055,
-    JPY: 0.0068,
-    CNY: 0.14
-  };
-}
-
 // Convert amount from any currency to USD
 async function convertToUSD(amount, fromCurrency) {
   const currency = String(fromCurrency || 'USD').toUpperCase().trim();
@@ -180,7 +138,7 @@ async function convertToUSD(amount, fromCurrency) {
     return parseFloat(amount) || 0;
   }
   
-  const rates = await fetchExchangeRates();
+  const rates = await getExchangeRates();
   const rate = rates[currency];
   
   if (!rate) {
@@ -219,7 +177,7 @@ function extractProviderId(raw = {}) {
 
 exports.handler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Content-Type': 'application/json'
@@ -333,6 +291,8 @@ async function handleAction(data, headers) {
       return await createProvider(params, headers);
     case 'fetch-service-details':
       return await fetchServiceDetails(params, headers);
+    case 'fetch-services':
+      return await fetchProviderServicesList(params, headers);
     case 'toggle_low_balance_alert':
       return await toggleLowBalanceAlert(params, headers);
     default:
@@ -528,6 +488,82 @@ async function syncProvider(data, headers) {
       headers,
       body: JSON.stringify({
         error: error.message || 'Failed to sync provider'
+      })
+    };
+  }
+}
+
+async function fetchProviderServicesList(data, headers) {
+  try {
+    const providerId = extractProviderId(data);
+
+    if (!providerId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Provider ID is required' })
+      };
+    }
+
+    const { data: provider, error: providerError } = await supabaseAdmin
+      .from('providers')
+      .select('id, name, api_url, api_key, currency')
+      .eq('id', providerId)
+      .single();
+
+    if (providerError || !provider) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ error: 'Provider not found' })
+      };
+    }
+
+    const params = new URLSearchParams();
+    params.append('key', provider.api_key);
+    params.append('action', 'services');
+
+    const response = await axios.post(provider.api_url, params, {
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      validateStatus: (status) => status < 500
+    });
+
+    if (!Array.isArray(response.data)) {
+      return {
+        statusCode: 502,
+        headers,
+        body: JSON.stringify({ error: 'Provider returned invalid service list' })
+      };
+    }
+
+    let services = response.data;
+
+    // Filter by specific service IDs if provided
+    const serviceIds = data.serviceIds;
+    if (Array.isArray(serviceIds) && serviceIds.length > 0) {
+      const idSet = new Set(serviceIds.map(id => String(id)));
+      services = services.filter(s => idSet.has(String(s.service || s.id)));
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        providerId: provider.id,
+        providerName: provider.name,
+        currency: provider.currency || 'USD',
+        services
+      })
+    };
+  } catch (error) {
+    console.error('Fetch provider services list error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({
+        error: error.message || 'Failed to fetch services from provider'
       })
     };
   }
@@ -798,6 +834,21 @@ async function handleDeleteProvider(data, headers) {
       };
     }
 
+    // Get all service IDs for this provider
+    const { data: services } = await supabaseAdmin
+      .from('services')
+      .select('id')
+      .eq('provider_id', providerId);
+
+    // Nullify orders referencing those services (FK is RESTRICT, not CASCADE)
+    if (services && services.length > 0) {
+      const serviceIds = services.map(s => s.id);
+      await supabaseAdmin
+        .from('orders')
+        .update({ service_id: null })
+        .in('service_id', serviceIds);
+    }
+
     const { error } = await supabaseAdmin
       .from('providers')
       .delete()
@@ -808,7 +859,7 @@ async function handleDeleteProvider(data, headers) {
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ error: 'Failed to delete provider' })
+        body: JSON.stringify({ error: error.message || 'Failed to delete provider' })
       };
     }
 

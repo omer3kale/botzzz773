@@ -448,10 +448,7 @@ function finalizeLogin(data, rememberMe, context = {}) {
         return;
     }
 
-    console.log('[AUTH] Saving token to localStorage...');
-    console.log('[AUTH] Token length:', data.token?.length);
-    console.log('[AUTH] User:', data.user?.email, data.user?.role);
-    
+
     try {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
@@ -459,9 +456,7 @@ function finalizeLogin(data, rememberMe, context = {}) {
         // Verify the token was saved
         const savedToken = localStorage.getItem('token');
         const savedUser = localStorage.getItem('user');
-        console.log('[AUTH] Token saved successfully:', !!savedToken);
-        console.log('[AUTH] User saved successfully:', !!savedUser);
-        
+
         if (!savedToken) {
             console.error('[AUTH] CRITICAL: Token was not saved to localStorage!');
             showError('Failed to save login. Please check your browser settings.');
@@ -498,8 +493,6 @@ function finalizeLogin(data, rememberMe, context = {}) {
     setTimeout(() => {
         const isAdmin = data.user.role === 'admin';
         const destination = isAdmin ? 'admin/index.html' : '/';
-        console.log('[AUTH] Redirecting to:', destination);
-        console.log('[AUTH] Final token check before redirect:', !!localStorage.getItem('token'));
         window.location.href = destination;
     }, 1000);
 }
@@ -851,8 +844,6 @@ function notifyOpener(type, detail = {}) {
 
 // Attach event listeners
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('[AUTH] DOMContentLoaded - setting up form listeners');
-    
     // Verify api client is loaded
     if (typeof api === 'undefined') {
         console.error('[AUTH] CRITICAL: api-client.js not loaded! Forms will not work.');
@@ -867,17 +858,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (signinForm) {
         signinForm.addEventListener('submit', handleSignIn);
         signinForm.dataset.handlerAttached = 'true';
-        console.log('[AUTH] Sign-in form listener attached successfully');
     } else {
-        console.log('[AUTH] No signinForm found on this page');
+        // No signinForm on this page
     }
 
     if (signupForm) {
         signupForm.addEventListener('submit', handleSignUp);
         signupForm.dataset.handlerAttached = 'true';
-        console.log('[AUTH] Sign-up form listener attached successfully');
     } else {
-        console.log('[AUTH] No signupForm found on this page');
+        // No signupForm on this page
     }
 
     const adminOtpForm = document.getElementById('adminOtpForm');

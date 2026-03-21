@@ -331,10 +331,10 @@ function buildCategoryHeaderRow(categoryName, icon, isParent = true, parentName 
     const indentClass = isParent ? '' : 'category-header--child';
     const bgClass = isParent ? 'category-header--parent' : 'category-header--child';
     const label = isParent ? categoryName : `↳ ${categoryName}`;
-    
+
     return `
         <tr class="category-header-row ${bgClass}" data-category="${escapeHtml(categoryName)}">
-            <td colspan="10">
+            <td colspan="8">
                 <div class="category-header-content ${indentClass}">
                     <i class="${escapeHtml(iconClass)}"></i>
                     <span class="category-header-label">${escapeHtml(label)}</span>
@@ -948,6 +948,392 @@ function isAdminCreatedService(service = {}) {
         return true;
     }
     return !service.provider_service_id;
+}
+
+// Bulk Add Services
+async function bulkAddService() {
+    const providers = await fetchProvidersList();
+    const categories = await fetchCategoriesList();
+    const providerOptions = providers.length > 0
+        ? buildProviderOptions(providers)
+        : '<option value="">No providers</option>';
+    const categoryOptions = categories.length > 0
+        ? buildCategoryOptions(categories)
+        : '<option value="">Default</option>';
+
+    const content = `
+        <div class="bulk-add-container">
+            <div class="bulk-add-defaults">
+                <h4 style="margin:0 0 10px; font-size:13px; color:var(--admin-light-text);">Default Settings (applied to all)</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Provider</label>
+                        <select id="bulkDefaultProvider">${providerOptions}</select>
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="bulkDefaultCategory">${categoryOptions}</select>
+                    </div>
+                    <div class="form-group">
+                        <label>Type</label>
+                        <select id="bulkDefaultType">
+                            <option value="service">Standard</option>
+                            <option value="subscription">Subscription</option>
+                            <option value="custom_comments">Custom Comments</option>
+                            <option value="package">Package</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="bulkDefaultStatus">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Markup %</label>
+                        <input type="number" id="bulkDefaultMarkup" placeholder="40" step="0.01" value="">
+                    </div>
+                    <div class="form-group">
+                        <label>Overflow %</label>
+                        <input type="number" id="bulkDefaultOverflow" placeholder="0" min="0" max="500" step="1" value="0">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Customer Portal</label>
+                        <select id="bulkDefaultPortal">
+                            <option value="false">Hidden</option>
+                            <option value="true">Visible</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Features</label>
+                        <div class="bulk-checks-row">
+                            <label class="bulk-check-label"><input type="checkbox" id="bulkDefaultRefill"> Refill</label>
+                            <label class="bulk-check-label"><input type="checkbox" id="bulkDefaultCancel"> Cancel</label>
+                            <label class="bulk-check-label"><input type="checkbox" id="bulkDefaultDripfeed"> Dripfeed</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bulk-fetch-bar">
+                <button type="button" class="btn-secondary" onclick="bulkFetchFromProvider()">
+                    <i class="fas fa-cloud-download-alt"></i> Fetch Services from Provider
+                </button>
+                <small style="color:var(--admin-gray-text);">Fetches all services from selected provider and fills the table below.</small>
+            </div>
+
+            <div class="bulk-add-table-wrap">
+                <table class="bulk-add-table">
+                    <thead>
+                        <tr>
+                            <th style="width:35px">#</th>
+                            <th>Service Name</th>
+                            <th style="width:80px">Prov. ID</th>
+                            <th style="width:80px">Cost/$1k</th>
+                            <th style="width:80px">Rate/$1k</th>
+                            <th style="width:65px">Min</th>
+                            <th style="width:65px">Max</th>
+                            <th style="width:32px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="bulkAddRows">
+                    </tbody>
+                </table>
+            </div>
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button type="button" class="btn-secondary bulk-add-row-btn" onclick="addBulkRow()">
+                    <i class="fas fa-plus"></i> Add Row
+                </button>
+                <button type="button" class="btn-secondary bulk-add-row-btn" onclick="for(let i=0;i<5;i++) addBulkRow();">
+                    <i class="fas fa-plus"></i> +5 Rows
+                </button>
+            </div>
+            <div class="bulk-add-status" id="bulkAddStatus"></div>
+        </div>
+    `;
+
+    const actions = `
+        <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+        <button type="button" class="btn-primary" id="bulkSubmitBtn" onclick="submitBulkAdd()">
+            <i class="fas fa-layer-group"></i> Create All
+        </button>
+    `;
+
+    createModal('Bulk Add Services', content, actions);
+
+    // Add initial 3 empty rows
+    for (let i = 0; i < 3; i++) addBulkRow();
+}
+
+let bulkRowCounter = 0;
+
+function addBulkRow(prefill = null) {
+    bulkRowCounter++;
+    const tbody = document.getElementById('bulkAddRows');
+    if (!tbody) return;
+    const row = document.createElement('tr');
+    row.setAttribute('data-bulk-row', bulkRowCounter);
+    row.innerHTML = `
+        <td class="bulk-row-num">${tbody.children.length + 1}</td>
+        <td><input type="text" class="bulk-input" name="name" placeholder="Service name" value="${prefill?.name ? escapeHtml(prefill.name) : ''}"></td>
+        <td><input type="text" class="bulk-input" name="providerServiceId" placeholder="ID" value="${prefill?.service ? escapeHtml(String(prefill.service)) : ''}"></td>
+        <td><input type="text" class="bulk-input bulk-input--right" name="cost" placeholder="0.00" value="${prefill?.rate != null ? prefill.rate : ''}"></td>
+        <td><input type="text" class="bulk-input bulk-input--right" name="rate" placeholder="0.00" value=""></td>
+        <td><input type="text" class="bulk-input" name="min" placeholder="100" value="${prefill?.min != null ? prefill.min : ''}"></td>
+        <td><input type="text" class="bulk-input" name="max" placeholder="10000" value="${prefill?.max != null ? prefill.max : ''}"></td>
+        <td><button type="button" class="bulk-remove-btn" onclick="removeBulkRow(this)" title="Remove"><i class="fas fa-times"></i></button></td>
+    `;
+    tbody.appendChild(row);
+
+    // Auto-calc retail rate from cost + markup
+    if (prefill?.rate != null) {
+        const markupInput = document.getElementById('bulkDefaultMarkup');
+        const markup = parseFloat(markupInput?.value) || 0;
+        if (markup > 0) {
+            const retailInput = row.querySelector('input[name="rate"]');
+            if (retailInput) retailInput.value = (parseFloat(prefill.rate) * (1 + markup / 100)).toFixed(4);
+        } else {
+            const retailInput = row.querySelector('input[name="rate"]');
+            if (retailInput) retailInput.value = prefill.rate;
+        }
+    }
+}
+
+function removeBulkRow(btn) {
+    const row = btn.closest('tr');
+    if (row) row.remove();
+    const tbody = document.getElementById('bulkAddRows');
+    if (tbody) {
+        [...tbody.children].forEach((r, i) => {
+            const numCell = r.querySelector('.bulk-row-num');
+            if (numCell) numCell.textContent = i + 1;
+        });
+    }
+}
+
+async function bulkFetchFromProvider() {
+    const providerSelect = document.getElementById('bulkDefaultProvider');
+    const providerId = providerSelect?.value;
+    if (!providerId) {
+        showNotification('Select a provider first', 'error');
+        return;
+    }
+
+    // Collect provider service IDs from table rows
+    const tbody = document.getElementById('bulkAddRows');
+    const rows = tbody ? [...tbody.querySelectorAll('tr')] : [];
+    const serviceIds = [];
+    rows.forEach(row => {
+        const id = row.querySelector('input[name="providerServiceId"]')?.value?.trim();
+        if (id) serviceIds.push(id);
+    });
+
+    if (serviceIds.length === 0) {
+        showNotification('Enter at least one Provider ID in the table first', 'error');
+        return;
+    }
+
+    const statusEl = document.getElementById('bulkAddStatus');
+    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching ' + serviceIds.length + ' service(s) from provider...';
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/providers', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                action: 'fetch-services',
+                providerId: providerId,
+                serviceIds: serviceIds
+            })
+        });
+
+        const data = await response.json();
+
+        if (!data.success) {
+            if (statusEl) statusEl.textContent = data.error || 'Failed to fetch services.';
+            return;
+        }
+
+        const services = data.services || [];
+
+        if (!Array.isArray(services) || services.length === 0) {
+            if (statusEl) statusEl.textContent = 'No matching services found from this provider.';
+            return;
+        }
+
+        // Build a map of fetched services by ID
+        const serviceMap = {};
+        services.forEach(s => {
+            const sid = String(s.service || s.id || '');
+            if (sid) serviceMap[sid] = s;
+        });
+
+        // Fill in existing rows that have a matching provider ID
+        let filled = 0;
+        rows.forEach(row => {
+            const idInput = row.querySelector('input[name="providerServiceId"]');
+            const id = idInput?.value?.trim();
+            if (!id || !serviceMap[id]) return;
+
+            const s = serviceMap[id];
+            const nameInput = row.querySelector('input[name="name"]');
+            const costInput = row.querySelector('input[name="cost"]');
+            const rateInput = row.querySelector('input[name="rate"]');
+            const minInput = row.querySelector('input[name="min"]');
+            const maxInput = row.querySelector('input[name="max"]');
+
+            if (nameInput && !nameInput.value.trim()) nameInput.value = s.name || '';
+            if (costInput) costInput.value = s.rate || s.price || '';
+            if (minInput && !minInput.value.trim()) minInput.value = s.min || '';
+            if (maxInput && !maxInput.value.trim()) maxInput.value = s.max || '';
+
+            // Auto-calc retail rate from cost + markup
+            const markupInput = document.getElementById('bulkDefaultMarkup');
+            const markup = parseFloat(markupInput?.value) || 0;
+            const cost = parseFloat(s.rate || s.price || 0);
+            if (rateInput) {
+                rateInput.value = markup > 0 ? (cost * (1 + markup / 100)).toFixed(4) : cost;
+            }
+
+            row.style.background = 'rgba(16, 185, 129, 0.08)';
+            filled++;
+        });
+
+        const notFound = serviceIds.length - filled;
+        let msg = `Fetched ${filled} of ${serviceIds.length} service(s).`;
+        if (notFound > 0) msg += ` ${notFound} ID(s) not found at provider.`;
+        msg += ' Review and click "Create All".';
+        if (statusEl) statusEl.textContent = msg;
+    } catch (error) {
+        console.error('Bulk fetch error:', error);
+        if (statusEl) statusEl.textContent = 'Failed to fetch services from provider.';
+        showNotification('Failed to fetch services', 'error');
+    }
+}
+
+async function submitBulkAdd() {
+    const tbody = document.getElementById('bulkAddRows');
+    if (!tbody) return;
+
+    const defaultProvider = document.getElementById('bulkDefaultProvider')?.value || null;
+    const defaultCategory = document.getElementById('bulkDefaultCategory')?.value || '';
+    const defaultType = document.getElementById('bulkDefaultType')?.value || 'service';
+    const defaultStatus = document.getElementById('bulkDefaultStatus')?.value || 'active';
+    const defaultMarkup = parseFloat(document.getElementById('bulkDefaultMarkup')?.value) || 0;
+    const defaultOverflow = parseFloat(document.getElementById('bulkDefaultOverflow')?.value) || 0;
+    const defaultPortal = document.getElementById('bulkDefaultPortal')?.value === 'true';
+    const defaultRefill = document.getElementById('bulkDefaultRefill')?.checked || false;
+    const defaultCancel = document.getElementById('bulkDefaultCancel')?.checked || false;
+    const defaultDripfeed = document.getElementById('bulkDefaultDripfeed')?.checked || false;
+
+    const rows = [...tbody.querySelectorAll('tr')];
+    const services = [];
+
+    for (const row of rows) {
+        const name = row.querySelector('input[name="name"]')?.value?.trim();
+        if (!name) continue;
+
+        const providerServiceId = row.querySelector('input[name="providerServiceId"]')?.value?.trim() || null;
+        const cost = parseFloat(row.querySelector('input[name="cost"]')?.value) || 0;
+        const rate = parseFloat(row.querySelector('input[name="rate"]')?.value) || 0;
+        const min = parseInt(row.querySelector('input[name="min"]')?.value, 10) || 100;
+        const max = parseInt(row.querySelector('input[name="max"]')?.value, 10) || 10000;
+
+        services.push({ name, providerServiceId, cost, rate, min, max });
+    }
+
+    if (services.length === 0) {
+        showNotification('No services to create. Fill in at least one row.', 'error');
+        return;
+    }
+
+    const submitBtn = document.getElementById('bulkSubmitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    }
+
+    const statusEl = document.getElementById('bulkAddStatus');
+    let created = 0;
+    let failed = 0;
+    const token = localStorage.getItem('token');
+    const filledRows = rows.filter(r => r.querySelector('input[name="name"]')?.value?.trim());
+
+    for (let i = 0; i < services.length; i++) {
+        const s = services[i];
+        if (statusEl) statusEl.textContent = `Creating ${i + 1} of ${services.length}...`;
+
+        try {
+            const retailRate = s.rate || (s.cost && defaultMarkup ? s.cost * (1 + defaultMarkup / 100) : s.cost) || 0;
+
+            const payload = {
+                action: 'create',
+                name: s.name,
+                category: defaultCategory,
+                type: defaultType,
+                rate: retailRate,
+                retailRate: retailRate,
+                providerRate: s.cost || null,
+                markupPercentage: defaultMarkup || null,
+                min_quantity: s.min,
+                max_quantity: s.max,
+                status: defaultStatus,
+                providerId: defaultProvider,
+                providerServiceId: s.providerServiceId,
+                overflowPercent: defaultOverflow,
+                customerPortalEnabled: defaultPortal,
+                adminApproved: defaultPortal,
+                refill_supported: defaultRefill,
+                cancel_supported: defaultCancel,
+                dripfeed_supported: defaultDripfeed
+            };
+
+            const response = await fetch(buildAdminServicesUrl(), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await parseApiResponse(response);
+            if (response.ok && data?.success) {
+                created++;
+                if (filledRows[i]) filledRows[i].style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                failed++;
+                if (filledRows[i]) filledRows[i].style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } catch (err) {
+            console.error('Bulk create error:', err);
+            failed++;
+        }
+    }
+
+    if (statusEl) statusEl.textContent = `Done: ${created} created, ${failed} failed`;
+    showNotification(`Bulk add complete: ${created} created${failed ? `, ${failed} failed` : ''}`, failed ? 'warning' : 'success');
+
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-layer-group"></i> Create All';
+    }
+
+    if (created > 0) {
+        setTimeout(() => {
+            closeModal();
+            reloadServicesPreserveScroll();
+        }, 1000);
+    }
 }
 
 // Add new service
@@ -1645,7 +2031,7 @@ async function submitImportServices(event) {
         if (response.ok && data && data.success) {
             showNotification(`Successfully imported ${data.added || 0} new services and updated ${data.updated || 0} existing services!`, 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Import services failed:', response.status, serverMessage, data);
@@ -1765,8 +2151,7 @@ async function submitCreateCategory(event) {
             // Invalidate categories cache to fetch fresh data
             window.invalidateCategoriesCache('all');
             closeModal();
-            // Reload the page to show updated category in dropdowns
-            setTimeout(() => window.location.reload(), 800);
+            reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Create category failed:', response.status, serverMessage, data);
@@ -1798,6 +2183,7 @@ async function manageCategories(force = false) {
     `;
 
     createModal('Manage Categories', content, actions);
+    initCategoryDragDrop();
 }
 
 function buildCategoryManagementContent(categories = []) {
@@ -1812,39 +2198,72 @@ function buildCategoryManagementContent(categories = []) {
         `;
     }
 
-    const rows = categories.map(category => {
-        const isInactive = (category.status || '').toLowerCase() === 'inactive';
-        const statusLabel = isInactive ? 'Inactive' : 'Active';
-        const statusColor = isInactive ? '#f97316' : '#10b981';
-        return `
-            <div class="category-row" data-category-id="${category.id}">
-                <div class="category-row__info">
-                    <div class="category-row__title">
-                        <span class="category-row__icon"><i class="${escapeHtml(category.icon || 'fas fa-folder')}"></i></span>
-                        <div>
-                            <strong>${escapeHtml(category.name)}</strong>
-                            <div class="category-row__meta">
-                                <span>Slug: <code>${escapeHtml(category.slug || '—')}</code></span>
-                                <span>Order: ${category.display_order ?? '—'}</span>
-                                <span>Status: <strong style="color:${statusColor};">${statusLabel}</strong></span>
-                            </div>
-                        </div>
-                    </div>
-                    ${category.description ? `<p class="category-row__description">${escapeHtml(category.description)}</p>` : ''}
-                </div>
-                <div class="category-row__actions">
-                    <button type="button" class="btn-secondary" onclick="openEditCategoryModal('${category.id}')">
-                        <i class="fas fa-edit"></i> Edit
-                    </button>
-                    <button type="button" class="btn-secondary danger" onclick="confirmDeleteCategory('${category.id}')">
-                        <i class="fas fa-trash"></i> Delete
-                    </button>
-                </div>
-            </div>
-        `;
-    }).join('');
+    // Group: parents first, then children under their parent
+    const parentCats = categories.filter(c => !c.parent_id);
+    const childCats = categories.filter(c => c.parent_id);
+    const childMap = {};
+    childCats.forEach(c => {
+        if (!childMap[c.parent_id]) childMap[c.parent_id] = [];
+        childMap[c.parent_id].push(c);
+    });
 
-    return `<div class="category-management-list">${rows}</div>`;
+    let html = '<div class="cat-mgmt-list">';
+
+    parentCats.sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999)).forEach(parent => {
+        html += buildCategoryCard(parent, true);
+        const children = childMap[parent.id] || [];
+        children.sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999)).forEach(child => {
+            html += buildCategoryCard(child, false);
+        });
+    });
+
+    // Orphan children (parent not in list)
+    const parentIds = new Set(parentCats.map(p => p.id));
+    childCats.filter(c => !parentIds.has(c.parent_id)).forEach(orphan => {
+        html += buildCategoryCard(orphan, false);
+    });
+
+    html += '</div>';
+    return html;
+}
+
+function buildCategoryCard(category, isParent) {
+    const isInactive = (category.status || '').toLowerCase() === 'inactive';
+    const statusLabel = isInactive ? 'Inactive' : 'Active';
+    const statusClass = isInactive ? 'cat-status--inactive' : 'cat-status--active';
+    const iconClass = category.icon || 'fas fa-folder';
+    const indent = isParent ? '' : ' cat-card--child';
+    const serviceCount = (window.servicesCache || []).filter(s => {
+        const cat = String(s.category || '').toLowerCase();
+        return cat === String(category.name || '').toLowerCase() || cat === String(category.slug || '').toLowerCase();
+    }).length;
+
+    return `
+        <div class="cat-card${indent}" data-category-id="${category.id}" data-display-order="${category.display_order ?? 999}">
+            <div class="cat-card__drag"><i class="fas fa-grip-vertical"></i></div>
+            <div class="cat-card__icon"><i class="${escapeHtml(iconClass)}"></i></div>
+            <div class="cat-card__body">
+                <div class="cat-card__header">
+                    <span class="cat-card__name">${isParent ? '' : '<span class="cat-card__indent">↳</span> '}${escapeHtml(category.name)}</span>
+                    <span class="cat-card__status ${statusClass}">${statusLabel}</span>
+                </div>
+                <div class="cat-card__details">
+                    ${category.slug ? `<span class="cat-card__detail"><i class="fas fa-link"></i> ${escapeHtml(category.slug)}</span>` : ''}
+                    <span class="cat-card__detail"><i class="fas fa-sort-numeric-down"></i> Order: ${category.display_order ?? '—'}</span>
+                    <span class="cat-card__detail"><i class="fas fa-box"></i> ${serviceCount} service${serviceCount !== 1 ? 's' : ''}</span>
+                </div>
+                ${category.description ? `<p class="cat-card__desc">${escapeHtml(category.description)}</p>` : ''}
+            </div>
+            <div class="cat-card__actions">
+                <button type="button" class="cat-action-btn" onclick="openEditCategoryModal('${category.id}')" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button type="button" class="cat-action-btn cat-action-btn--danger" onclick="confirmDeleteCategory('${category.id}')" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `;
 }
 
 async function openEditCategoryModal(categoryId) {
@@ -2355,7 +2774,7 @@ async function confirmDuplicateService(serviceId) {
         if (response.ok && data && data.success) {
             showNotification(`Service #${serviceId} duplicated successfully!`, 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Duplicate service failed:', response.status, serverMessage, data);
@@ -2526,7 +2945,7 @@ async function confirmDeleteService(serviceId) {
         if (response.ok && data && data.success) {
             showNotification(`Service #${serviceId} deleted successfully`, 'success');
             closeModal();
-            setTimeout(() => window.location.reload(), 1000);
+            reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Delete service failed:', response.status, serverMessage, data);
@@ -2541,10 +2960,9 @@ async function confirmDeleteService(serviceId) {
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     initializeServicesQuickActions();
-    if (typeof handleSearch === 'function') {
-        handleSearch('serviceSearch', 'servicesTable');
-    }
     await loadServices();
+    initServicesFilter();
+    initInlineEditing();
 });
 
 // Load real services from database
@@ -2552,7 +2970,7 @@ async function loadServices() {
     const tbody = document.getElementById('servicesTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading services...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading services...</td></tr>';
 
     try {
         const token = localStorage.getItem('token');
@@ -2646,7 +3064,7 @@ async function loadServices() {
                 const isManualService = isAdminCreatedService(service);
                 const publicIdValue = toNumeric(service.public_id);
                 const hasPublicId = Number.isFinite(publicIdValue);
-                const ourIdLabel = hasPublicId ? `#${publicIdValue}` : 'ID Pending';
+                const ourIdLabel = hasPublicId ? `${publicIdValue}` : 'Pending';
                 const providerIdRaw = service.provider_service_id ? String(service.provider_service_id) : '';
                 const providerId = providerIdRaw ? escapeHtml(providerIdRaw) : null;
                 const providerLabel = providerId ? providerId : 'Provider order pending';
@@ -2681,13 +3099,11 @@ async function loadServices() {
                     null
                 );
 
-                let retailRateValue = Number.isFinite(providerCost)
-                    ? providerCost * markupFactor
-                    : null;
-
-                if (!Number.isFinite(retailRateValue) && Number.isFinite(storedRetailRate)) {
-                    retailRateValue = storedRetailRate;
-                }
+                let retailRateValue = Number.isFinite(storedRetailRate)
+                    ? storedRetailRate
+                    : Number.isFinite(providerCost)
+                        ? providerCost * markupFactor
+                        : null;
 
                 if (!Number.isFinite(providerCost) && Number.isFinite(retailRateValue) && markupFactor !== 0) {
                     providerCost = retailRateValue / markupFactor;
@@ -2710,38 +3126,15 @@ async function loadServices() {
                     ? 'Unlimited'
                     : formatQuantityValue(service.max_quantity);
                 const providerName = service.provider?.name ? escapeHtml(service.provider.name) : 'Manual';
-                const averageTimeTag = service.average_time
-                    ? `<span class="service-meta-tag" title="Average completion time">${escapeHtml(service.average_time)}</span>`
-                    : '';
-                const currencyTag = `<span class="service-meta-tag service-meta-tag--muted">Currency: ${currencyCode}</span>`;
-                const capabilityBadges = buildCapabilityBadges(service, true);
-                const metaRows = [];
-                const primaryTags = [currencyTag];
-                if (averageTimeTag) {
-                    primaryTags.unshift(averageTimeTag);
-                }
-                if (isPortalEnabled) {
-                    const portalLabel = Number.isFinite(portalSlotValue)
-                        ? `Portal Slot #${portalSlotValue}`
-                        : 'Portal Enabled';
-                    primaryTags.push(`<span class="service-meta-tag">${portalLabel}</span>`);
-                }
-                metaRows.push(`<div class="service-meta-row">${primaryTags.join('')}</div>`);
-                if (capabilityBadges) {
-                    metaRows.push(`<div class="service-meta-row service-meta-row--compact">${capabilityBadges}</div>`);
-                }
-                if (service.customer_portal_notes) {
-                    metaRows.push(`<div class="service-meta-row service-meta-row--muted">${escapeHtml(service.customer_portal_notes)}</div>`);
-                }
-                const serviceMetaMarkup = metaRows.join('');
+                const serviceMetaMarkup = `<div class="service-info-badges"><span class="info-badge info-badge--category"><i class="${icon}"></i> ${escapeHtml(categoryLabel)}</span><span class="info-badge info-badge--provider"><i class="fas fa-server"></i> ${providerName}</span></div>`;
                 
                 const row = `
-                    <tr data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" data-category="${service.category ? String(service.category) : 'uncategorized'}">
+                    <tr data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" data-category="${service.category ? String(service.category) : 'uncategorized'}" data-provider="${providerName}" data-status="${service.status || 'unknown'}">
                         <td><input type="checkbox" class="service-checkbox" data-service-id="${serviceIdAttr}" data-public-id="${publicIdAttr}" data-category="${service.category ? String(service.category) : 'uncategorized'}" aria-label="${escapeHtml(ariaLabelId)}"></td>
                         <td>
-                            <div class="cell-stack cell-stack-ids">
-                                <span class="cell-primary${hasPublicId ? '' : ' cell-muted'}" title="Customer-facing service ID">${ourIdLabel}</span>
-                                <span class="cell-secondary cell-highlight" title="Provider reference">${escapeHtml(providerLabel)}</span>
+                            <div class="id-badges">
+                                <span class="id-badge id-badge--public" title="Public ID">${ourIdLabel}</span>
+                                <span class="id-badge id-badge--provider" title="Provider ID">${escapeHtml(providerLabel)}</span>
                             </div>
                         </td>
                         <td>
@@ -2749,33 +3142,24 @@ async function loadServices() {
                                 <i class="${icon}"></i>
                                 ${escapeHtml(service.name)}
                             </div>
+                            ${serviceMetaMarkup}
                         </td>
-                        <td>${escapeHtml(categoryLabel)}</td>
-                        <td>${providerName}</td>
-                        <td>
+                        <td class="editable-cell" data-field="rate" data-service-id="${serviceIdAttr}">
                             <div class="cell-stack cell-stack-right">
-                                <span class="cell-primary cell-highlight">Provider: ${providerRateDisplay}</span>
-                                <span class="cell-primary cell-retail">Retail: ${retailRateDisplay}</span>
-                                <span class="cell-secondary">Markup: ${markupDisplay}</span>
+                                <span class="cell-primary cell-retail">$${retailRateValue != null ? formatTrimZeros(retailRateValue, 10) : '—'}</span>
+                                <span class="cell-secondary">Cost: $${Number.isFinite(providerCost) ? formatTrimZeros(providerCost, 10) : '—'}</span>
                             </div>
                         </td>
-                        <td>${minQuantity}</td>
-                        <td>${maxQuantity}</td>
+                        <td class="editable-cell" data-field="min_quantity" data-service-id="${serviceIdAttr}">${minQuantity}</td>
+                        <td class="editable-cell" data-field="max_quantity" data-service-id="${serviceIdAttr}">${maxQuantity}</td>
                         <td>
-                            <div class="cell-stack">
-                                <span class="status-badge ${statusClass}">${escapeHtml(String(service.status || 'unknown'))}</span>
-                                <span class="status-badge ${visibilityClass}">${visibilityLabel}</span>
-                            </div>
+                            <span class="status-badge ${statusClass}">${escapeHtml(String(service.status || 'unknown'))}</span>
                         </td>
                         <td>
-                            <div class="actions-dropdown">
-                                <button class="btn-icon"><i class="fas fa-ellipsis-v"></i></button>
-                                <div class="dropdown-menu">
-                                    <a href="#" onclick="editService('${service.id}')">Edit</a>
-                                    <a href="#" onclick="duplicateService('${service.id}')">Duplicate</a>
-                                    <a href="#" onclick="toggleService('${service.id}')">${toggleActionLabel}</a>
-                                    <a href="#" onclick="deleteService('${service.id}')">Delete</a>
-                                </div>
+                            <div class="actions-cell">
+                                <button class="action-icon-btn" onclick="editService('${service.id}')" title="Edit"><i class="fas fa-edit"></i></button>
+                                <button class="action-icon-btn" onclick="duplicateService('${service.id}')" title="Duplicate"><i class="fas fa-copy"></i></button>
+                                <button class="action-icon-btn action-danger" onclick="deleteService('${service.id}')" title="Delete"><i class="fas fa-trash"></i></button>
                             </div>
                         </td>
                     </tr>
@@ -2798,7 +3182,7 @@ async function loadServices() {
                 paginationInfo.textContent = `Showing 1-${Math.min(servicesCache.length, 50)} of ${servicesCache.length}`;
             }
         } else {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #888;">No services found</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #888;">No services found</td></tr>';
             document.getElementById('totalServices').textContent = '0';
             document.getElementById('activeServices').textContent = '0';
             selectedServiceIds.clear();
@@ -2806,9 +3190,371 @@ async function loadServices() {
         }
     } catch (error) {
         console.error('Load services error:', error);
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load services. Please refresh the page.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px; color: #ef4444;">Failed to load services. Please refresh the page.</td></tr>';
         selectedServiceIds.clear();
         updateSelectedServicesSummary();
+    }
+}
+
+// Expose loadServices globally for DnD module
+window.loadServices = loadServices;
+
+// ==========================================
+// Scroll-preserving reload
+// ==========================================
+async function reloadServicesPreserveScroll() {
+    const container = document.querySelector('.table-container');
+    const scrollPos = container ? container.scrollTop : 0;
+    const pageScrollPos = window.scrollY;
+    await loadServices();
+    populateFilterDropdowns();
+    applyFilters();
+    if (container) container.scrollTop = scrollPos;
+    window.scrollTo(0, pageScrollPos);
+}
+
+// ==========================================
+// Filter bar logic
+// ==========================================
+let filterDebounceTimer = null;
+
+function initServicesFilter() {
+    const searchInput = document.getElementById('serviceSearch');
+    const filterCategory = document.getElementById('filterCategory');
+    const filterStatus = document.getElementById('filterStatus');
+    const filterProvider = document.getElementById('filterProvider');
+
+    if (searchInput) {
+        searchInput.addEventListener('keyup', () => {
+            clearTimeout(filterDebounceTimer);
+            filterDebounceTimer = setTimeout(applyFilters, 300);
+        });
+    }
+    if (filterCategory) filterCategory.addEventListener('change', applyFilters);
+    if (filterStatus) filterStatus.addEventListener('change', applyFilters);
+    if (filterProvider) filterProvider.addEventListener('change', applyFilters);
+
+    populateFilterDropdowns();
+}
+
+function populateFilterDropdowns() {
+    const cache = window.servicesCache || [];
+    const categories = new Set();
+    const providers = new Set();
+
+    cache.forEach(s => {
+        if (s.category) categories.add(String(s.category));
+        const pName = s.provider?.name || (s.provider_service_id ? 'External' : 'Manual');
+        providers.add(pName);
+    });
+
+    const catSelect = document.getElementById('filterCategory');
+    if (catSelect) {
+        const current = catSelect.value;
+        catSelect.innerHTML = '<option value="">All Categories</option>';
+        [...categories].sort().forEach(c => {
+            catSelect.innerHTML += `<option value="${escapeHtml(c)}">${escapeHtml(c.charAt(0).toUpperCase() + c.slice(1))}</option>`;
+        });
+        catSelect.value = current;
+    }
+
+    const provSelect = document.getElementById('filterProvider');
+    if (provSelect) {
+        const current = provSelect.value;
+        provSelect.innerHTML = '<option value="">All Providers</option>';
+        [...providers].sort().forEach(p => {
+            provSelect.innerHTML += `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`;
+        });
+        provSelect.value = current;
+    }
+}
+
+function applyFilters() {
+    const searchVal = (document.getElementById('serviceSearch')?.value || '').toLowerCase().trim();
+    const catVal = document.getElementById('filterCategory')?.value || '';
+    const statusVal = document.getElementById('filterStatus')?.value || '';
+    const provVal = document.getElementById('filterProvider')?.value || '';
+
+    const searchTerms = searchVal ? searchVal.split(',').map(t => t.trim()).filter(Boolean) : [];
+
+    const rows = document.querySelectorAll('#servicesTableBody tr');
+    const visibleCategories = new Set();
+
+    rows.forEach(row => {
+        // Skip category header rows — we'll handle visibility after
+        if (row.classList.contains('category-header-row')) return;
+
+        const rowCategory = row.getAttribute('data-category') || '';
+        const rowProvider = row.getAttribute('data-provider') || '';
+        const rowStatus = row.getAttribute('data-status') || '';
+        const rowText = row.textContent.toLowerCase();
+
+        let show = true;
+
+        if (catVal && rowCategory !== catVal) show = false;
+        if (statusVal && rowStatus !== statusVal) show = false;
+        if (provVal && rowProvider !== provVal) show = false;
+        if (searchTerms.length > 0) {
+            const matchesSearch = searchTerms.some(term => rowText.includes(term));
+            if (!matchesSearch) show = false;
+        }
+
+        row.style.display = show ? '' : 'none';
+        if (show) visibleCategories.add(rowCategory);
+    });
+
+    // Show/hide category headers based on whether any of their services are visible
+    rows.forEach(row => {
+        if (!row.classList.contains('category-header-row')) return;
+        const headerCat = row.getAttribute('data-category') || '';
+        // Show if any category filter matches or if we have visible services in this category
+        const hasVisibleServices = visibleCategories.has(headerCat);
+        row.style.display = hasVisibleServices ? '' : 'none';
+    });
+}
+
+// ==========================================
+// Inline editing
+// ==========================================
+function initInlineEditing() {
+    const tbody = document.getElementById('servicesTableBody');
+    if (!tbody) return;
+
+    tbody.addEventListener('click', (e) => {
+        const td = e.target.closest('.editable-cell');
+        if (!td || td.querySelector('.inline-edit-input, .inline-edit-select')) return;
+        startCellEdit(td);
+    });
+}
+
+function startCellEdit(td) {
+    const field = td.getAttribute('data-field');
+    const serviceId = td.getAttribute('data-service-id');
+    if (!field || !serviceId) return;
+
+    // Get original raw value (strip locale formatting like commas)
+    let originalValue = '';
+    if (field === 'rate') {
+        const retailSpan = td.querySelector('.cell-retail');
+        if (retailSpan) {
+            originalValue = retailSpan.textContent.replace(/[^0-9.]/g, '');
+        }
+    } else {
+        const rawText = td.textContent.trim();
+        // Strip commas from locale-formatted numbers (e.g. "1,000" → "1000")
+        if (rawText.toLowerCase() === 'unlimited' || rawText === '—') {
+            originalValue = rawText;
+        } else {
+            originalValue = rawText.replace(/,/g, '');
+        }
+    }
+
+    // Store original HTML for cancel
+    td._originalHTML = td.innerHTML;
+    td._originalValue = originalValue;
+
+    if (field === 'status') {
+        const select = document.createElement('select');
+        select.className = 'inline-edit-select';
+        select.innerHTML = `<option value="active"${originalValue === 'active' ? ' selected' : ''}>Active</option><option value="inactive"${originalValue === 'inactive' ? ' selected' : ''}>Inactive</option>`;
+        td.innerHTML = '';
+        td.appendChild(select);
+        select.focus();
+        select.addEventListener('change', () => saveCellEdit(td, serviceId, field, select.value));
+        select.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (td.contains(select)) cancelCellEdit(td);
+            }, 150);
+        });
+        select.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') cancelCellEdit(td);
+        });
+    } else {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'inline-edit-input';
+        input.value = originalValue;
+        td.innerHTML = '';
+        td.appendChild(input);
+        input.focus();
+        input.select();
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                saveCellEdit(td, serviceId, field, input.value);
+            }
+            if (e.key === 'Escape') cancelCellEdit(td);
+        });
+        input.addEventListener('blur', () => {
+            setTimeout(() => {
+                if (td.contains(input)) saveCellEdit(td, serviceId, field, input.value);
+            }, 150);
+        });
+    }
+}
+
+async function saveCellEdit(td, serviceId, field, newValue) {
+    const originalValue = td._originalValue;
+    // Strip commas from input too for comparison
+    const cleanNew = String(newValue).replace(/,/g, '').trim();
+    const cleanOrig = String(originalValue).replace(/,/g, '').trim();
+    if (cleanNew === cleanOrig) {
+        cancelCellEdit(td);
+        return;
+    }
+
+    // Build update payload
+    const payload = { serviceId };
+
+    if (field === 'rate') {
+        payload.retail_rate = parseFloat(cleanNew) || 0;
+    } else if (field === 'min_quantity') {
+        payload.min_quantity = parseInt(cleanNew, 10) || 0;
+    } else if (field === 'max_quantity') {
+        const val = cleanNew.toLowerCase();
+        payload.max_quantity = (val === 'unlimited' || val === '—' || val === '') ? null : (parseInt(cleanNew, 10) || 0);
+    } else if (field === 'status') {
+        payload.status = newValue;
+    } else {
+        payload[field] = newValue;
+    }
+
+    // Show saving indicator
+    const savingHTML = td.innerHTML;
+    td.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: var(--admin-primary);"></i>';
+
+    try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/.netlify/functions/services', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            // Flash green to indicate success
+            td.classList.add('cell-save-flash');
+            setTimeout(() => td.classList.remove('cell-save-flash'), 600);
+            // Reload to get fresh data
+            reloadServicesPreserveScroll();
+        } else {
+            const err = await response.json().catch(() => null);
+            showNotification(err?.error || 'Failed to save', 'error');
+            cancelCellEdit(td);
+        }
+    } catch (error) {
+        console.error('Inline edit save error:', error);
+        showNotification('Failed to save changes', 'error');
+        cancelCellEdit(td);
+    }
+}
+
+function cancelCellEdit(td) {
+    if (td._originalHTML) {
+        td.innerHTML = td._originalHTML;
+        delete td._originalHTML;
+        delete td._originalValue;
+    }
+}
+
+// ==========================================
+// Page actions "More" dropdown toggle
+// ==========================================
+function togglePageActionsMore(e) {
+    e.stopPropagation();
+    const moreContainer = document.getElementById('pageActionsMore');
+    if (!moreContainer) return;
+    moreContainer.classList.toggle('open');
+
+    // Close on outside click
+    const closeHandler = (ev) => {
+        if (!moreContainer.contains(ev.target)) {
+            moreContainer.classList.remove('open');
+            document.removeEventListener('click', closeHandler);
+        }
+    };
+    if (moreContainer.classList.contains('open')) {
+        setTimeout(() => document.addEventListener('click', closeHandler), 0);
+    }
+}
+
+// ==========================================
+// Category Drag & Drop reordering
+// ==========================================
+let categorySortableInstance = null;
+
+function initCategoryDragDrop() {
+    setTimeout(() => {
+        const list = document.querySelector('.cat-mgmt-list');
+        if (!list) return;
+        if (categorySortableInstance) {
+            categorySortableInstance.destroy();
+            categorySortableInstance = null;
+        }
+        categorySortableInstance = Sortable.create(list, {
+            handle: '.cat-card__drag',
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag',
+            animation: 150,
+            onEnd: handleCategoryReorder
+        });
+    }, 100);
+}
+
+async function handleCategoryReorder() {
+    const list = document.querySelector('.cat-mgmt-list');
+    if (!list) return;
+
+    const cards = list.querySelectorAll('.cat-card');
+    const updates = [];
+    let order = 1;
+
+    cards.forEach(card => {
+        const categoryId = card.getAttribute('data-category-id');
+        const oldOrder = parseInt(card.getAttribute('data-display-order'), 10) || 999;
+        if (categoryId) {
+            if (order !== oldOrder) {
+                updates.push({ categoryId, display_order: order });
+            }
+            // Update data attribute immediately
+            card.setAttribute('data-display-order', order);
+            // Update visible order text
+            const orderDetail = card.querySelector('.cat-card__detail i.fa-sort-numeric-down');
+            if (orderDetail && orderDetail.parentElement) {
+                orderDetail.parentElement.innerHTML = `<i class="fas fa-sort-numeric-down"></i> Order: ${order}`;
+            }
+            order++;
+        }
+    });
+
+    if (updates.length === 0) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        const promises = updates.map(u =>
+            fetch(buildAdminServicesUrl(), {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    action: 'update-category',
+                    categoryId: u.categoryId,
+                    display_order: u.display_order
+                })
+            })
+        );
+        await Promise.all(promises);
+        showNotification('Category order updated', 'success');
+        // Invalidate cache
+        if (window.invalidateCategoriesCache) window.invalidateCategoriesCache('all');
+    } catch (error) {
+        console.error('Category reorder error:', error);
+        showNotification('Failed to save category order', 'error');
     }
 }
 
@@ -3022,5 +3768,173 @@ async function autoFetchServiceDetails() {
         serviceIdInput.disabled = false;
         serviceIdInput.style.opacity = '1';
     }
+}
+
+// ==========================================
+// PRICE CHANGE LOGS (Modal)
+// ==========================================
+
+let priceLogCurrentPage = 1;
+const PRICE_LOG_PAGE_SIZE = 25;
+
+async function showPriceChangeHistory() {
+    const providers = await fetchProvidersList();
+    const providerOptions = providers.map(p =>
+        `<option value="${p.id}">${escapeHtml(p.name)}</option>`
+    ).join('');
+
+    const content = `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <select id="priceLogFilterProvider" class="filter-select" onchange="loadPriceChangeLogs(1)">
+                <option value="">All Providers</option>
+                ${providerOptions}
+            </select>
+            <select id="priceLogFilterDirection" class="filter-select" onchange="loadPriceChangeLogs(1)">
+                <option value="">All Changes</option>
+                <option value="up">Price Increases</option>
+                <option value="down">Price Decreases</option>
+            </select>
+            <button class="btn-secondary" style="padding:6px 12px;font-size:12px;" onclick="loadPriceChangeLogs(1)">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+        <div class="table-container" style="max-height:450px;overflow:auto;">
+            <table class="admin-table" style="min-width:850px;">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Provider</th>
+                        <th>Service</th>
+                        <th>Old Cost</th>
+                        <th>New Cost</th>
+                        <th>Change</th>
+                        <th>Old Retail</th>
+                        <th>New Retail</th>
+                        <th>Markup</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="priceChangeLogsBody">
+                    <tr><td colspan="10" style="text-align:center;padding:20px;color:var(--admin-gray-text);"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div id="priceLogPagination" style="display:none;justify-content:center;align-items:center;gap:12px;margin-top:12px;">
+            <button class="btn-secondary" id="priceLogPrevPage" onclick="changePriceLogPage(-1)" disabled>Previous</button>
+            <span id="priceLogPaginationInfo" style="font-size:13px;color:var(--admin-gray-text);"></span>
+            <button class="btn-secondary" id="priceLogNextPage" onclick="changePriceLogPage(1)">Next</button>
+        </div>
+    `;
+
+    const actions = `<button type="button" class="btn-secondary" onclick="closeModal()">Close</button>`;
+    createModal('Price Change History', content, actions);
+
+    // Widen modal for the wide table
+    const modalContent = document.querySelector('.modal-content');
+    if (modalContent) modalContent.style.maxWidth = '960px';
+
+    // Auto-load first page
+    priceLogCurrentPage = 1;
+    loadPriceChangeLogs(1);
+}
+
+async function loadPriceChangeLogs(page) {
+    if (page !== undefined) priceLogCurrentPage = page;
+
+    const tbody = document.getElementById('priceChangeLogsBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;"><i class="fas fa-spinner fa-spin"></i> Loading...</td></tr>';
+
+    try {
+        const token = localStorage.getItem('token');
+        const params = new URLSearchParams({
+            page: priceLogCurrentPage,
+            limit: PRICE_LOG_PAGE_SIZE
+        });
+
+        const providerId = document.getElementById('priceLogFilterProvider')?.value;
+        const direction = document.getElementById('priceLogFilterDirection')?.value;
+        if (providerId) params.append('provider_id', providerId);
+        if (direction) params.append('direction', direction);
+
+        const response = await fetch(`/.netlify/functions/price-change-logs?${params.toString()}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (!data.success || !data.logs || data.logs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:var(--admin-gray-text);">No price changes found</td></tr>';
+            const pag = document.getElementById('priceLogPagination');
+            if (pag) pag.style.display = 'none';
+            return;
+        }
+
+        tbody.innerHTML = data.logs.map(log => {
+            const date = new Date(log.detected_at).toLocaleString();
+            const providerName = escapeHtml(log.providers?.name || 'Unknown');
+            const serviceName = escapeHtml(log.services?.name || log.provider_service_id || 'Unknown');
+            const oldCost = parseFloat(log.old_provider_rate || 0).toFixed(4);
+            const newCost = parseFloat(log.new_provider_rate || 0).toFixed(4);
+            const oldRetail = parseFloat(log.old_retail_rate || 0).toFixed(4);
+            const newRetail = parseFloat(log.new_retail_rate || 0).toFixed(4);
+            const markup = log.markup_used !== null && log.markup_used !== undefined ? `${log.markup_used}%` : '-';
+
+            const costDiff = parseFloat(log.new_provider_rate) - parseFloat(log.old_provider_rate);
+            const changePercent = parseFloat(log.old_provider_rate) > 0
+                ? ((costDiff / parseFloat(log.old_provider_rate)) * 100).toFixed(1)
+                : '0.0';
+            const isUp = costDiff > 0;
+            const changeClass = isUp ? 'price-log-up' : 'price-log-down';
+            const changeIcon = isUp ? 'fa-arrow-up' : 'fa-arrow-down';
+
+            const strategyMap = {
+                'provider_increase_markup_fixed': 'Auto ↑',
+                'provider_decrease_retail_fixed': 'Kept ↓',
+                'retail_manual_adjustment': 'Manual',
+                'provider_change_no_retail_adjustment': 'Prov only',
+                'no_change': '-'
+            };
+            const strategyLabel = strategyMap[log.strategy_applied] || log.strategy_applied || '-';
+            const strategyClass = log.strategy_applied || '';
+
+            return `<tr>
+                <td style="font-size:12px;white-space:nowrap;">${date}</td>
+                <td>${providerName}</td>
+                <td title="${escapeHtml(log.services?.name || '')}" style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${serviceName}</td>
+                <td>$${oldCost}</td>
+                <td class="${changeClass}">$${newCost}</td>
+                <td class="${changeClass}"><i class="fas ${changeIcon}"></i> ${changePercent}%</td>
+                <td>$${oldRetail}</td>
+                <td>$${newRetail}</td>
+                <td>${markup}</td>
+                <td><span class="strategy-badge ${strategyClass}">${strategyLabel}</span></td>
+            </tr>`;
+        }).join('');
+
+        // Pagination
+        const pag = document.getElementById('priceLogPagination');
+        const info = document.getElementById('priceLogPaginationInfo');
+        const prevBtn = document.getElementById('priceLogPrevPage');
+        const nextBtn = document.getElementById('priceLogNextPage');
+        const { page: pg, totalPages, total } = data.pagination;
+
+        if (totalPages > 1) {
+            if (pag) pag.style.display = 'flex';
+            if (info) info.textContent = `Page ${pg} of ${totalPages} (${total} total)`;
+            if (prevBtn) prevBtn.disabled = pg <= 1;
+            if (nextBtn) nextBtn.disabled = pg >= totalPages;
+        } else {
+            if (pag) pag.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('[PriceChangeLogs] Error:', error);
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:20px;color:#ef4444;">Failed to load price change logs</td></tr>';
+    }
+}
+
+function changePriceLogPage(delta) {
+    loadPriceChangeLogs(priceLogCurrentPage + delta);
 }
 

@@ -5,6 +5,12 @@ const { getExchangeRates } = require('./utils/currency-converter');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -19,7 +25,7 @@ function getUserFromToken(authHeader) {
 
 exports.handler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Content-Type': 'application/json'
@@ -67,11 +73,10 @@ async function handleAdminStats(headers, event) {
     // Parse date range from query params (default: last 7 days)
     const dateRange = event?.queryStringParameters?.dateRange || '7days';
     console.log('[DASHBOARD] Admin stats for dateRange:', dateRange);
-    
+
     let startDate = new Date();
     let dayLabel = 'Last 7 days';
-    
-    // Calculate start date based on range
+
     switch(dateRange) {
       case '30days':
         startDate.setDate(startDate.getDate() - 30);
@@ -98,210 +103,137 @@ async function handleAdminStats(headers, event) {
         startDate.setDate(startDate.getDate() - 7);
         dayLabel = 'Last 7 days';
     }
-    
+
     const endDate = new Date();
-    console.log('[DASHBOARD] startDate:', startDate.toISOString());
-    console.log('[DASHBOARD] endDate:', endDate.toISOString());
-    console.log('[DASHBOARD] dayLabel:', dayLabel);
-    
-    // Get total revenue
-    const { data: revenueData } = await supabaseAdmin
-      .from('payments')
-      .select('amount')
-      .eq('status', 'completed');
-    
-    const totalRevenue = revenueData?.reduce((sum, p) => sum + parseFloat(p.amount), 0) || 0;
+    const startISO = startDate.toISOString();
+    const endISO = endDate.toISOString();
 
-    // Get total provider costs (sum of all orders with pagination to handle >1000 orders)
-    let allOrdersData = [];
-    let pageNum = 0;
-    const pageSize = 1000;
-    let hasMore = true;
-    
-    while (hasMore) {
-      const { data: pageData, error: pageError } = await supabaseAdmin
-        .from('orders')
+    // Helper for paginated Supabase fetches (handles >1000 row limit)
+    async function paginatedFetch(buildQuery) {
+      let all = [], page = 0;
+      const size = 1000;
+      while (true) {
+        const { data, error } = await buildQuery().range(page * size, (page + 1) * size - 1);
+        if (error) { console.error('[DASHBOARD] Paginated fetch error:', error); break; }
+        if (!data || data.length === 0) break;
+        all = all.concat(data);
+        if (data.length < size) break;
+        page++;
+      }
+      return all;
+    }
+
+    // ─── Fetch ALL data in parallel (was 14+ sequential queries) ───
+    const [
+      revenueData,
+      ordersData,
+      rates,
+      totalOrdersRes,
+      totalUsersRes,
+      openTicketsRes,
+      recentOrdersRes,
+      ordersForProfit,
+      paymentsInRange,
+      usersByDate,
+      ticketsByDate,
+      usersMapRes,
+    ] = await Promise.all([
+      // 1. All completed payments → total revenue
+      supabaseAdmin.from('payments').select('amount').eq('status', 'completed')
+        .then(r => r.data || []),
+
+      // 2. All completed/partial orders → total profit
+      paginatedFetch(() => supabaseAdmin.from('orders')
         .select('charge, original_charge, provider_cost, provider_currency')
-        .in('status', ['completed', 'partial'])
-        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
-      
-      if (pageError) {
-        console.error('Error fetching orders page', pageNum, ':', pageError);
-        break;
-      }
-      
-      if (!pageData || pageData.length === 0) {
-        hasMore = false;
-      } else {
-        allOrdersData = allOrdersData.concat(pageData);
-        pageNum++;
-        if (pageData.length < pageSize) {
-          hasMore = false;
-        }
-      }
-    }
-    
-    const ordersData = allOrdersData;
+        .in('status', ['completed', 'partial'])),
 
-    // Get real exchange rates from API (with fallback to hardcoded rates)
+      // 3. Exchange rates from API
+      getExchangeRates().catch(err => {
+        console.warn('[DASHBOARD] Failed to get exchange rates, using fallback:', err.message);
+        return null;
+      }),
+
+      // 4. Total orders count
+      supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }),
+
+      // 5. Total users count
+      supabaseAdmin.from('users').select('*', { count: 'exact', head: true }),
+
+      // 6. Open tickets count
+      supabaseAdmin.from('tickets').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+
+      // 7. Recent 10 orders with joins
+      supabaseAdmin.from('orders')
+        .select('*, user:users(id, username, email), service:services(name)')
+        .order('created_at', { ascending: false }).limit(10),
+
+      // 8. Date-range orders → daily profit, orders chart, user breakdown, charges
+      paginatedFetch(() => supabaseAdmin.from('orders')
+        .select('created_at, charge, original_charge, provider_cost, provider_currency, status, user_id')
+        .gte('created_at', startISO).lte('created_at', endISO)
+        .order('created_at', { ascending: false })),
+
+      // 9. Payments in range → revenue chart (exclude refunds)
+      supabaseAdmin.from('payments')
+        .select('created_at, amount, method')
+        .gte('created_at', startISO).lte('created_at', endISO)
+        .neq('method', 'refund')
+        .order('created_at', { ascending: false })
+        .then(r => r.data || []),
+
+      // 10. Users in range → users chart
+      paginatedFetch(() => supabaseAdmin.from('users')
+        .select('created_at')
+        .gte('created_at', startISO).lte('created_at', endISO)
+        .order('created_at', { ascending: false })),
+
+      // 11. Tickets in range → tickets chart
+      paginatedFetch(() => supabaseAdmin.from('tickets')
+        .select('created_at')
+        .gte('created_at', startISO).lte('created_at', endISO)
+        .order('created_at', { ascending: false })),
+
+      // 12. User id→username map
+      supabaseAdmin.from('users').select('id, username'),
+    ]);
+
+    // ─── Build exchange rate converter ───
     let conversionRates = {
-      'USD': 1,
-      'EUR': 1.10,
-      'GBP': 1.27,
-      'TRY': 0.032,
-      'INR': 0.012,
-      'RUB': 0.011,
-      'CNY': 0.14,
-      'BRL': 0.190476
+      'USD': 1, 'EUR': 1.10, 'GBP': 1.27, 'TRY': 0.032,
+      'INR': 0.012, 'RUB': 0.011, 'CNY': 0.14, 'BRL': 0.190476
     };
-
-    try {
-      const rates = await getExchangeRates();
-      if (rates) {
-        // Convert from Open Exchange Rates format (rates TO USD)
-        // to our format (rates FROM USD to other currencies)
-        conversionRates = {};
-        Object.entries(rates).forEach(([currency, rate]) => {
-          // Rate is "how many of this currency per 1 USD"
-          // We want "how many USD per 1 of this currency"
-          conversionRates[currency] = 1 / rate;
-        });
-        console.log('[DASHBOARD] Using real exchange rates from API');
-      }
-    } catch (error) {
-      console.warn('[DASHBOARD] Failed to get exchange rates, using fallback:', error.message);
+    if (rates) {
+      conversionRates = {};
+      Object.entries(rates).forEach(([currency, rate]) => {
+        conversionRates[currency] = 1 / rate;
+      });
+      console.log('[DASHBOARD] Using real exchange rates from API');
     }
+    const getConversionRate = (currency) => conversionRates[currency?.toUpperCase()] || 1;
 
-    const getConversionRate = (currency) => {
-      return conversionRates[currency?.toUpperCase()] || 1;
-    };
+    // ─── Calculate global totals ───
+    const totalRevenue = revenueData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
-    // Calculate profit per order: income (customer charge in USD) - outcome (provider cost converted to provider's currency, then to USD)
-    const totalProfits = ordersData?.reduce((sum, o) => {
-      const income = parseFloat(o.charge || o.original_charge || 0); // Customer charge (assumed USD)
+    const totalProfits = ordersData.reduce((sum, o) => {
+      const income = parseFloat(o.charge || o.original_charge || 0);
       const outcome = parseFloat(o.provider_cost || 0);
-      
-      // Convert provider cost to USD if provider_currency is different
       const outcomeUSD = outcome * getConversionRate(o.provider_currency || 'USD');
-      
       return sum + (income - outcomeUSD);
-    }, 0) || 0;
+    }, 0);
 
-    // Get total orders
-    const { count: totalOrders } = await supabaseAdmin
-      .from('orders')
-      .select('*', { count: 'exact', head: true });
+    const totalOrders = totalOrdersRes.count || 0;
+    const totalUsers = totalUsersRes.count || 0;
+    const openTickets = openTicketsRes.count || 0;
+    const recentOrders = recentOrdersRes.data || [];
 
-    // Get total users
-    const { count: totalUsers } = await supabaseAdmin
-      .from('users')
-      .select('*', { count: 'exact', head: true });
-
-    // Get open tickets
-    const { count: openTickets } = await supabaseAdmin
-      .from('tickets')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'open');
-
-    // Get recent orders
-    const { data: recentOrders } = await supabaseAdmin
-      .from('orders')
-      .select(`
-        *,
-        user:users(id, username, email),
-        service:services(name)
-      `)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    // Get revenue by day (based on selected date range)
-    const { data: recentRevenue } = await supabaseAdmin
-      .from('payments')
-      .select('amount, created_at')
-      .eq('status', 'completed')
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
-      .limit(10000);
-
-    // Get orders by date (with pagination to handle large datasets)
-    let allOrdersByDate = [];
-    pageNum = 0;  // Reset pageNum for orders by date loop
-    let hasMoreOrders = true;
-    
-    while (hasMoreOrders) {
-      const { data: pageData } = await supabaseAdmin
-        .from('orders')
-        .select('created_at')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
-        .range(pageNum * pageSize, (pageNum + 1) * pageSize - 1);
-      
-      if (!pageData || pageData.length === 0) {
-        hasMoreOrders = false;
-      } else {
-        allOrdersByDate = allOrdersByDate.concat(pageData);
-        pageNum++;
-      }
-    }
-    
-    console.log('[DASHBOARD] recentOrdersByDate count:', allOrdersByDate?.length || 0);
-    console.log('[DASHBOARD] recentOrdersByDate sample:', allOrdersByDate?.slice(0, 5));
-
-    let allUsersByDate = [];
-    let userPageNum = 0;
-    let hasMoreUsers = true;
-    
-    while (hasMoreUsers) {
-      const { data: pageData } = await supabaseAdmin
-        .from('users')
-        .select('created_at')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
-        .range(userPageNum * pageSize, (userPageNum + 1) * pageSize - 1);
-      
-      if (!pageData || pageData.length === 0) {
-        hasMoreUsers = false;
-      } else {
-        allUsersByDate = allUsersByDate.concat(pageData);
-        userPageNum++;
-      }
-    }
-    
-    const recentUsersByDate = allUsersByDate;
-
-    let allTicketsByDate = [];
-    let ticketPageNum = 0;
-    let hasMoreTickets = true;
-    
-    while (hasMoreTickets) {
-      const { data: pageData } = await supabaseAdmin
-        .from('tickets')
-        .select('created_at')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
-        .range(ticketPageNum * pageSize, (ticketPageNum + 1) * pageSize - 1);
-      
-      if (!pageData || pageData.length === 0) {
-        hasMoreTickets = false;
-      } else {
-        allTicketsByDate = allTicketsByDate.concat(pageData);
-        ticketPageNum++;
-      }
-    }
-    
-    const recentTicketsByDate = allTicketsByDate;
-
-    // Group by day - Initialize all days
+    // ─── Initialize day buckets ───
     const revenueByDay = {};
     const ordersByDay = {};
     const usersByDay = {};
     const ticketsByDay = {};
     const profitByDay = {};
-    
-    // Calculate day count for initialization
+    const chargeByDay = {};
+
     let dayCount = 7;
     if (dateRange === '30days') dayCount = 30;
     else if (dateRange === '90days') dayCount = 90;
@@ -312,11 +244,9 @@ async function handleAdminStats(headers, event) {
     else if (dateRange === 'ytd') {
       dayCount = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)) + 1;
     }
-    
-    // Initialize day tracking
+
     for (let i = dayCount - 1; i >= 0; i--) {
       const date = new Date();
-      
       if (dateRange === 'this_month') {
         date.setDate(i + 1);
       } else if (dateRange === 'last_month') {
@@ -328,187 +258,95 @@ async function handleAdminStats(headers, event) {
       } else {
         date.setDate(date.getDate() - i);
       }
-      
       const dateStr = date.toISOString().split('T')[0];
       revenueByDay[dateStr] = 0;
       ordersByDay[dateStr] = 0;
       usersByDay[dateStr] = 0;
       ticketsByDay[dateStr] = 0;
       profitByDay[dateStr] = 0;
+      chargeByDay[dateStr] = 0;
     }
 
-    // Fetch revenue from payments (deposits, not refunds) - DASHBOARD ONLY
-    try {
-      const { data: paymentsData } = await supabaseAdmin
-        .from('payments')
-        .select('created_at, amount, method')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .neq('method', 'refund')  // Exclude refunds
-        .order('created_at', { ascending: false });
-      
-      if (paymentsData && paymentsData.length > 0) {
-        paymentsData.forEach(payment => {
-          try {
-            const date = payment.created_at?.split('T')[0];
-            if (date && revenueByDay.hasOwnProperty(date)) {
-              revenueByDay[date] += parseFloat(payment.amount || 0);
-            }
-          } catch (err) {
-            console.error('[DASHBOARD] Error processing payment:', err);
-          }
-        });
-      }
-    } catch (paymentsError) {
-      console.error('[DASHBOARD] Error fetching payments for revenue:', paymentsError);
-    }
-
-    // Calculate daily profit from orders (with pagination)
-    let allOrdersForProfit = [];
-    let profitPageNum = 0;
-    let hasMoreProfit = true;
-    
-    while (hasMoreProfit) {
-      const { data: pageData } = await supabaseAdmin
-        .from('orders')
-        .select('created_at, charge, original_charge, provider_cost, provider_currency, status, user_id')
-        .gte('created_at', startDate.toISOString())
-        .lte('created_at', endDate.toISOString())
-        .order('created_at', { ascending: false })
-        .range(profitPageNum * pageSize, (profitPageNum + 1) * pageSize - 1);
-      
-      if (!pageData || pageData.length === 0) {
-        hasMoreProfit = false;
-      } else {
-        allOrdersForProfit = allOrdersForProfit.concat(pageData);
-        profitPageNum++;
-      }
-    }
-    
-    const ordersForProfit = allOrdersForProfit;
-    console.log('[DASHBOARD] ordersForProfit count:', ordersForProfit?.length || 0);
-
-    ordersForProfit?.forEach(order => {
-      const date = order.created_at.split('T')[0];
-      if (profitByDay[date] !== undefined) {
-        const income = parseFloat(order.charge || order.original_charge || 0);
-        const outcome = parseFloat(order.provider_cost || 0);
-        const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
-        let dailyProfit = income - outcomeUSD;
-        
-        // Cancelled order ise profiti negatif yap (geri al)
-        if (order.status === 'cancelled') {
-          dailyProfit = -dailyProfit;
+    // ─── Populate revenue by day from payments ───
+    paymentsInRange.forEach(payment => {
+      try {
+        const date = payment.created_at?.split('T')[0];
+        if (date && revenueByDay.hasOwnProperty(date)) {
+          revenueByDay[date] += parseFloat(payment.amount || 0);
         }
-        
-        profitByDay[date] += dailyProfit;
+      } catch (err) {
+        console.error('[DASHBOARD] Error processing payment:', err);
       }
     });
-    
-    console.log('[DASHBOARD] profitByDay after calculation:', profitByDay);
 
-    // Calculate detailed users by day (with spending and profit)
+    // ─── Build user username map ───
+    const userUsernameMap = {};
+    if (usersMapRes.data) {
+      usersMapRes.data.forEach(u => { userUsernameMap[u.id] = u.username; });
+    }
+
+    // ─── Initialize user breakdown by day ───
     const usersByDayDetailed = {};
-    
-    // Initialize dates
     const currentDate = new Date(startDate);
     while (currentDate <= endDate) {
-      const dateStr = currentDate.toISOString().split('T')[0];
-      usersByDayDetailed[dateStr] = {};
+      usersByDayDetailed[currentDate.toISOString().split('T')[0]] = {};
       currentDate.setDate(currentDate.getDate() + 1);
     }
-    
-    // Get user username to user_id mapping from users table
-    let userUsernameMap = {};
-    try {
-      const { data: usersMap, error: usersMapError } = await supabaseAdmin
-        .from('users')
-        .select('id, username');
-      
-      if (usersMapError) {
-        console.error('[DASHBOARD] Error fetching users map:', usersMapError);
-      } else if (usersMap) {
-        usersMap.forEach(u => {
-          userUsernameMap[u.id] = u.username;
-        });
-      }
-    } catch (err) {
-      console.error('[DASHBOARD] Error building user username map:', err);
-    }
-    
-    // Aggregate orders by user and date
-    ordersForProfit?.forEach(order => {
-      try {
-        const date = order.created_at?.split('T')[0];
-        if (!date || !usersByDayDetailed[date]) return;
-        
-        const userId = order.user_id;
-        const username = userUsernameMap[userId] || 'Unknown';
-        
-        if (!usersByDayDetailed[date][username]) {
-          usersByDayDetailed[date][username] = { username, total_charge: 0, profit: 0 };
-        }
-        
-        const income = parseFloat(order.charge || order.original_charge || 0);
-        const outcome = parseFloat(order.provider_cost || 0);
-        const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
-        let dailyProfit = income - outcomeUSD;
-        
-        // Cancelled order ise profiti negatif yap
-        if (order.status === 'cancelled') {
-          dailyProfit = -dailyProfit;
-        }
-        
-        usersByDayDetailed[date][username].total_charge += income;
-        usersByDayDetailed[date][username].profit += dailyProfit;
-      } catch (err) {
-        console.error('[DASHBOARD] Error processing order for user stats:', err, order);
-      }
-    });
-    
-    // Convert to array format for easier processing in frontend
-    const usersByDayArray = {};
-    Object.entries(usersByDayDetailed).forEach(([date, usersObj]) => {
-      usersByDayArray[date] = Object.values(usersObj);
-    });
-    
-    // Calculate daily order values (total charge per day) - Use ordersForProfit data
-    const chargeByDay = {};
-    
-    // Initialize all dates from ordersForProfit same way as profitByDay
-    Object.keys(profitByDay).forEach(date => {
-      chargeByDay[date] = 0;
-    });
-    
-    // Accumulate charges from the same ordersForProfit data
-    ordersForProfit?.forEach(order => {
-      const date = order.created_at.split('T')[0];
-      if (chargeByDay.hasOwnProperty(date)) {
-        const charge = parseFloat(order.charge || order.original_charge || 0);
-        chargeByDay[date] += charge;
-      }
-    });
 
-    ordersForProfit?.forEach(order => {
+    // ─── Single pass over ordersForProfit: profit, charges, order count, user breakdown ───
+    ordersForProfit.forEach(order => {
       const date = order.created_at.split('T')[0];
-      // Also count orders
+      const income = parseFloat(order.charge || order.original_charge || 0);
+      const outcome = parseFloat(order.provider_cost || 0);
+      const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
+      let dailyProfit = income - outcomeUSD;
+
+      // Cancelled order ise profiti negatif yap (geri al)
+      if (order.status === 'cancelled') {
+        dailyProfit = -dailyProfit;
+      }
+
+      // Profit chart
+      if (profitByDay[date] !== undefined) {
+        profitByDay[date] += dailyProfit;
+      }
+
+      // Charge chart
+      if (chargeByDay[date] !== undefined) {
+        chargeByDay[date] += income;
+      }
+
+      // Orders count chart
       if (ordersByDay[date] !== undefined) {
         ordersByDay[date] += 1;
       }
+
+      // User breakdown by day
+      if (usersByDayDetailed[date]) {
+        const username = userUsernameMap[order.user_id] || 'Unknown';
+        if (!usersByDayDetailed[date][username]) {
+          usersByDayDetailed[date][username] = { username, total_charge: 0, profit: 0 };
+        }
+        usersByDayDetailed[date][username].total_charge += income;
+        usersByDayDetailed[date][username].profit += dailyProfit;
+      }
     });
 
-    allUsersByDate?.forEach(user => {
+    // ─── Count users and tickets by day ───
+    usersByDate.forEach(user => {
       const date = user.created_at.split('T')[0];
-      if (usersByDay[date] !== undefined) {
-        usersByDay[date] += 1;
-      }
+      if (usersByDay[date] !== undefined) usersByDay[date] += 1;
     });
 
-    allTicketsByDate?.forEach(ticket => {
+    ticketsByDate.forEach(ticket => {
       const date = ticket.created_at.split('T')[0];
-      if (ticketsByDay[date] !== undefined) {
-        ticketsByDay[date] += 1;
-      }
+      if (ticketsByDay[date] !== undefined) ticketsByDay[date] += 1;
+    });
+
+    // Convert user breakdown to array format
+    const usersByDayArray = {};
+    Object.entries(usersByDayDetailed).forEach(([date, usersObj]) => {
+      usersByDayArray[date] = Object.values(usersObj);
     });
 
     return {
@@ -518,11 +356,11 @@ async function handleAdminStats(headers, event) {
         stats: {
           totalRevenue: totalRevenue.toFixed(5),
           totalProfits: totalProfits.toFixed(5),
-          totalOrders: totalOrders || 0,
-          totalUsers: totalUsers || 0,
-          openTickets: openTickets || 0
+          totalOrders: totalOrders,
+          totalUsers: totalUsers,
+          openTickets: openTickets
         },
-        recentOrders: recentOrders || [],
+        recentOrders: recentOrders,
         revenueChart: revenueByDay,
         ordersChart: ordersByDay,
         chargeByDay: chargeByDay,

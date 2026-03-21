@@ -1758,7 +1758,6 @@ function submitEditProvider(event, providerId) {
         markup: parseFloat(providerData.markup) || 0,
         status: providerData.status
     };
-    console.log('[DEBUG] Update payload:', payload);
     fetch(`/.netlify/functions/providers/${providerId}`, {
         method: 'PUT',
         headers: {
@@ -1803,7 +1802,7 @@ function deleteProvider(providerId) {
     `;
     const actions = `
         <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-        <button type="button" class="btn-danger" onclick="confirmDeleteProvider(${providerId})">
+        <button type="button" class="btn-danger" onclick="confirmDeleteProvider('${providerId}')">
             <i class="fas fa-trash"></i> Delete Provider
         </button>
     `;

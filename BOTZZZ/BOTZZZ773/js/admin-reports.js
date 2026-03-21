@@ -36,8 +36,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadReportData() {
     try {
         const token = localStorage.getItem('token');  // Fixed: was 'authToken', should be 'token'
-        console.log('[REPORTS] token exists:', !!token);
-        
+
         if (!token) {
             console.error('[REPORTS] No token found in localStorage');
             return;

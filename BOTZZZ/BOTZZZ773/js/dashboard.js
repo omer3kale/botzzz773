@@ -76,7 +76,7 @@
     // ==========================================
     let userDiscountRate = 0; // Percentage discount (0-100)
     let userServiceDiscounts = {}; // Per-service discounts for this user { serviceId: rate }
-    const PER_SERVICE_DISCOUNTS = { 9071: 10 }; // Global per-service overrides if any
+    const PER_SERVICE_DISCOUNTS = (window.BOTZZZ_CONFIG && window.BOTZZZ_CONFIG.PER_SERVICE_DISCOUNTS) || {};
 
     // ==========================================
     // AUTHENTICATION CHECK
@@ -2897,14 +2897,13 @@
                     // V2 endpoint failed, will try orders.js
                 }
             } else {
-                console.log('[REFILL] No API key, skipping V2.js');
+                // No API key, skipping V2.js
             }
 
             // Attempt 2: Fallback to orders.js endpoint with JWT token
             if (!refillResult) {
                 const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
-                console.log('[REFILL] Orders.js - Auth token available?', !!token);
-                
+
                 if (!token) {
                     console.error('[REFILL] No auth token found!');
                     showToast('Authentication token not found. Please log in again.', 'error');

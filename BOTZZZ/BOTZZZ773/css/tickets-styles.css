@@ -25,7 +25,7 @@
     color: #fff;
     margin-bottom: 1rem;
     position: relative;
-    background: linear-gradient(135deg, var(--text-white) 0%, var(--hot-pink) 100%);
+    background: linear-gradient(135deg, var(--text-white) 0%, var(--accent-amber) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -158,7 +158,7 @@
 
 .ticket-id {
     font-size: 0.75rem;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-weight: 600;
     text-transform: uppercase;
 }
@@ -263,7 +263,7 @@
 
 .ticket-details-id {
     font-size: 0.85rem;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-weight: 600;
     text-transform: uppercase;
     margin-bottom: 8px;
@@ -303,7 +303,7 @@
     background: rgba(43, 195, 164, 0.12);
     border: 1px solid rgba(43, 195, 164, 0.35);
     border-radius: 6px;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-size: 0.8rem;
     font-weight: 600;
 }
@@ -343,7 +343,7 @@
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary-pink) 0%, var(--hot-pink) 100%);
+    background: linear-gradient(135deg, var(--primary-teal) 0%, var(--accent-amber) 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -365,7 +365,7 @@
 
 .message-author-role {
     font-size: 0.75rem;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     text-transform: uppercase;
 }
 

@@ -124,6 +124,8 @@ function getNotificationIcon(type) {
             return '<i class="fas fa-check-circle"></i>';
         case 'new_user':
             return '<i class="fas fa-user-plus"></i>';
+        case 'price_change':
+            return '<i class="fas fa-chart-line"></i>';
         default:
             return '<i class="fas fa-bell"></i>';
     }

@@ -4,7 +4,7 @@ const { supabaseAdmin } = require('./utils/supabase');
 const { getPricingEngine } = require('./utils/pricing-engine');
 const { convertToUSD } = require('./utils/currency-converter');
 const { createLogger, serializeError } = require('./utils/logger');
-const { logPaymentNotification } = require('./notification-logger');
+const { logPaymentNotification, logPriceChangeNotification } = require('./notification-logger');
 const fs = require('fs');
 const path = require('path');
 
@@ -241,7 +241,7 @@ async function syncProviderServices(provider, options = {}) {
 
   const { data: existingServices, error: existingError } = await supabaseAdmin
     .from('services')
-    .select('id, provider_service_id, status, markup_percentage, provider_rate, rate, name, category, description, min_quantity, max_quantity, provider_metadata')
+    .select('id, provider_service_id, status, markup_percentage, provider_rate, provider_rate_raw, provider_currency, rate, name, category, description, min_quantity, max_quantity, provider_metadata')
     .eq('provider_id', provider.id);
 
   if (existingError) {
@@ -377,6 +377,13 @@ async function syncProviderServices(provider, options = {}) {
       } else if (existing && shouldPreserveProviderRate) {
         basePayload.provider_rate = existing.provider_rate;
       }
+
+      // Always store raw rate (before USD conversion) and its currency
+      // Used for accurate price change detection without FX fluctuation noise
+      if (rate !== null) {
+        basePayload.provider_rate_raw = rate;
+        basePayload.provider_currency = currency;
+      }
       
       // PRICE CHANGE DETECTION - SIMPLIFIED for smmzz.com
       // smmzz.com has conversion issues, so just compare raw rates
@@ -415,9 +422,36 @@ async function syncProviderServices(provider, options = {}) {
           providerPriceChanged = false;
           console.log(`[SMMZZ DEBUG] FORCED RESULT: providerPriceChanged = false`);
         } else {
-          // Other providers: Standard comparison (keep for compatibility)
-          providerPriceChanged = false;
-          // TODO: Implement standard comparison logic for other providers if needed
+          // Other providers: Compare RAW rates (before USD conversion)
+          // This avoids false positives from FX fluctuations for non-USD providers
+          const hasRawRate = existing.provider_rate_raw !== null && existing.provider_rate_raw !== undefined;
+          const sameCurrency = !existing.provider_currency || existing.provider_currency === currency;
+
+          if (hasRawRate && sameCurrency) {
+            // Compare raw provider rate (e.g. BRL price vs stored BRL price)
+            const prevRaw = Number(existing.provider_rate_raw);
+            const newRaw = rate !== null ? Number(rate) : null;
+            if (newRaw !== null) {
+              const prev6dp = Math.round(prevRaw * 1000000) / 1000000;
+              const new6dp = Math.round(newRaw * 1000000) / 1000000;
+              providerPriceChanged = (prev6dp !== new6dp);
+            }
+          } else {
+            // Fallback: compare USD-converted rate (for rows without raw rate yet)
+            const prevRate = existing.provider_rate !== null ? Number(existing.provider_rate) : null;
+            const newRate = providerCost !== null ? Number(providerCost) : null;
+            if (prevRate !== null && newRate !== null) {
+              const prev4dp = Math.round(prevRate * 10000) / 10000;
+              const new4dp = Math.round(newRate * 10000) / 10000;
+              providerPriceChanged = (prev4dp !== new4dp);
+            } else if (prevRate !== null || newRate !== null) {
+              providerPriceChanged = true;
+            }
+          }
+
+          if (providerPriceChanged) {
+            console.log(`[PRICE DETECT] Service ${serviceKey}: Provider rate changed (raw: ${existing.provider_rate_raw} → ${rate}, currency: ${currency})`);
+          }
         }
       }
       
@@ -524,25 +558,16 @@ async function syncProviderServices(provider, options = {}) {
             console.log(`[MARKUP STRATEGY] Service ${serviceKey}: Provider ↑ (${prevProviderRate} → ${newProviderRate}), markup% ${markupUsed}% kept same, retail adjusted ${prevRetailRate} → ${newRetailRate}`);
           } else {
             // SCENARIO B: Provider rate DECREASED
-            // Prefer to keep retail rate same and recalculate markup% higher.
-            // If previous retail is missing (first sync), fallback to recomputing retail from markupUsed.
-            if (prevRetailRate === null) {
-              // First-time or missing retail: compute retail using current markupUsed
-              newRetailRate = Number((newProviderRate * (1 + markupUsed / 100)).toFixed(4));
-              basePayload.rate = newRetailRate;
-              basePayload.retail_rate = newRetailRate;
-              basePayload.markup_percentage = markupUsed;
-              console.log(`[MARKUP STRATEGY] Service ${serviceKey}: Provider ↓ (${prevProviderRate} → ${newProviderRate}), prev retail missing → recomputed retail ${newRetailRate} with markup% ${markupUsed}%`);
-            } else {
-              // Keep retail rate same, recalculate markup% higher
-              // Formula: New Markup% = ((Retail - Provider) / Provider) × 100
-              newRetailRate = prevRetailRate; // Keep previous retail rate
-              const newMarkup = Number((((prevRetailRate - newProviderRate) / newProviderRate) * 100).toFixed(5));
-              basePayload.rate = newRetailRate;
-              basePayload.retail_rate = newRetailRate;
-              basePayload.markup_percentage = newMarkup;
-              console.log(`[MARKUP STRATEGY] Service ${serviceKey}: Provider ↓ (${prevProviderRate} → ${newProviderRate}), retail ${newRetailRate} kept same, markup% ${markupUsed}% → ${newMarkup}%`);
+            // Keep retail price AND markup% unchanged. Just alert.
+            if (prevRetailRate !== null) {
+              newRetailRate = prevRetailRate;
+              basePayload.rate = prevRetailRate;
+              basePayload.retail_rate = prevRetailRate;
             }
+            if (existing && existing.markup_percentage !== null && existing.markup_percentage !== undefined) {
+              basePayload.markup_percentage = Number(existing.markup_percentage);
+            }
+            console.log(`[MARKUP STRATEGY] Service ${serviceKey}: Provider ↓ (${prevProviderRate} → ${newProviderRate}), retail ${prevRetailRate} KEPT SAME, markup% ${basePayload.markup_percentage}% KEPT SAME`);
           }
         }
 
@@ -1058,6 +1083,13 @@ ${allChanges.length > 10 ? `\n... and ${allChanges.length - 10} more changes` : 
       
       const adminEmail = await loadAdminEmail();
       priceChangeAlert = await sendPriceChangeAlert(deduplicatedChanges, smtpSettings, adminEmail);
+
+      // Log to admin notification bell
+      try {
+        await logPriceChangeNotification(deduplicatedChanges);
+      } catch (notifErr) {
+        console.warn('[PRICE ALERT] Failed to log bell notification:', notifErr.message);
+      }
     }
 
     return {

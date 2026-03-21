@@ -339,26 +339,17 @@ async function handleWebhook(event, headers, rawBody = '') {
         .eq('id', payment.id);
 
       console.log('[CRYPTOMUS WEBHOOK] Payment updated to completed. Now crediting balance...');
-      
-      // Credit user balance
-      const { data: userData } = await supabaseAdmin
-        .from('users')
-        .select('balance')
-        .eq('id', payment.user_id)
-        .single();
 
-      if (userData) {
-        const balanceNum = parseFloat(userData.balance) + parseFloat(payment.amount);
-        const newBalance = Number(balanceNum.toFixed(5));
-        console.log('[CRYPTOMUS WEBHOOK] Crediting balance. Old:', userData.balance, 'Add:', payment.amount, 'New:', newBalance);
+      // Credit user balance atomically via RPC
+      const { error: balErr } = await supabaseAdmin
+        .rpc('refund_balance', {
+          p_user_id: payment.user_id,
+          p_amount: parseFloat(payment.amount)
+        });
 
-        await supabaseAdmin
-          .from('users')
-          .update({ balance: newBalance })
-          .eq('id', payment.user_id);
-
+      if (!balErr) {
         console.log('[CRYPTOMUS WEBHOOK] Balance credited successfully');
-        
+
         await supabaseAdmin
           .from('activity_logs')
           .insert({
@@ -373,6 +364,8 @@ async function handleWebhook(event, headers, rawBody = '') {
           });
 
         console.log('[CRYPTOMUS WEBHOOK] Activity logged');
+      } else {
+        console.error('[CRYPTOMUS WEBHOOK] Balance credit failed:', balErr);
       }
 
       return {
@@ -427,26 +420,17 @@ async function handleWebhook(event, headers, rawBody = '') {
       }
 
       console.log('[CRYPTOMUS WEBHOOK] Payment created. Now crediting balance...');
-      
-      // Credit balance
-      const { data: userData } = await supabaseAdmin
-        .from('users')
-        .select('balance')
-        .eq('id', newPayment.user_id)
-        .single();
 
-      if (userData) {
-        const balanceNum = parseFloat(userData.balance) + parseFloat(newPayment.amount);
-        const newBalance = Number(balanceNum.toFixed(5));
-        console.log('[CRYPTOMUS WEBHOOK] Crediting balance. Old:', userData.balance, 'Add:', newPayment.amount, 'New:', newBalance);
+      // Credit balance atomically via RPC
+      const { error: balErr2 } = await supabaseAdmin
+        .rpc('refund_balance', {
+          p_user_id: newPayment.user_id,
+          p_amount: parseFloat(newPayment.amount)
+        });
 
-        await supabaseAdmin
-          .from('users')
-          .update({ balance: newBalance })
-          .eq('id', newPayment.user_id);
-
+      if (!balErr2) {
         console.log('[CRYPTOMUS WEBHOOK] Balance credited successfully');
-        
+
         await supabaseAdmin
           .from('activity_logs')
           .insert({
@@ -460,6 +444,8 @@ async function handleWebhook(event, headers, rawBody = '') {
           });
 
         console.log('[CRYPTOMUS WEBHOOK] Activity logged');
+      } else {
+        console.error('[CRYPTOMUS WEBHOOK] Balance credit failed:', balErr2);
       }
 
       return {

@@ -15,7 +15,7 @@ let isPopupMode = false;
 let authGuardTriggered = false;
 let userDiscountRate = 0; // User's discount percentage (0-100)
 let userServiceDiscounts = {}; // User-specific per-service discounts: { serviceId: discountRate }
-const PER_SERVICE_DISCOUNTS = { 9071: 10 }; // Global per-service discount overrides
+const PER_SERVICE_DISCOUNTS = (window.BOTZZZ_CONFIG && window.BOTZZZ_CONFIG.PER_SERVICE_DISCOUNTS) || {};
 
 async function refreshUserProfile(token) {
     if (!token) return null;

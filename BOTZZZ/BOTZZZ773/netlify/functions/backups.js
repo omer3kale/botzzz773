@@ -11,6 +11,12 @@ const DEFAULT_SCOPE = ['users', 'orders', 'payments'];
 const DEFAULT_EXPIRY_DAYS = 30;
 const logger = createLogger('backups');
 
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 function getUserFromToken(authHeader) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
@@ -219,7 +225,7 @@ async function handleListBackups(user, query, headers) {
 
 const baseHandler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json'

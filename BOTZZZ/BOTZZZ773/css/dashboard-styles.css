@@ -85,7 +85,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .sidebar-logo .logo-highlight {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .sidebar-nav {
@@ -157,7 +157,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     right: 16px;
     top: 50%;
     transform: translateY(-50%);
-    background: var(--hot-pink);
+    background: var(--accent-amber);
     color: white;
     font-size: 11px;
     font-weight: 700;
@@ -401,7 +401,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 
 .balance-display:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
 }
 
 .balance-amount {
@@ -500,7 +500,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     color: var(--text-white);
     margin-bottom: 10px;
     text-align: center;
-    background: linear-gradient(135deg, var(--text-white) 0%, var(--hot-pink) 100%);
+    background: linear-gradient(135deg, var(--text-white) 0%, var(--accent-amber) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -541,7 +541,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .service-badge strong {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     margin-left: auto;
 }
 
@@ -644,7 +644,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .quantity-info strong {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .info-box {
@@ -672,7 +672,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 .charge-amount {
     font-size: 1.5rem;
     font-weight: 700;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .discount-badge {
@@ -700,12 +700,12 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     font-weight: 700;
     cursor: pointer;
     transition: all var(--transition-fast);
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
 }
 
 .btn-submit:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-pink-lg);
+    box-shadow: var(--shadow-amber-lg);
 }
 
 .btn-submit:active {
@@ -781,7 +781,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: var(--primary-pink);
+    background: var(--primary-teal);
     box-shadow: 0 0 0 6px rgba(43, 195, 164, 0.18);
     animation: pulse 2s infinite;
 }
@@ -942,7 +942,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .search-btn:hover {
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
 }
 
 .refresh-btn {
@@ -970,11 +970,10 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: visible;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
-    backdrop-filter: blur(20px);
     max-width: 100%;
-    contain: content;
+    contain: layout style;
 }
 
 .orders-pager {
@@ -1067,7 +1066,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .order-id-provider strong {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-weight: 600;
 }
 
@@ -1332,7 +1331,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .toast-close:hover {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .toast.success {
@@ -1456,9 +1455,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
     overflow-x: hidden;
-    overflow-y: auto;
+    overflow-y: visible;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
-    backdrop-filter: blur(20px);
 }
 
 .refills-table {
@@ -1482,7 +1480,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .refills-table th:first-child {
-    border-left: 2px solid var(--primary-pink);
+    border-left: 2px solid var(--primary-teal);
     padding-left: 18px;
 }
 
@@ -1758,7 +1756,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
 }
 
 .account-card-title svg {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     flex-shrink: 0;
 }
 
@@ -1826,12 +1824,12 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     font-weight: 700;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
 }
 
 .account-form-actions .btn-submit:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-pink-lg);
+    box-shadow: var(--shadow-amber-lg);
 }
 
 .account-form-actions .btn-submit:disabled {

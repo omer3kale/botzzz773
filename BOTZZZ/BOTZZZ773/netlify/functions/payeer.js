@@ -219,23 +219,14 @@ async function handleWebhook(event, headers) {
           })
           .eq('transaction_id', data.m_orderid);
 
-        // Add balance to user
-        const { data: userData } = await supabaseAdmin
-          .from('users')
-          .select('balance')
-          .eq('id', payment.user_id)
-          .single();
+        // Add balance to user atomically via RPC
+        const { error: balErr } = await supabaseAdmin
+          .rpc('refund_balance', {
+            p_user_id: payment.user_id,
+            p_amount: parseFloat(payment.amount)
+          });
 
-        if (userData) {
-          const balanceNum = parseFloat(userData.balance) + parseFloat(payment.amount);
-          const newBalance = Number(balanceNum.toFixed(5));
-          await supabaseAdmin
-            .from('users')
-            .update({ 
-              balance: newBalance
-            })
-            .eq('id', payment.user_id);
-
+        if (!balErr) {
           // Log activity
           await supabaseAdmin
             .from('activity_logs')

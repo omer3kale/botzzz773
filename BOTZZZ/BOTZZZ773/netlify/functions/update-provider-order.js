@@ -1,11 +1,29 @@
 const { supabaseAdmin } = require('./utils/supabase');
 const { createLogger } = require('./utils/logger');
+const jwt = require('jsonwebtoken');
 
 const logger = createLogger('update-provider-order');
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
+function getUserFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return null;
+  }
+}
 
 exports.handler = async (event, context) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json'
   };
@@ -15,6 +33,15 @@ exports.handler = async (event, context) => {
   }
 
   try {
+    // Verify JWT and admin role
+    const user = getUserFromToken(event.headers.authorization);
+    if (!user) {
+      return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
+    }
+    if (user.role !== 'admin') {
+      return { statusCode: 403, headers, body: JSON.stringify({ error: 'Forbidden' }) };
+    }
+
     const body = JSON.parse(event.body || '{}');
     const { providers } = body;
 

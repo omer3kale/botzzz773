@@ -100,7 +100,7 @@
 
 .api-info-value {
     font-size: 1.125rem;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-weight: 600;
     font-family: 'Courier New', monospace;
 }
@@ -249,7 +249,7 @@
 
 .copy-btn:hover {
     background: var(--gradient-primary);
-    border-color: var(--primary-pink);
+    border-color: var(--primary-teal);
 }
 
 .code-block pre {
@@ -359,7 +359,7 @@
 }
 
 .param-name {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     font-family: 'Courier New', monospace;
     font-weight: 600;
 }
@@ -473,7 +473,7 @@
 }
 
 .stat-card.highlight .stat-value {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .stat-icon {
@@ -484,7 +484,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--hot-pink);
+    color: var(--accent-amber);
     flex-shrink: 0;
 }
 
@@ -691,7 +691,7 @@
 }
 
 .provider-info-banner svg {
-    color: var(--hot-pink);
+    color: var(--accent-amber);
     flex-shrink: 0;
 }
 
@@ -755,7 +755,7 @@
 
 .provider-status.active {
     background: rgba(43, 195, 164, 0.16);
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .provider-stats-grid {
@@ -987,7 +987,7 @@
     align-items: center;
     justify-content: center;
     margin: 0 auto var(--spacing-lg);
-    color: var(--primary-pink);
+    color: var(--primary-teal);
 }
 
 .modal-body h4 {
@@ -1000,7 +1000,7 @@
 
 .warning-text {
     text-align: center;
-    color: var(--hot-pink);
+    color: var(--accent-amber);
     font-size: 0.875rem;
     margin-bottom: var(--spacing-md);
 }
@@ -1026,7 +1026,7 @@
 
 .api-key-display code {
     flex: 1;
-    color: var(--hot-pink);
+    color: var(--accent-amber);
     font-family: 'Courier New', monospace;
     font-size: 0.875rem;
     word-break: break-all;
@@ -1049,7 +1049,7 @@
 }
 
 .copy-btn-inline:hover {
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
     transform: translateY(-2px);
 }
 
@@ -1073,7 +1073,7 @@
     display: block;
     font-size: 2rem;
     font-weight: 700;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     margin-bottom: 0.25rem;
 }
 

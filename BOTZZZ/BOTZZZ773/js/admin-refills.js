@@ -39,8 +39,7 @@
         try {
             showLoadingState();
             const token = localStorage.getItem('token');
-            
-            console.log('[REFILLS] Loading refills with token...');
+
             const response = await fetch('/.netlify/functions/admin-refills?action=list', {
                 headers: {
                     'Authorization': `Bearer ${token}`,

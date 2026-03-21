@@ -23,6 +23,7 @@ function initializeServicesTableDragDrop() {
 
   sortableInstance = Sortable.create(tbody, {
     handle: '.drag-handle',
+    filter: '.category-header-row',
     ghostClass: 'sortable-ghost',
     dragClass: 'sortable-drag',
     animation: 150,
@@ -240,7 +241,7 @@ async function updateServiceSlots(reorderedServices) {
   } catch (error) {
     console.error('Error updating service slots:', error);
     showNotification('Failed to reorder services. Please try again.', 'error');
-    setTimeout(() => loadAdminServices(), 1500);
+    setTimeout(() => { if (window.loadServices) window.loadServices(); }, 1500);
   } finally {
     isUpdatingSlots = false;
     hideReorderingFeedback();
@@ -394,12 +395,12 @@ function showNotification(message, type = 'info') {
 }
 
 /**
- * Hook into loadAdminServices to reinitialize DnD after table updates
+ * Hook into loadServices to reinitialize DnD after table updates
  */
-const originalLoadAdminServices = window.loadAdminServices;
-if (originalLoadAdminServices) {
-  window.loadAdminServices = async function(...args) {
-    const result = await originalLoadAdminServices.apply(this, args);
+const originalLoadServices = window.loadServices;
+if (originalLoadServices) {
+  window.loadServices = async function(...args) {
+    const result = await originalLoadServices.apply(this, args);
     // Reinitialize drag-and-drop after services load
     setTimeout(() => {
       if (sortableInstance) sortableInstance.destroy();

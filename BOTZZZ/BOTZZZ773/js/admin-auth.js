@@ -334,16 +334,11 @@ if (typeof document !== 'undefined') {
         (function() {
             'use strict';
 
-            console.log('[ADMIN-AUTH] Checking admin authentication...');
-            
             // Check authentication
             const token = localStorage.getItem('token');
             const userStr = localStorage.getItem('user');
             
-            console.log('[ADMIN-AUTH] Authentication check in progress...');
-            console.log('[ADMIN-AUTH] Token found:', !!token);
-            console.log('[ADMIN-AUTH] User data found:', !!userStr);
-            
+
             // No token or user - redirect to admin login
             if (!token || !userStr) {
                 console.warn('[ADMIN-AUTH] Admin access denied: No authentication token');
@@ -357,7 +352,6 @@ if (typeof document !== 'undefined') {
             let user;
             try {
                 user = JSON.parse(userStr);
-                console.log('[ADMIN-AUTH] User authenticated successfully:', user.email);
             } catch (error) {
                 console.error('[ADMIN-AUTH] Admin access denied: Invalid user data', error);
                 localStorage.removeItem('token');
@@ -385,8 +379,7 @@ if (typeof document !== 'undefined') {
                 
                 // Decode payload (middle part)
                 const payload = JSON.parse(atob(tokenParts[1]));
-                console.log('[ADMIN-AUTH] Token payload exp:', payload.exp, 'current:', Math.floor(Date.now() / 1000));
-                
+
                 // Check expiration
                 if (payload.exp && payload.exp * 1000 < Date.now()) {
                     console.warn('[ADMIN-AUTH] Admin access denied: Token expired');
@@ -403,7 +396,18 @@ if (typeof document !== 'undefined') {
                 return;
             }
 
-            console.log('✅ [ADMIN-AUTH] Admin authentication verified:', user.username);
+
+            // Populate admin user info in the UI
+            const displayName = user.username || user.email || 'Admin';
+            const adminNameEl = document.getElementById('adminUserName');
+            if (adminNameEl) adminNameEl.textContent = displayName;
+            const adminEmailEl = document.getElementById('adminUserEmail');
+            if (adminEmailEl) adminEmailEl.textContent = user.email || '';
+            const adminAvatar = document.querySelector('.admin-user-button img');
+            if (adminAvatar) {
+                adminAvatar.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(displayName) + '&background=FF8A4A&color=000000';
+                adminAvatar.alt = displayName;
+            }
         })();
 
         // Add logout handler

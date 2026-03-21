@@ -163,9 +163,66 @@ async function logNewUserNotification(user) {
     }
 }
 
+async function logPriceChangeNotification(changes) {
+    if (!changes || changes.length === 0) {
+        return { success: true, data: null };
+    }
+
+    try {
+        const increases = changes.filter(c => c.new_provider_rate > c.old_provider_rate);
+        const decreases = changes.filter(c => c.new_provider_rate < c.old_provider_rate);
+
+        const parts = [];
+        if (increases.length > 0) parts.push(`${increases.length} increased`);
+        if (decreases.length > 0) parts.push(`${decreases.length} decreased`);
+        const summary = parts.join(', ');
+
+        const preview = changes.slice(0, 3).map(c => {
+            const direction = c.new_provider_rate > c.old_provider_rate ? '↑' : '↓';
+            return `${c.serviceName || c.service_id} ${direction}`;
+        }).join(', ');
+        const moreText = changes.length > 3 ? ` +${changes.length - 3} more` : '';
+
+        const { data, error } = await supabaseAdmin
+            .from('admin_notifications')
+            .insert({
+                notification_type: 'price_change',
+                title: `Price Changes Detected - ${changes.length} Service(s)`,
+                message: `${summary}: ${preview}${moreText}`,
+                data: {
+                    total_changes: changes.length,
+                    increases: increases.length,
+                    decreases: decreases.length,
+                    changes: changes.slice(0, 10).map(c => ({
+                        service_name: c.serviceName,
+                        provider_name: c.providerName,
+                        old_rate: c.old_provider_rate,
+                        new_rate: c.new_provider_rate,
+                        old_retail: c.old_retail_rate,
+                        new_retail: c.new_retail_rate,
+                        direction: c.new_provider_rate > c.old_provider_rate ? 'up' : 'down'
+                    }))
+                }
+            })
+            .select();
+
+        if (error) {
+            console.error('[logPriceChangeNotification] Error:', error);
+            return { success: false, error };
+        }
+
+        console.log('[logPriceChangeNotification] Logged:', data?.[0]?.id);
+        return { success: true, data };
+    } catch (error) {
+        console.error('[logPriceChangeNotification] Exception:', error);
+        return { success: false, error };
+    }
+}
+
 module.exports = {
     logLowBalanceNotification,
     logFailedOrderNotification,
     logPaymentNotification,
-    logNewUserNotification
+    logNewUserNotification,
+    logPriceChangeNotification
 };

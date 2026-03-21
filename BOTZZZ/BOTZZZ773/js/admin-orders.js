@@ -3166,7 +3166,10 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                 const orderPrimaryTitle = identifierMeta.primaryTitle ? escapeHtml(identifierMeta.primaryTitle) : '';
                 const orderPrimaryLabel = escapeHtml(identifierMeta.primaryLabel);
                 const orderSecondaryMarkup = identifierMeta.secondaryLabel
-                    ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
+                    ? (() => {
+                        const providerOrderId = resolveProviderOrderIdFromRecord(order);
+                        return providerOrderId ? `<span class="order-id-secondary" title="${escapeHtml(providerOrderId)}">${escapeHtml(providerOrderId)}</span>` : '';
+                    })()
                     : '';
                 const providerInfo = resolveOrderProvider(order, orderService);
                 // Show provider name for orders that have it (below provider order ID)
@@ -3566,14 +3569,7 @@ async function loadFailedOrders() {
             return;
         }
 
-        tbody.innerHTML = `
-            <tr class="failed-orders-notice">
-                <td colspan="13" style="background: #000000; border-left: 4px solid #ef4444; padding: 12px;">
-                    <i class="fas fa-exclamation-triangle" style="color: #ef4444; margin-right: 8px;"></i>
-                    <strong>Failed Orders View:</strong> Showing ${failedOrders.length} order(s) with provider failures. Customers see these as "pending".
-                </td>
-            </tr>
-        `;
+        tbody.innerHTML = '';
 
         failedOrders.forEach((order, index) => {
             try {
@@ -3593,14 +3589,16 @@ async function loadFailedOrders() {
                 
                 const createdDate = order.created_at ? new Date(order.created_at).toLocaleString() : 'N/A';
                 const identifierMeta = resolveOrderIdentifiers(order);
-                
+
                 const orderPrimaryLabel = escapeHtml(identifierMeta?.primaryLabel || order.id || 'Unknown');
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
                 const orderNumberString = order.order_number !== undefined && order.order_number !== null ? String(order.order_number) : '';
                 const orderViewTarget = orderIdString || orderNumberString;
-                const orderSecondaryMarkup = identifierMeta?.secondaryLabel
-                    ? `<span class="order-id-secondary" title="${escapeHtml(identifierMeta.secondaryLabel)}">${escapeHtml(identifierMeta.secondaryLabel)}</span>`
-                    : '';
+                // Failed tab: show provider_order_id if available, otherwise order_number
+                const rawProviderOrderId = resolveProviderOrderIdFromRecord(order);
+                const failedOrderIdDisplay = rawProviderOrderId
+                    ? escapeHtml(String(rawProviderOrderId))
+                    : escapeHtml(orderNumberString || identifierMeta?.primaryLabel || orderIdString || 'N/A');
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
@@ -3624,8 +3622,35 @@ async function loadFailedOrders() {
                 const chargeValue = toNumberOrNull(order.charge || order.retail_charge || order.customer_charge || order.amount);
                 const charge = chargeValue !== null ? formatCurrencyDynamic(chargeValue) : 'N/A';
 
+                // Provider cost for failed orders: always prefer provider_rate × qty / 1000
+                // (stored provider_cost may have been set incorrectly using retail rate)
+                let providerCostValue = null;
+                if (typeof quantity === 'number' && quantity > 0 && orderService) {
+                    const providerRate = toNumberOrNull(orderService.provider_rate);
+                    if (providerRate !== null && providerRate > 0) {
+                        providerCostValue = Number(((providerRate * quantity) / 1000).toFixed(5));
+                    }
+                }
+                // Fall back to stored provider_cost only if no provider_rate available
+                if (providerCostValue === null) {
+                    const stored = toNumberOrNull(order.provider_cost);
+                    if (stored !== null && stored > 0) providerCostValue = stored;
+                }
+                const providerCostDisplay = providerCostValue !== null && providerCostValue > 0
+                    ? formatCurrencyDynamic(providerCostValue)
+                    : 'N/A';
+                const amountCellMarkup = `
+                    <div class="cell-stack">
+                        <span class="cell-primary cell-highlight" title="Customer paid">IN: ${charge}</span>
+                        <span class="cell-secondary" title="Would-be provider cost">OUT: ${providerCostDisplay}</span>
+                    </div>`;
+
                 const userName = escapeHtml(orderUser?.username || orderUser?.email || extractedUserName);
-                const serviceName = escapeHtml(orderService?.name || extractedServiceName);
+                const rawServiceName = orderService?.name || extractedServiceName;
+                const servicePublicId = orderService?.public_id || null;
+                const serviceName = servicePublicId
+                    ? escapeHtml(`${servicePublicId} · ${rawServiceName}`)
+                    : escapeHtml(rawServiceName);
                 
                 // Show provider error with safe extraction
                 let providerError = 'Unknown error';
@@ -3639,7 +3664,11 @@ async function loadFailedOrders() {
                     console.warn('[FAILED ORDERS] Error extracting provider error:', e);
                 }
                 const errorPreview = truncateText(providerError, 80);
-                const failureMetaMarkup = buildFailureMeta(order);
+                // Provider name for error display
+                const errorProviderNameRaw = order.failure_log?.provider?.name
+                    || resolveOrderProvider(order, orderService)?.providerName
+                    || null;
+                const errorProviderName = (errorProviderNameRaw && errorProviderNameRaw !== 'Unknown Provider') ? errorProviderNameRaw : null;
 
                 const selectionKey = buildOrderSelectionKey(order, index);
                 const isSelected = selectedOrderIds.has(selectionKey);
@@ -3668,41 +3697,30 @@ async function loadFailedOrders() {
                 </td>
                 <td>
                     <div class="order-id-cell">
-                        <span class="order-id-primary">${orderPrimaryLabel}</span>
-                        ${orderSecondaryMarkup}
+                        <span class="order-id-primary">${failedOrderIdDisplay}</span>
                         ${failedOrderProviderNameMarkup}
                     </div>
                 </td>
                 <td>${userName}</td>
-                <td>${charge}</td>
+                <td>${amountCellMarkup}</td>
                 <td>${linkCellMarkup}</td>
                 <td>—</td>
                 <td>${escapeHtml(quantity)}</td>
                 <td>${serviceName}</td>
                 <td>
-                    <span class="status-badge status-failed">Failed</span>
-                    <div style="font-size: 11px; color: #ef4444; margin-top: 4px;" title="${escapeHtml(providerError)}">
+                    <div class="error-reason" style="margin:0; padding:4px 6px; font-size:11px; background:rgba(239,68,68,0.08); border-radius:4px; border-left:2px solid #ef4444; display:flex; align-items:center; gap:4px;">
                         ${escapeHtml(errorPreview)}
                     </div>
-                    ${failureMetaMarkup}
                 </td>
                 <td>—</td>
                 <td>${escapeHtml(createdDate)}</td>
                 <td>—</td>
                 <td>
-                    <div class="action-buttons">
-                        <button class="btn-icon" onclick="resendFailedOrder('${escapeHtml(order.id || '')}')" title="Resend to provider" ${!order.id ? 'disabled' : ''}>
-                            <i class="fas fa-redo"></i>
-                        </button>
-                        <button class="btn-icon" onclick="refillOrder('${escapeHtml(order.id || '')}')" title="Request provider refill" ${!order.id || !canRefill ? 'disabled' : ''}>
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                        <button class="btn-icon" onclick="editOrder('${escapeHtml(order.id || '')}')" title="Edit order" ${!order.id ? 'disabled' : ''}>
-                            <i class="fas fa-edit"></i>
-                        </button>
-                        <button class="btn-icon" onclick="deleteOrder('${escapeHtml(order.id || '')}')" title="Delete order" ${!order.id ? 'disabled' : ''}>
-                            <i class="fas fa-trash"></i>
-                        </button>
+                    <div class="action-buttons-grid">
+                        <button class="btn-icon" onclick="resendFailedOrder('${escapeHtml(order.id || '')}')" title="Resend to provider" ${!order.id ? 'disabled' : ''}><i class="fas fa-redo"></i></button>
+                        <button class="btn-icon" onclick="viewOrder('${escapeHtml(order.id || '')}')" title="Order details" ${!order.id ? 'disabled' : ''}><i class="fas fa-info-circle"></i></button>
+                        <button class="btn-icon" onclick="editOrder('${escapeHtml(order.id || '')}')" title="Edit order" ${!order.id ? 'disabled' : ''}><i class="fas fa-edit"></i></button>
+                        <button class="btn-icon" onclick="deleteOrder('${escapeHtml(order.id || '')}')" title="Delete order" ${!order.id ? 'disabled' : ''}><i class="fas fa-trash"></i></button>
                     </div>
                 </td>
             `;

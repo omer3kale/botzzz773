@@ -10,6 +10,12 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const SALT_ROUNDS = 10;
 const logger = createLogger('auth');
 
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 const adminOtpIdentifiers = (process.env.ADMIN_OTP_IDENTIFIERS || process.env.ADMIN_OTP_EMAILS || '')
   .split(',')
   .map(identifier => identifier.trim().toLowerCase())
@@ -57,7 +63,7 @@ function verifyToken(token) {
 
 const baseHandler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json'

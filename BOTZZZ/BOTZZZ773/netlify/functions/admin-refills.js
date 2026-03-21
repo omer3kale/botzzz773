@@ -1,9 +1,28 @@
 const { supabaseAdmin } = require('./utils/supabase');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
+function getUserFromToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.substring(7);
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return null;
+  }
+}
 
 exports.handler = async (event) => {
   const headers = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': getCorsOrigin(event),
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json'
@@ -15,23 +34,16 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Check authorization
-    const token = event.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
+    // Verify JWT and admin role
+    const user = getUserFromToken(event.headers.authorization);
+    if (!user) {
       return { statusCode: 401, headers, body: JSON.stringify({ error: 'Unauthorized' }) };
     }
+    if (user.role !== 'admin') {
+      return { statusCode: 403, headers, body: JSON.stringify({ error: 'Forbidden' }) };
+    }
 
-    // Verify admin role
-    const { data: user, error: userError } = await supabaseAdmin
-      .from('users')
-      .select('id, role')
-      .eq('id', token.replace('Bearer ', ''))
-      .single();
-
-    // Note: In production, use proper JWT verification
-    // For now, we'll check auth via the token header
-
-    const action = event.queryStringParameters?.action || 
+    const action = event.queryStringParameters?.action ||
                    (event.body ? JSON.parse(event.body).action : null);
 
     switch (action) {

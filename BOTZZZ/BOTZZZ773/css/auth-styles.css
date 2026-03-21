@@ -98,7 +98,7 @@
 .form-group input:focus,
 .form-group select:focus {
     outline: none;
-    border-color: var(--primary-pink);
+    border-color: var(--primary-teal);
     background: rgba(43, 195, 164, 0.08);
     box-shadow: 0 0 0 3px rgba(43, 195, 164, 0.16);
 }
@@ -133,7 +133,7 @@
 }
 
 .toggle-password:hover {
-    color: var(--hot-pink);
+    color: var(--accent-amber);
 }
 
 .toggle-confirm-password {
@@ -168,11 +168,11 @@
     width: 18px;
     height: 18px;
     cursor: pointer;
-    accent-color: var(--primary-pink);
+    accent-color: var(--primary-teal);
 }
 
 .checkbox-label a {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     text-decoration: none;
 }
 
@@ -188,7 +188,7 @@
 }
 
 .forgot-link {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     text-decoration: none;
     font-size: 0.9rem;
     transition: opacity 0.3s ease;
@@ -201,7 +201,7 @@
 .admin-signin-toggle {
     background: none;
     border: 1px solid rgba(43, 195, 164, 0.35);
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     padding: 6px 12px;
     border-radius: 6px;
     font-size: 0.85rem;
@@ -270,13 +270,13 @@
     cursor: pointer;
     transition: all 0.3s ease;
     margin-top: 8px;
-    box-shadow: var(--shadow-pink);
+    box-shadow: var(--shadow-teal);
 }
 
 .btn-submit:hover {
     transform: translateY(-2px);
     transform: translateY(-2px);
-    box-shadow: var(--shadow-pink-lg);
+    box-shadow: var(--shadow-amber-lg);
 }
 
 .btn-submit:active {
@@ -364,7 +364,7 @@
 }
 
 .auth-footer a {
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     text-decoration: none;
     font-weight: 600;
 }
@@ -411,7 +411,7 @@
 }
 
 .feature-icon svg {
-    stroke: var(--primary-pink);
+    stroke: var(--primary-teal);
 }
 
 .feature-number {
@@ -464,7 +464,7 @@
 }
 
 .promo-banner strong {
-    color: var(--hot-pink);
+    color: var(--accent-amber);
     font-weight: 700;
 }
 
@@ -670,7 +670,7 @@ body.modal-open {
 
 .otp-input-group input:focus {
     outline: none;
-    border-color: var(--primary-pink);
+    border-color: var(--primary-teal);
     box-shadow: 0 0 0 3px rgba(43, 195, 164, 0.18);
 }
 
@@ -685,7 +685,7 @@ body.modal-open {
 .otp-link {
     background: none;
     border: none;
-    color: var(--primary-pink);
+    color: var(--primary-teal);
     cursor: pointer;
     font-size: 0.9rem;
     padding: 0;

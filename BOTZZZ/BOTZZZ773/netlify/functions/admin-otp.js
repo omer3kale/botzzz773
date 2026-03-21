@@ -16,6 +16,13 @@ const SMTP_USER = process.env.SMTP_USER;
 const SMTP_PASS = process.env.SMTP_PASS;
 const OTP_EXPIRY_MINUTES = 10;
 const DEV_OTP_BYPASS = process.env.DEV_OTP_BYPASS !== 'false'; // true unless explicitly set to 'false'
+
+const ALLOWED_ORIGINS = ['https://www.botzzz773.pro', 'https://botzzz773.pro'];
+function getCorsOrigin(event) {
+  const origin = event?.headers?.origin || '';
+  return ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+}
+
 // Configure email transporter
 const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
@@ -121,7 +128,7 @@ Never share this code with anyone. If you didn't request this code, you can safe
 
 exports.handler = async (event) => {
     const headers = {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': getCorsOrigin(event),
         'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Content-Type': 'application/json'

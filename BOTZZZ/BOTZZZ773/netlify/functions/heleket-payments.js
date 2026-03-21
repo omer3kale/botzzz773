@@ -83,22 +83,12 @@ module.exports.handler = async (event) => {
       return { statusCode: 500, headers, body: JSON.stringify({ error: 'Status update failed' }) };
     }
 
-    // Fetch current balance, then set balance = balance + amount
-    const { data: userRows, error: userErr } = await supabaseAdmin
-      .from('users')
-      .select('id,balance')
-      .eq('id', payment.user_id)
-      .limit(1);
-    if (userErr) {
-      logger.error('Fetch user balance error', { error: serializeError(userErr), userId: payment.user_id });
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, warning: 'Balance fetch failed' }) };
-    }
-    const userRow = Array.isArray(userRows) && userRows[0];
-    const currentBalance = userRow && Number(userRow.balance) ? Number(userRow.balance) : 0;
+    // Credit user balance atomically via RPC
     const { error: balErr } = await supabaseAdmin
-      .from('users')
-      .update({ balance: currentBalance + amount })
-      .eq('id', payment.user_id);
+      .rpc('refund_balance', {
+        p_user_id: payment.user_id,
+        p_amount: amount
+      });
     if (balErr) {
       logger.error('Balance update error', { error: serializeError(balErr), userId: payment.user_id });
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, warning: 'Balance update failed' }) };

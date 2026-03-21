@@ -939,7 +939,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         provider_name,
         service_name,
         user:users(id, email, username),
-        service:services(id, public_id, name, category, rate, provider_service_id, provider_id, provider:providers(id, name), refill_supported, cancel_supported, dripfeed_supported, subscription_supported)
+        service:services(id, public_id, name, category, rate, provider_rate, provider_service_id, provider_id, provider:providers(id, name), refill_supported, cancel_supported, dripfeed_supported, subscription_supported)
       `)
       .order('created_at', { ascending: false });
     
@@ -1153,7 +1153,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       if (failedOrderIds.length > 0) {
         const { data: failureLogs, error: failureLogsError } = await supabaseAdmin
           .from('provider_errors')
-          .select('order_id, retry_count, resolved, resolved_at, last_retry_at, error_timestamp, error_message, failure_source, failure_code, failure_context')
+          .select('id, order_id, retry_count, resolved, resolved_at, last_retry_at, error_timestamp, error_message, failure_source, failure_code, failure_context')
           .in('order_id', failedOrderIds);
 
         if (failureLogsError) {
