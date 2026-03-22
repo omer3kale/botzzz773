@@ -52,58 +52,58 @@ async function sendOTPEmail(email, otpCode) {
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
             </head>
-            <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #05060a;">
-                <div style="max-width: 600px; margin: 40px auto; background-color: #0b0d13; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 16px; overflow: hidden;">
+            <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #0a0c12;">
+                <div style="max-width: 480px; margin: 40px auto; background-color: #0f1117; border-radius: 12px; overflow: hidden;">
                     <!-- Header -->
-                    <div style="background: linear-gradient(135deg, #ff1494, #ff5722); padding: 32px; text-align: center;">
-                        <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 800; letter-spacing: 0.08em;">
-                            BOTZZZ<span style="color: #000;">773</span>
+                    <div style="padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #1e2030;">
+                        <h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.05em;">
+                            <span style="color: #818cf8;">BOTZZZ</span><span style="color: #e2e4ed;">773</span>
                         </h1>
-                        <p style="margin: 8px 0 0; color: rgba(255, 255, 255, 0.9); font-size: 14px;">
+                        <p style="margin: 8px 0 0; color: #8b8fa3; font-size: 13px;">
                             Admin Authentication
                         </p>
                     </div>
-                    
+
                     <!-- Content -->
-                    <div style="padding: 40px 32px;">
-                        <p style="margin: 0 0 24px; color: rgba(255, 255, 255, 0.9); font-size: 16px; line-height: 1.6;">
+                    <div style="padding: 32px;">
+                        <p style="margin: 0 0 24px; color: #c4c7d6; font-size: 15px; line-height: 1.6;">
                             Hello Admin,
                         </p>
-                        
-                        <p style="margin: 0 0 32px; color: rgba(255, 255, 255, 0.7); font-size: 14px; line-height: 1.6;">
-                            You requested to sign in to the BOTZZZ773 Admin Panel. Use the verification code below to complete your sign-in:
+
+                        <p style="margin: 0 0 28px; color: #8b8fa3; font-size: 14px; line-height: 1.6;">
+                            Use the verification code below to sign in to the admin panel:
                         </p>
-                        
+
                         <!-- OTP Code Box -->
-                        <div style="background: rgba(255, 20, 148, 0.08); border: 2px solid #ff1494; border-radius: 12px; padding: 24px; text-align: center; margin-bottom: 32px;">
-                            <p style="margin: 0 0 8px; color: rgba(255, 255, 255, 0.7); font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;">
-                                Your Verification Code
+                        <div style="background: #161822; border: 1px solid #1e2030; border-radius: 10px; padding: 24px; text-align: center; margin-bottom: 28px;">
+                            <p style="margin: 0 0 8px; color: #8b8fa3; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;">
+                                Verification Code
                             </p>
-                            <p style="margin: 0; color: #ff1494; font-size: 42px; font-weight: 800; letter-spacing: 0.2em; font-family: 'Courier New', monospace;">
+                            <p style="margin: 0; color: #818cf8; font-size: 40px; font-weight: 700; letter-spacing: 0.2em; font-family: 'Courier New', monospace;">
                                 ${otpCode}
                             </p>
                         </div>
-                        
+
                         <!-- Security Info -->
-                        <div style="background: rgba(255, 87, 34, 0.08); border: 1px solid rgba(255, 87, 34, 0.2); border-radius: 8px; padding: 16px; margin-bottom: 24px;">
-                            <p style="margin: 0 0 8px; color: #ff5722; font-size: 13px; font-weight: 600;">
-                                ⚠️ Security Notice
+                        <div style="background: #161822; border-left: 3px solid #f59e0b; padding: 14px 16px; border-radius: 0 8px 8px 0; margin-bottom: 24px;">
+                            <p style="margin: 0 0 6px; color: #f59e0b; font-size: 12px; font-weight: 600;">
+                                Security Notice
                             </p>
-                            <p style="margin: 0; color: rgba(255, 255, 255, 0.7); font-size: 12px; line-height: 1.5;">
-                                This code expires in <strong>${OTP_EXPIRY_MINUTES} minutes</strong>. Never share this code with anyone. BOTZZZ773 staff will never ask for your verification code.
+                            <p style="margin: 0; color: #8b8fa3; font-size: 12px; line-height: 1.5;">
+                                Expires in <strong style="color: #c4c7d6;">${OTP_EXPIRY_MINUTES} minutes</strong>. Never share this code with anyone.
                             </p>
                         </div>
-                        
-                        <p style="margin: 0 0 16px; color: rgba(255, 255, 255, 0.7); font-size: 14px; line-height: 1.6;">
-                            If you didn't request this code, you can safely ignore this email. Your account remains secure.
+
+                        <p style="margin: 0; color: #6b6f85; font-size: 13px; line-height: 1.5;">
+                            If you didn't request this code, you can safely ignore this email.
                         </p>
                     </div>
-                    
+
                     <!-- Footer -->
-                    <div style="background-color: #05060a; padding: 24px 32px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-                        <p style="margin: 0; color: rgba(255, 255, 255, 0.5); font-size: 12px; text-align: center; line-height: 1.5;">
-                            © ${new Date().getFullYear()} BOTZZZ773. All rights reserved.<br>
-                            This is an automated message, please do not reply.
+                    <div style="padding: 20px 32px; border-top: 1px solid #1e2030; text-align: center;">
+                        <p style="margin: 0; color: #4a4e63; font-size: 11px; line-height: 1.5;">
+                            <span style="color: #818cf8;">BOTZZZ773</span> · ${new Date().getFullYear()}<br>
+                            Automated message — do not reply
                         </p>
                     </div>
                 </div>

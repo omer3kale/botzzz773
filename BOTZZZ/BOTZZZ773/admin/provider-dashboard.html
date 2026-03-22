@@ -115,6 +115,8 @@
         .ig-stat-card.completed .ig-stat-icon { background: rgba(0,200,83,0.15); color: #00c853; }
         .ig-stat-card.error_tw::before { background: linear-gradient(90deg, #ff5722, #ff8a65); }
         .ig-stat-card.error_tw .ig-stat-icon { background: rgba(255,87,34,0.15); color: #ff5722; }
+        .ig-stat-card.locked_tw::before { background: linear-gradient(90deg, #ef4444, #f87171); }
+        .ig-stat-card.locked_tw .ig-stat-icon { background: rgba(239,68,68,0.15); color: #ef4444; }
         .ig-stat-icon {
             width: 44px; height: 44px; border-radius: 12px;
             display: flex; align-items: center; justify-content: center;
@@ -526,6 +528,7 @@
                     <div class="ig-stat-card pending"><div class="ig-stat-icon"><i class="fas fa-clock"></i></div><div class="ig-stat-value" id="twStatPending">-</div><div class="ig-stat-label">Pending</div></div>
                     <div class="ig-stat-card completed"><div class="ig-stat-icon"><i class="fas fa-check-circle"></i></div><div class="ig-stat-value" id="twStatCompleted">-</div><div class="ig-stat-label">Completed</div></div>
                     <div class="ig-stat-card error_tw"><div class="ig-stat-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="ig-stat-value" id="twStatError">-</div><div class="ig-stat-label">Error</div></div>
+                    <div class="ig-stat-card locked_tw"><div class="ig-stat-icon"><i class="fas fa-lock"></i></div><div class="ig-stat-value" id="twStatLocked">-</div><div class="ig-stat-label">Locked</div></div>
                 </div>
                 <div class="ig-table-wrapper">
                     <div class="ig-table-header">
@@ -1004,6 +1007,7 @@
 
             document.getElementById('twStatCompleted').textContent = allTwitterAccounts.filter(a => a.warmup_status === 'completed').length;
             document.getElementById('twStatError').textContent = allTwitterAccounts.filter(a => a.warmup_status === 'error').length;
+            document.getElementById('twStatLocked').textContent = allTwitterAccounts.filter(a => a.tw_status === 'locked').length;
             document.getElementById('twCount').textContent = total;
             updateAccountsTotalCount();
             renderTwitterTable(allTwitterAccounts);

@@ -1917,6 +1917,7 @@ async function initializeOrdersPage() {
     console.log('[ORDERS] Initializing orders page - loading ALL orders');
     // Reset to all view on page load
     currentOrdersView = 'all';
+    document.querySelector('.orders-table-panel')?.classList.remove('failed-view');
     
     // Ensure All tab is active
     const tabs = document.querySelectorAll('.filter-tab');
@@ -2095,8 +2096,7 @@ async function filterOrders(status) {
     
     // Reset to all view
     currentOrdersView = 'all';
-    
-    // Clear all selections when filter changes
+    document.querySelector('.orders-table-panel')?.classList.remove('failed-view');
     selectedOrderIds.clear();
     
     if (normalizedStatus === 'all') {
@@ -3307,7 +3307,6 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
                                     </div>
                                 ` : ''}
                                 ${statusChipsMarkup}
-                                ${providerStatusMarkup}
                             </div>
                         </td>
                         <td>${escapeHtml(String(remains))}</td>
@@ -3488,6 +3487,8 @@ async function loadFailedOrders() {
     selectedOrderIds.clear();
     
     currentOrdersView = 'failed';
+    // Add failed-view class for column width overrides
+    document.querySelector('.orders-table-panel')?.classList.add('failed-view');
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) {
         console.error('[FAILED ORDERS] Table body element not found!');
@@ -3594,11 +3595,12 @@ async function loadFailedOrders() {
                 const orderIdString = order.id !== undefined && order.id !== null ? String(order.id) : '';
                 const orderNumberString = order.order_number !== undefined && order.order_number !== null ? String(order.order_number) : '';
                 const orderViewTarget = orderIdString || orderNumberString;
-                // Failed tab: show provider_order_id if available, otherwise order_number
+                // Failed tab: always show order_number, plus provider_order_id if available
                 const rawProviderOrderId = resolveProviderOrderIdFromRecord(order);
-                const failedOrderIdDisplay = rawProviderOrderId
-                    ? escapeHtml(String(rawProviderOrderId))
-                    : escapeHtml(orderNumberString || identifierMeta?.primaryLabel || orderIdString || 'N/A');
+                const failedOrderNumberDisplay = escapeHtml(orderNumberString || identifierMeta?.primaryLabel || orderIdString || 'N/A');
+                const failedProviderIdMarkup = rawProviderOrderId
+                    ? `<span class="cell-secondary" style="font-size:11px; opacity:0.7;">Provider: ${escapeHtml(String(rawProviderOrderId))}</span>`
+                    : '';
 
                 const linkLabel = order.link ? truncateText(order.link, 42) : null;
                 const linkHref = order.link ? encodeURI(order.link) : null;
@@ -3697,7 +3699,8 @@ async function loadFailedOrders() {
                 </td>
                 <td>
                     <div class="order-id-cell">
-                        <span class="order-id-primary">${failedOrderIdDisplay}</span>
+                        <span class="order-id-primary">${failedOrderNumberDisplay}</span>
+                        ${failedProviderIdMarkup}
                         ${failedOrderProviderNameMarkup}
                     </div>
                 </td>
@@ -3714,7 +3717,6 @@ async function loadFailedOrders() {
                 </td>
                 <td>—</td>
                 <td>${escapeHtml(createdDate)}</td>
-                <td>—</td>
                 <td>
                     <div class="action-buttons-grid">
                         <button class="btn-icon" onclick="resendFailedOrder('${escapeHtml(order.id || '')}')" title="Resend to provider" ${!order.id ? 'disabled' : ''}><i class="fas fa-redo"></i></button>
@@ -4257,6 +4259,7 @@ async function showProviderErrors() {
 function hideProviderErrors() {
     console.log('[ORDERS] Hiding provider errors, returning to all orders view');
     currentOrdersView = 'all';
+    document.querySelector('.orders-table-panel')?.classList.remove('failed-view');
     
     // Show orders view
     const ordersLayout = document.querySelector('.orders-layout');

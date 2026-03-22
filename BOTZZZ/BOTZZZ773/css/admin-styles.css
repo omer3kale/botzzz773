@@ -1,10 +1,8 @@
-﻿/* Action buttons in failed orders */
+﻿/* Action buttons 2x2 grid in failed orders */
 .action-buttons-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    justify-content: center;
-    align-items: center;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
     width: fit-content;
     margin: 0 auto;
 }
@@ -1543,36 +1541,30 @@ body.sidebar-collapsed .admin-main {
     min-width: 110px;
 }
 
-/* Orders Table (13 columns) - Original layout */
+/* Orders Table (12 columns) */
 .orders-table-panel .admin-table th:nth-child(1),
 .orders-table-panel .admin-table td:nth-child(1) {
-    width: 40px; /* Checkbox column */
-    min-width: 40px;
+    width: 60px;
 }
 
 .orders-table-panel .admin-table th:nth-child(2),
 .orders-table-panel .admin-table td:nth-child(2) {
-    width: 220px; /* Order IDs column - ensure enough space */
-    min-width: 220px;
+    width: 220px;
 }
 
 .orders-table-panel .admin-table th:nth-child(3),
 .orders-table-panel .admin-table td:nth-child(3) {
-    width: 140px; /* User column */
-    min-width: 140px;
+    width: 140px;
 }
 
 .orders-table-panel .admin-table th:nth-child(4),
 .orders-table-panel .admin-table td:nth-child(4) {
-    width: 160px; /* Amount column */
-    min-width: 160px;
+    width: 162px;
 }
 
 .orders-table-panel .admin-table th:nth-child(5),
 .orders-table-panel .admin-table td:nth-child(5) {
-    width: 200px; /* Link column */
-    min-width: 200px;
-    max-width: 250px;
+    width: 200px;
     word-break: break-all !important;
     white-space: normal !important;
     overflow-wrap: break-word !important;
@@ -1588,34 +1580,28 @@ body.sidebar-collapsed .admin-main {
 
 .orders-table-panel .admin-table th:nth-child(6),
 .orders-table-panel .admin-table td:nth-child(6) {
-    width: 110px; /* Start count */
-    min-width: 110px;
+    width: 110px;
 }
 
 .orders-table-panel .admin-table th:nth-child(7),
 .orders-table-panel .admin-table td:nth-child(7) {
-    width: 100px; /* Quantity */
-    min-width: 100px;
+    width: 103px;
 }
 
 .orders-table-panel .admin-table th:nth-child(8),
 .orders-table-panel .admin-table td:nth-child(8) {
-    width: 180px; /* Service */
-    min-width: 180px;
+    width: 203px;
 }
 
 .orders-table-panel .admin-table th:nth-child(9),
 .orders-table-panel .admin-table td:nth-child(9) {
-    width: 180px; /* Status */
-    min-width: 180px;
-    padding-right: 8px;
+    width: 202px;
 }
 
 .orders-table-panel .admin-table th:nth-child(10),
 .orders-table-panel .admin-table td:nth-child(10) {
-    width: 100px; /* Remains */
-    min-width: 100px;
-    padding-left: 8px;
+    width: 105px;
+    min-width: 105px;
 }
 
 /* Services Table (8 columns) */
@@ -2282,20 +2268,12 @@ body.sidebar-collapsed .admin-main {
 
 .orders-table-panel .admin-table th:nth-child(11),
 .orders-table-panel .admin-table td:nth-child(11) {
-    width: 120px; /* Created */
-    min-width: 120px;
+    width: 184px;
 }
 
 .orders-table-panel .admin-table th:nth-child(12),
 .orders-table-panel .admin-table td:nth-child(12) {
-    width: 80px; /* Mode */
-    min-width: 80px;
-}
-
-.orders-table-panel .admin-table th:nth-child(13),
-.orders-table-panel .admin-table td:nth-child(13) {
-    width: 80px; /* Actions */
-    min-width: 80px;
+    width: 88px;
 }
 
 /* Tickets Table (7 columns after removing ID & Assignee) */
@@ -4298,7 +4276,6 @@ select option:checked {
     background: rgba(239, 68, 68, 0.08);
     border-radius: 4px;
     border-left: 2px solid #ef4444;
-    max-width: 140px;
     word-break: break-word;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -4335,6 +4312,71 @@ select option:checked {
 .filter-tab.provider-errors-tab .tab-badge {
     background: white;
     color: #dc2626;
+}
+
+/* Failed view: compact column widths */
+.orders-table-panel.failed-view .admin-table {
+    table-layout: fixed;
+    width: 100%;
+    min-width: 0;
+}
+
+/* Hide empty columns in failed view: Start Count (6), Remains (10) */
+.orders-table-panel.failed-view .admin-table th:nth-child(6),
+.orders-table-panel.failed-view .admin-table td:nth-child(6),
+.orders-table-panel.failed-view .admin-table th:nth-child(10),
+.orders-table-panel.failed-view .admin-table td:nth-child(10) {
+    display: none;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(1),
+.orders-table-panel.failed-view .admin-table td:nth-child(1) {
+    width: 55px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(2),
+.orders-table-panel.failed-view .admin-table td:nth-child(2) {
+    width: 159px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(3),
+.orders-table-panel.failed-view .admin-table td:nth-child(3) {
+    width: 122px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(4),
+.orders-table-panel.failed-view .admin-table td:nth-child(4) {
+    width: 180px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(5),
+.orders-table-panel.failed-view .admin-table td:nth-child(5) {
+    width: 232px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(7),
+.orders-table-panel.failed-view .admin-table td:nth-child(7) {
+    width: 106px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(8),
+.orders-table-panel.failed-view .admin-table td:nth-child(8) {
+    width: 341px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(9),
+.orders-table-panel.failed-view .admin-table td:nth-child(9) {
+    width: 289px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(11),
+.orders-table-panel.failed-view .admin-table td:nth-child(11) {
+    width: 180px;
+}
+
+.orders-table-panel.failed-view .admin-table th:nth-child(12),
+.orders-table-panel.failed-view .admin-table td:nth-child(12) {
+    width: 97px;
 }
 
 /* Failed order row highlight */

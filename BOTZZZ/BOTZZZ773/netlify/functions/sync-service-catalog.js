@@ -834,86 +834,90 @@ exports.handler = async (event = {}) => {
       // Build table rows for price changes
       const tableRows = allChanges
         .slice(0, 50)
-        .map(change => `
-          <tr style="background: ${change._index % 2 === 0 ? '#1a1a1a' : '#0a0a0a'}; border-bottom: 1px solid #2a2a2a;">
-            <td style="padding: 12px 15px; color: #E0E0E0; font-size: 13px; border-right: 1px solid #2a2a2a;">${change.providerName || 'N/A'}</td>
-            <td style="padding: 12px 15px; color: #E0E0E0; font-size: 13px; border-right: 1px solid #2a2a2a;">${change.serviceName || change.service_id}</td>
-            <td style="padding: 12px 15px; color: #B0B0B0; font-size: 13px; border-right: 1px solid #2a2a2a;">$${parseFloat(change.old_provider_rate || 0).toFixed(4)}</td>
-            <td style="padding: 12px 15px; color: #FF69B4; font-size: 13px; font-weight: 600; border-right: 1px solid #2a2a2a;">$${parseFloat(change.new_provider_rate || 0).toFixed(4)}</td>
-            <td style="padding: 12px 15px; color: #B0B0B0; font-size: 13px; border-right: 1px solid #2a2a2a;">$${parseFloat(change.old_retail_rate || 0).toFixed(4)}</td>
-            <td style="padding: 12px 15px; color: #FF69B4; font-size: 13px; font-weight: 600; border-right: 1px solid #2a2a2a;">$${parseFloat(change.new_retail_rate || 0).toFixed(4)}</td>
-            <td style="padding: 12px 15px; color: #FFD700; font-size: 13px;">+${change.markup_used || 0}%</td>
-          </tr>
-        `)
-        .map((row, idx) => row.replace('_index % 2', idx + ' % 2'))
+        .map((change, idx) => {
+          const bgColor = idx % 2 === 0 ? '#161822' : '#1a1c2e';
+          const oldCost = parseFloat(change.old_provider_rate || 0);
+          const newCost = parseFloat(change.new_provider_rate || 0);
+          const isIncrease = newCost > oldCost;
+          const costColor = isIncrease ? '#f87171' : '#34d399';
+          const arrow = isIncrease ? '↑' : '↓';
+          return `
+          <tr style="background: ${bgColor};">
+            <td style="padding: 10px 14px; color: #e2e4ed; font-size: 13px; border-bottom: 1px solid #1e2030;">${change.providerName || 'N/A'}</td>
+            <td style="padding: 10px 14px; color: #c4c7d6; font-size: 13px; border-bottom: 1px solid #1e2030;">${change.serviceName || change.service_id}</td>
+            <td style="padding: 10px 14px; color: #8b8fa3; font-size: 13px; border-bottom: 1px solid #1e2030;">$${oldCost.toFixed(4)}</td>
+            <td style="padding: 10px 14px; color: ${costColor}; font-size: 13px; font-weight: 600; border-bottom: 1px solid #1e2030;">${arrow} $${newCost.toFixed(4)}</td>
+            <td style="padding: 10px 14px; color: #8b8fa3; font-size: 13px; border-bottom: 1px solid #1e2030;">$${parseFloat(change.old_retail_rate || 0).toFixed(4)}</td>
+            <td style="padding: 10px 14px; color: #c4c7d6; font-size: 13px; font-weight: 600; border-bottom: 1px solid #1e2030;">$${parseFloat(change.new_retail_rate || 0).toFixed(4)}</td>
+            <td style="padding: 10px 14px; color: #f59e0b; font-size: 13px; border-bottom: 1px solid #1e2030;">+${change.markup_used || 0}%</td>
+          </tr>`;
+        })
         .join('');
 
-      const emailSubject = `🔔 Price Changes Detected - ${allChanges.length} Service(s)`;
+      const increases = allChanges.filter(c => parseFloat(c.new_provider_rate || 0) > parseFloat(c.old_provider_rate || 0)).length;
+      const decreases = allChanges.length - increases;
+
+      const emailSubject = `💰 ${allChanges.length} Price Change${allChanges.length > 1 ? 's' : ''} Detected`;
 
       const emailBody = `
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #0a0a0a; padding: 0; margin: 0;">
-  <!-- Top Accent -->
-  <div style="background: linear-gradient(90deg, #FF1494 0%, #FF69B4 50%, #FF1494 100%); height: 3px;"></div>
-  
-  <div style="background: #0a0a0a; padding: 30px 20px; color: #E0E0E0; max-width: 800px; margin: 0 auto;">
-    
-    <!-- Header with Gradient -->
-    <div style="background: linear-gradient(135deg, #FF1494 0%, #FF69B4 100%); padding: 30px; border-radius: 8px 8px 0 0; text-align: center;">
-      <h1 style="margin: 0; color: #FFFFFF; font-size: 24px; font-weight: 800;">💰 PRICE CHANGES DETECTED</h1>
-      <p style="margin: 8px 0 0 0; color: #F0F0F0; font-size: 14px; font-weight: 500;">Service Catalog Sync Report</p>
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #0f1117; padding: 0; margin: 0; border-radius: 12px; overflow: hidden;">
+  <div style="background: #0f1117; padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #1e2030;">
+    <h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: 0.05em; color: #818cf8;">BOTZZZ<span style="color: #e2e4ed;">773</span></h1>
+  </div>
+
+  <div style="padding: 24px 32px; max-width: 900px; margin: 0 auto;">
+    <div style="text-align: center; margin-bottom: 20px;">
+      <div style="display: inline-block; background: rgba(129, 140, 248, 0.12); color: #818cf8; padding: 10px 24px; border-radius: 20px; font-size: 14px; font-weight: 600; border: 1px solid rgba(129, 140, 248, 0.2);">
+        💰 ${allChanges.length} Price Change${allChanges.length > 1 ? 's' : ''} Detected
+      </div>
     </div>
-    
-    <!-- Summary -->
-    <div style="background: #1a1a1a; padding: 20px; border-bottom: 1px solid #333;">
-      <p style="margin: 0 0 8px 0; color: #FF1494; font-size: 13px; font-weight: 700;">⚡ SUMMARY</p>
-      <p style="margin: 0; color: #B0B0B0; font-size: 13px; line-height: 1.6;">
-        <strong style="color: #E0E0E0;">${allChanges.length}</strong> service(s) have price changes. Review changes below and update your listings accordingly.
-      </p>
+
+    <div style="display: flex; gap: 12px; margin-bottom: 24px;">
+      <div style="flex: 1; background: #161822; border-radius: 8px; padding: 14px 18px; text-align: center;">
+        <p style="margin: 0 0 4px; color: #8b8fa3; font-size: 11px; text-transform: uppercase;">Increases</p>
+        <p style="margin: 0; color: #f87171; font-size: 20px; font-weight: 700;">${increases}</p>
+      </div>
+      <div style="flex: 1; background: #161822; border-radius: 8px; padding: 14px 18px; text-align: center;">
+        <p style="margin: 0 0 4px; color: #8b8fa3; font-size: 11px; text-transform: uppercase;">Decreases</p>
+        <p style="margin: 0; color: #34d399; font-size: 20px; font-weight: 700;">${decreases}</p>
+      </div>
     </div>
-    
-    <!-- Changes Table -->
-    <table style="width: 100%; border-collapse: collapse; background: #0a0a0a; margin: 20px 0;">
-      <thead>
-        <tr style="background: #FF1494; color: #FFFFFF;">
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">PROVIDER</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">SERVICE</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">OLD COST</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">NEW COST</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">OLD PRICE</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700; border-right: 1px solid #E0E0E0;">NEW PRICE</th>
-          <th style="padding: 12px 15px; text-align: left; font-size: 12px; font-weight: 700;">MARGIN</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${tableRows}
-      </tbody>
-    </table>
-    
-    ${allChanges.length > 50 ? `<p style="color: #FF69B4; font-size: 13px; margin: 15px 0;">… and ${allChanges.length - 50} more changes</p>` : ''}
-    
-    <!-- Action Steps -->
-    <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, rgba(255, 20, 148, 0.1) 0%, rgba(255, 105, 180, 0.05) 100%); border: 1px solid #FF1494; border-radius: 6px;">
-      <h4 style="margin: 0 0 12px 0; color: #FF1494; font-size: 14px; font-weight: 700;">NEXT STEPS:</h4>
-      <ul style="margin: 0; padding-left: 20px; color: #B0B0B0; font-size: 13px; line-height: 1.8;">
-        <li style="margin-bottom: 8px;">Review all price changes in the table above</li>
-        <li style="margin-bottom: 8px;">Update your service prices if needed</li>
-        <li style="margin-bottom: 0;">Ensure profit margins are maintained</li>
+
+    <div style="background: #161822; border-radius: 8px; overflow: hidden; margin-bottom: 24px;">
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #1e2030;">
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">Provider</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">Service</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">Old Cost</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">New Cost</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">Old Price</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">New Price</th>
+            <th style="padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: #8b8fa3; text-transform: uppercase; letter-spacing: 0.05em;">Margin</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tableRows}
+        </tbody>
+      </table>
+    </div>
+
+    ${allChanges.length > 50 ? `<p style="color: #818cf8; font-size: 13px; margin: 15px 0; text-align: center;">… and ${allChanges.length - 50} more changes</p>` : ''}
+
+    <div style="padding: 16px 20px; background: #161822; border: 1px solid #1e2030; border-radius: 8px;">
+      <p style="margin: 0 0 10px 0; color: #818cf8; font-size: 13px; font-weight: 600;">Next Steps</p>
+      <ul style="margin: 0; padding-left: 18px; color: #8b8fa3; font-size: 13px; line-height: 1.8;">
+        <li>Review price changes in admin dashboard</li>
+        <li>Update service prices if needed</li>
+        <li>Ensure profit margins are maintained</li>
       </ul>
     </div>
-    
-    <!-- Footer -->
-    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #333; text-align: center; font-size: 11px; color: #666;">
-      <p style="margin: 0 0 8px 0;">
-        <strong style="color: #FF1494;">BOTZZZ773</strong> | Automated Service Sync
-      </p>
-      <p style="margin: 0;">
-        Generated: ${runAt}
-      </p>
+
+    <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #1e2030; text-align: center; font-size: 11px; color: #4a4e63;">
+      <p style="margin: 0 0 4px 0;"><span style="color: #818cf8;">BOTZZZ773</span> · Service Sync Report</p>
+      <p style="margin: 0;">${runAt}</p>
     </div>
   </div>
-  
-  <!-- Bottom Accent -->
-  <div style="background: linear-gradient(90deg, #FF1494 0%, #FF69B4 50%, #FF1494 100%); height: 3px;"></div>
 </div>
       `.trim();
 

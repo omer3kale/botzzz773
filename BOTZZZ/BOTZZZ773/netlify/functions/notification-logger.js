@@ -49,17 +49,18 @@ async function logLowBalanceNotification(providerName, balance, threshold = 0.5)
  */
 async function logFailedOrderNotification(order, providerName, serviceName, reason) {
     try {
-        const orderId = order.id || order.order_id || 'Unknown';
-        const userName = order.user_name || order.user?.username || 'Unknown User';
-        
+        const orderNumber = order.order_number || order.orderNumber || order.id || order.order_id || 'Unknown';
+        const userName = order.username || order.user_name || order.user?.username || order.user?.email || 'Unknown User';
+
         const { data, error } = await supabaseAdmin
             .from('admin_notifications')
             .insert({
                 notification_type: 'failed_order',
                 title: `Order Failed - ${serviceName}`,
-                message: `Order #${orderId} from ${userName} failed. ${providerName}: ${reason}`,
+                message: `Order #${orderNumber} from ${userName} failed. ${providerName}: ${reason}`,
                 data: {
-                    order_id: orderId,
+                    order_id: order.id || order.order_id || null,
+                    order_number: orderNumber,
                     user_name: userName,
                     provider_name: providerName,
                     service_name: serviceName,
