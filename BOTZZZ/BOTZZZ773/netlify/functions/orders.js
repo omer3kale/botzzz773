@@ -2118,7 +2118,7 @@ async function handleCreateOrder(user, data, headers) {
           charge: order.charge,
           quantity: order.quantity,
           created_at: order.created_at,
-          username: user?.username || user?.email || 'N/A',
+          username: user?.username || 'N/A',
           serviceName: service?.name || 'N/A',
           servicePublicId: service?.public_id || 'N/A',
           providerName: service?.provider?.name || 'N/A',
