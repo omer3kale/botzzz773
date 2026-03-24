@@ -37,8 +37,10 @@ const SERVICES_FILE = 'services.json';
 const STATUS_MAP = {
   pending: 'Pending',
   'in progress': 'In progress',
+  paused: 'In progress',
   completed: 'Completed',
   partial: 'Partial',
+  canceled: 'Canceled',
   error: 'Canceled',
 };
 

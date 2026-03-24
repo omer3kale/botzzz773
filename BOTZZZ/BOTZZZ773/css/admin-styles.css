@@ -1735,27 +1735,27 @@ body.sidebar-collapsed .admin-main {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
+    border-radius: 10px;
+    font-size: 10.5px;
     font-weight: 500;
     line-height: 1.4;
     white-space: nowrap;
+    border: none;
 }
 
 .info-badge i {
-    font-size: 10px;
+    font-size: 9px;
+    opacity: 0.7;
 }
 
 .info-badge--category {
-    background: rgba(139, 92, 246, 0.15);
-    color: #a78bfa;
-    border: 1px solid rgba(139, 92, 246, 0.25);
+    background: rgba(129, 140, 248, 0.12);
+    color: #a5b4fc;
 }
 
 .info-badge--provider {
-    background: rgba(59, 130, 246, 0.12);
-    color: #60a5fa;
-    border: 1px solid rgba(59, 130, 246, 0.2);
+    background: rgba(56, 189, 248, 0.10);
+    color: #7dd3fc;
 }
 
 /* Bulk Add Services Modal */
@@ -1951,26 +1951,25 @@ body.sidebar-collapsed .admin-main {
 
 .id-badge {
     display: inline-block;
-    padding: 3px 8px;
-    border-radius: 4px;
-    font-size: 13px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 12px;
     font-weight: 600;
     font-family: monospace;
     white-space: nowrap;
     line-height: 1.4;
     text-align: center;
+    border: none;
 }
 
 .id-badge--public {
-    background: rgba(16, 185, 129, 0.12);
-    color: #34d399;
-    border: 1px solid rgba(16, 185, 129, 0.2);
+    background: rgba(52, 211, 153, 0.12);
+    color: #6ee7b7;
 }
 
 .id-badge--provider {
-    background: rgba(251, 191, 36, 0.1);
-    color: #fbbf24;
-    border: 1px solid rgba(251, 191, 36, 0.18);
+    background: rgba(251, 191, 36, 0.12);
+    color: #fcd34d;
 }
 
 /* Category Management Modal */
@@ -2567,6 +2566,11 @@ body.sidebar-collapsed .admin-main {
     font-weight: 700;
     font-size: 14px;
     color: #e8e8e8 !important;
+}
+
+.cell-markup {
+    color: #818cf8 !important;
+    font-size: 11px !important;
 }
 
 .admin-table td:first-child,
@@ -4331,52 +4335,52 @@ select option:checked {
 
 .orders-table-panel.failed-view .admin-table th:nth-child(1),
 .orders-table-panel.failed-view .admin-table td:nth-child(1) {
-    width: 55px;
+    width: 3.5%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(2),
 .orders-table-panel.failed-view .admin-table td:nth-child(2) {
-    width: 159px;
+    width: 9%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(3),
 .orders-table-panel.failed-view .admin-table td:nth-child(3) {
-    width: 122px;
+    width: 7%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(4),
 .orders-table-panel.failed-view .admin-table td:nth-child(4) {
-    width: 180px;
+    width: 10%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(5),
 .orders-table-panel.failed-view .admin-table td:nth-child(5) {
-    width: 232px;
+    width: 14%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(7),
 .orders-table-panel.failed-view .admin-table td:nth-child(7) {
-    width: 106px;
+    width: 6%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(8),
 .orders-table-panel.failed-view .admin-table td:nth-child(8) {
-    width: 341px;
+    width: 20%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(9),
 .orders-table-panel.failed-view .admin-table td:nth-child(9) {
-    width: 289px;
+    width: 16%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(11),
 .orders-table-panel.failed-view .admin-table td:nth-child(11) {
-    width: 180px;
+    width: 9%;
 }
 
 .orders-table-panel.failed-view .admin-table th:nth-child(12),
 .orders-table-panel.failed-view .admin-table td:nth-child(12) {
-    width: 97px;
+    width: 5.5%;
 }
 
 /* Failed order row highlight */

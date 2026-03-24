@@ -201,7 +201,8 @@ async function handleGetTickets(user, data, headers) {
         .select(`
           *,
           user:users(id, email, username),
-          messages:ticket_messages(*)
+          messages:ticket_messages(*),
+          order:orders(id, order_number)
         `)
         .eq(queryField, queryId)
         .single();
@@ -245,7 +246,8 @@ async function handleGetTickets(user, data, headers) {
         .from('tickets')
         .select(`
           *,
-          user:users(id, email, username)
+          user:users(id, email, username),
+          order:orders(id, order_number)
         `)
         .order('created_at', { ascending: false });
 
@@ -338,15 +340,28 @@ async function handleCreateTicket(user, data, headers) {
         status: 'open'
       };
       
-      // Add orderId if provided and is valid UUID format
+      // Resolve orderId: accept UUID directly, or lookup by order_number
       if (orderId) {
-        // Validate UUID format (reject numeric IDs like "12345")
+        const trimmed = orderId.trim();
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        if (uuidRegex.test(orderId)) {
-          ticketData.order_id = orderId;
+        if (uuidRegex.test(trimmed)) {
+          ticketData.order_id = trimmed;
+          console.log(`[TICKET CREATE] Using UUID directly: ${trimmed}`);
         } else {
-          console.warn(`[TICKET CREATE] Invalid order ID format (not UUID): ${orderId}`);
-          // Skip invalid orderId - ticket will be created without order association
+          // Treat as order_number and lookup the UUID
+          console.log(`[TICKET CREATE] Looking up order_number: ${trimmed}`);
+          const { data: orderRow, error: orderLookupErr } = await supabaseAdmin
+            .from('orders')
+            .select('id')
+            .eq('order_number', trimmed)
+            .maybeSingle();
+          console.log(`[TICKET CREATE] Order lookup result:`, { orderRow, orderLookupErr });
+          if (orderRow) {
+            ticketData.order_id = orderRow.id;
+            console.log(`[TICKET CREATE] Resolved order_number ${trimmed} -> UUID ${orderRow.id}`);
+          } else {
+            console.warn(`[TICKET CREATE] Order not found for number: ${trimmed}`);
+          }
         }
       }
       

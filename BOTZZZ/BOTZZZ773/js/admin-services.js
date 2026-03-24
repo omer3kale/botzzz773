@@ -3148,6 +3148,7 @@ async function loadServices() {
                             <div class="cell-stack cell-stack-right">
                                 <span class="cell-primary cell-retail">$${retailRateValue != null ? formatTrimZeros(retailRateValue, 10) : '—'}</span>
                                 <span class="cell-secondary">Cost: $${Number.isFinite(providerCost) ? formatTrimZeros(providerCost, 10) : '—'}</span>
+                                <span class="cell-secondary cell-markup">Markup: ${markupDisplay}</span>
                             </div>
                         </td>
                         <td class="editable-cell" data-field="min_quantity" data-service-id="${serviceIdAttr}">${minQuantity}</td>

@@ -756,7 +756,7 @@ exports.handler = async (event) => {
                  if (qty > 0) {
                    const delivered = Math.max(0, qty - remains);
                    const ratePerUnit = full / qty;
-                   chargeOut = Math.round((ratePerUnit * delivered) * 100) / 100;
+                   chargeOut = Math.round((ratePerUnit * delivered) * 10000) / 10000;
                  }
                }
                res[o.order_number] = { status, charge: chargeOut, start_count: o.start_count, remains: o.remains, currency: 'USD' };
@@ -788,7 +788,7 @@ exports.handler = async (event) => {
              if (qty > 0) {
                const delivered = Math.max(0, qty - remains);
                const ratePerUnit = full / qty;
-               chargeOut = Math.round((ratePerUnit * delivered) * 100) / 100;
+               chargeOut = Math.round((ratePerUnit * delivered) * 10000) / 10000;
              }
            }
            return { statusCode: 200, headers, body: JSON.stringify({ status, charge: chargeOut, start_count: oData.start_count || 0, remains: oData.remains || 0, currency: 'USD' }) };

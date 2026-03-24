@@ -593,13 +593,17 @@ async function viewTicket(ticketId) {
                     <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml(ticket.category || 'General')}</div>
                 </div>
                 
-                <!-- Second Row: Priority, Created -->
-                <div style="display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 16px; align-items: center; font-size: 13px;">
+                <!-- Second Row: Priority, Created, Order -->
+                <div style="display: grid; grid-template-columns: auto 1fr auto 1fr${ticket.order_id ? ' auto 1fr' : ''}; gap: 16px; align-items: center; font-size: 13px;">
                     <div style="color: #6b7280;">Priority:</div>
                     <div style="color: #e5e7eb; font-weight: 500;">${escapeHtml(ticket.priority || 'Normal')}</div>
-                    
+
                     <div style="color: #6b7280;">Created:</div>
                     <div style="color: #e5e7eb; font-weight: 500;">${new Date(ticket.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                    ${ticket.order_id ? `
+                    <div style="color: #6b7280;">Order:</div>
+                    <div style="color: #818cf8; font-weight: 600;">#${escapeHtml(ticket.order?.order_number || '')}</div>
+                    ` : ''}
                 </div>
                 
                 <!-- Third Row: Subject (Full Width) -->

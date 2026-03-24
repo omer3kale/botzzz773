@@ -335,7 +335,7 @@ function normalizeProviderStatus(rawStatus) {
   }
 
   // Separate "in progress" from "processing"
-  if (status === 'in progress' || status === 'inprogress' || status === 'in_progress') {
+  if (status === 'in progress' || status === 'inprogress' || status === 'in_progress' || status === 'paused') {
     return 'in progress';
   }
 

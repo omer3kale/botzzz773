@@ -306,7 +306,7 @@ function renderTicketDetails() {
                     </div>
                     ${currentTicket.order_id ? `
                         <div class="ticket-details-meta-item">
-                            <strong>Order ID:</strong> ${currentTicket.order_id}
+                            <strong>Order:</strong> #${currentTicket.order?.order_number || currentTicket.order_id}
                         </div>
                     ` : ''}
                     <div class="ticket-details-meta-item">

@@ -1,6 +1,197 @@
 const { performOrderStatusSync } = require('./orders');
 const { sendFailedOrdersAlert } = require('./utils/failed-order-alerts');
 const { supabaseAdmin } = require('./utils/supabase');
+const axios = require('axios');
+
+// ============= AUTO-RETRY FOR TIMEOUT FAILURES =============
+const MAX_AUTO_RETRIES = 3;
+// Backoff: 2min, 5min, 15min (in ms)
+const RETRY_BACKOFF_MS = [2 * 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
+
+async function autoRetryTimeoutOrders() {
+  const now = new Date();
+  const retryResults = { found: 0, retried: 0, succeeded: 0, failed: 0, skipped: 0 };
+
+  try {
+    // Find failed orders with timeout error, no provider_order_id (never reached provider),
+    // created in the last 1 hour (don't retry very old orders)
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+
+    const { data: timeoutOrders, error: queryError } = await supabaseAdmin
+      .from('orders')
+      .select(`
+        id, order_number, user_id, service_id, link, quantity, comments,
+        overflow_quantity, provider_id, provider_name, provider_error,
+        provider_order_id, created_at, updated_at,
+        service:services(
+          id, provider_service_id, public_id, type, overflow_percent,
+          provider:providers(id, name, api_url, api_key, status)
+        )
+      `)
+      .eq('status', 'failed')
+      .is('provider_order_id', null)
+      .ilike('provider_error', '%timeout%')
+      .gt('created_at', oneHourAgo)
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (queryError) {
+      console.error('[AUTO-RETRY] Query error:', queryError.message);
+      return retryResults;
+    }
+
+    if (!timeoutOrders || timeoutOrders.length === 0) {
+      return retryResults;
+    }
+
+    retryResults.found = timeoutOrders.length;
+    console.log(`[AUTO-RETRY] Found ${timeoutOrders.length} timeout-failed orders to retry`);
+
+    for (const order of timeoutOrders) {
+      let effectiveRetryCount = 0;
+      try {
+        // Get retry count from provider_errors table
+        const { data: errorLog } = await supabaseAdmin
+          .from('provider_errors')
+          .select('id, retry_count, last_retry_at')
+          .eq('order_id', order.id)
+          .order('error_timestamp', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const currentRetryCount = errorLog?.retry_count || 0;
+
+        // Also check provider_error for "Auto-retry #N" pattern if no error log
+        effectiveRetryCount = currentRetryCount;
+        if (!errorLog && order.provider_error) {
+          const retryMatch = order.provider_error.match(/Auto-retry #(\d+)/);
+          if (retryMatch) effectiveRetryCount = parseInt(retryMatch[1], 10);
+        }
+
+        if (effectiveRetryCount >= MAX_AUTO_RETRIES) {
+          console.log(`[AUTO-RETRY] Order ${order.order_number} already retried ${effectiveRetryCount} times, skipping`);
+          retryResults.skipped++;
+          continue;
+        }
+
+        // Check backoff: enough time passed since last retry?
+        const backoffMs = RETRY_BACKOFF_MS[effectiveRetryCount] || RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
+        const lastAttemptTime = errorLog?.last_retry_at || order.updated_at;
+        if (lastAttemptTime) {
+          const lastAttempt = new Date(lastAttemptTime);
+          const elapsed = now.getTime() - lastAttempt.getTime();
+          if (elapsed < backoffMs) {
+            console.log(`[AUTO-RETRY] Order ${order.order_number} backoff not met (${Math.round(elapsed / 1000)}s / ${Math.round(backoffMs / 1000)}s)`);
+            retryResults.skipped++;
+            continue;
+          }
+        }
+
+        // Validate provider
+        const provider = order.service?.provider;
+        if (!provider || !provider.api_url || !provider.api_key || provider.status !== 'active') {
+          console.log(`[AUTO-RETRY] Order ${order.order_number} - provider not available, skipping`);
+          retryResults.skipped++;
+          continue;
+        }
+
+        const providerServiceId = order.service.provider_service_id || order.service.public_id || order.service.id;
+        const providerQty = order.overflow_quantity || order.quantity;
+
+        // Build provider request
+        const pParams = new URLSearchParams({
+          key: provider.api_key,
+          action: 'add',
+          service: providerServiceId,
+          link: order.link
+        });
+
+        const serviceType = String(order.service.type ?? '').trim().toLowerCase();
+        if (order.comments && serviceType.includes('custom')) {
+          pParams.append('comments', order.comments);
+        } else {
+          pParams.append('quantity', providerQty);
+        }
+
+        console.log(`[AUTO-RETRY] Retrying order ${order.order_number} (attempt ${effectiveRetryCount + 1}/${MAX_AUTO_RETRIES}) via ${provider.name}`);
+        retryResults.retried++;
+
+        // Update retry count BEFORE attempting (prevents parallel retries)
+        if (errorLog?.id) {
+          await supabaseAdmin
+            .from('provider_errors')
+            .update({ retry_count: effectiveRetryCount + 1, last_retry_at: now.toISOString() })
+            .eq('id', errorLog.id);
+        }
+
+        // Send to provider with 15s timeout (extra buffer for retry)
+        const pRes = await axios.post(provider.api_url, pParams, {
+          timeout: 15000,
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+
+        if (pRes.data && pRes.data.order) {
+          // Provider accepted!
+          const providerOrderId = pRes.data.order;
+          console.log(`[AUTO-RETRY] SUCCESS - Order ${order.order_number} got provider_order_id: ${providerOrderId}`);
+
+          await supabaseAdmin.from('orders').update({
+            status: 'pending',
+            customer_status: 'pending',
+            provider_status: 'pending',
+            provider_order_id: providerOrderId,
+            provider_error: null,
+            failure_source: null,
+            failure_code: null,
+            failure_context: null,
+            last_status_sync: now.toISOString()
+          }).eq('id', order.id);
+
+          // Mark provider error as resolved
+          if (errorLog?.id) {
+            await supabaseAdmin
+              .from('provider_errors')
+              .update({ resolved: true, resolved_at: now.toISOString() })
+              .eq('id', errorLog.id);
+          }
+
+          retryResults.succeeded++;
+        } else {
+          // Provider returned response but no order ID
+          const errorMsg = pRes.data?.error || pRes.data?.message || 'Provider did not return order id';
+          console.warn(`[AUTO-RETRY] Order ${order.order_number} - provider rejected: ${errorMsg}`);
+
+          await supabaseAdmin.from('orders').update({
+            provider_error: `Auto-retry #${effectiveRetryCount + 1}: ${errorMsg}`,
+            last_status_sync: now.toISOString()
+          }).eq('id', order.id);
+
+          retryResults.failed++;
+        }
+      } catch (retryErr) {
+        const errorMsg = retryErr?.response?.data?.error
+          || retryErr?.message
+          || 'Retry failed';
+        const retryNum = effectiveRetryCount + 1;
+        console.warn(`[AUTO-RETRY] Order ${order.order_number} - retry #${retryNum} error: ${errorMsg}`);
+
+        await supabaseAdmin.from('orders').update({
+          provider_error: `Auto-retry #${retryNum}: ${errorMsg}`,
+          last_status_sync: now.toISOString()
+        }).eq('id', order.id).catch(() => {});
+
+        retryResults.failed++;
+      }
+    }
+  } catch (err) {
+    console.error('[AUTO-RETRY] Fatal error:', err.message);
+  }
+
+  if (retryResults.found > 0) {
+    console.log('[AUTO-RETRY] Results:', retryResults);
+  }
+  return retryResults;
+}
 
 exports.handler = async (event = {}) => {
   const headers = { 'Content-Type': 'application/json' };
@@ -14,7 +205,16 @@ exports.handler = async (event = {}) => {
   try {
     const result = await performOrderStatusSync({ limit, providerId: providerFilter || null });
 
-    // After sync completes, check DB for ANY un-alerted failed orders (regardless of how they failed)
+    // Auto-retry timeout-failed orders BEFORE sending alerts
+    // (successful retries won't show up in fail alerts)
+    let retryResults = { found: 0, retried: 0, succeeded: 0, failed: 0, skipped: 0 };
+    try {
+      retryResults = await autoRetryTimeoutOrders();
+    } catch (retryErr) {
+      console.error('[AUTO-RETRY] Non-critical error:', retryErr.message);
+    }
+
+    // After sync + retry completes, check DB for ANY un-alerted failed orders
     let alertsSent = 0;
     try {
       const { data: failedOrders } = await supabaseAdmin
@@ -74,7 +274,7 @@ exports.handler = async (event = {}) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ ...result, runAt, alertsSent })
+      body: JSON.stringify({ ...result, runAt, alertsSent, autoRetry: retryResults })
     };
   } catch (error) {
     console.error('[SCHEDULED] Order status sync failed:', error);
