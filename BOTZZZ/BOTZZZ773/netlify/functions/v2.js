@@ -4,6 +4,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const { insertRefillRequestWithRetry } = require('./utils/refill-insert');
 const { resolveProviderForExistingOrder } = require('./utils/refill-provider');
+const { isRefillProviderUnsupportedResponse } = require('./utils/refill-manual');
 
 // --- SERVICE-LEVEL DISCOUNTS (Global overrides) ---
 // Map of public service_id -> discount percentage to apply for ALL users/resellers.
@@ -833,7 +834,7 @@ exports.handler = async (event) => {
                        provider_refill_id: null, // Initially null
                        service_id: rOrder.service?.public_id,
                        quantity: rOrder?.quantity || 0,
-                       status: 'pending', // Initially pending
+                       status: 'pending',
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
@@ -905,6 +906,22 @@ exports.handler = async (event) => {
                            if (providerUpdateError) {
                                console.warn('[V2 REFILL] Could not update provider_refill_id/status:', providerUpdateError.message);
                            }
+                       } else if (isRefillProviderUnsupportedResponse(rRes.data)) {
+                           await supabaseAdmin
+                               .from('refill_requests')
+                               .update({
+                                   status: 'awaiting',
+                                   api_response: rRes.data
+                               })
+                               .eq('refill_id', refillId);
+                       } else {
+                           await supabaseAdmin
+                               .from('refill_requests')
+                               .update({
+                                   status: 'awaiting',
+                                   api_response: rRes.data
+                               })
+                               .eq('refill_id', refillId);
                        }
                        console.log('[V2 REFILL] Provider response received:', { refillId: providerRefillId, status: providerStatus });
                    } catch(providerError) { 
@@ -1023,6 +1040,22 @@ exports.handler = async (event) => {
                                    provider_refill_id: String(providerRefillId), 
                                    status: dbStatus,
                                    api_response: rRes.data  // Store full provider response for debugging
+                               })
+                               .eq('refill_id', refillId);
+                       } else if (isRefillProviderUnsupportedResponse(rRes.data)) {
+                           await supabaseAdmin
+                               .from('refill_requests')
+                               .update({
+                                   status: 'awaiting',
+                                   api_response: rRes.data
+                               })
+                               .eq('refill_id', refillId);
+                       } else {
+                           await supabaseAdmin
+                               .from('refill_requests')
+                               .update({
+                                   status: 'awaiting',
+                                   api_response: rRes.data
                                })
                                .eq('refill_id', refillId);
                        }

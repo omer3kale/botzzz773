@@ -18,6 +18,7 @@ const { createLogger, serializeError } = require('./utils/logger');
 const { sendFailedOrdersAlert } = require('./utils/failed-order-alerts');
 const { insertRefillRequestWithRetry } = require('./utils/refill-insert');
 const { resolveProviderForExistingOrder } = require('./utils/refill-provider');
+const { isRefillProviderUnsupportedResponse } = require('./utils/refill-manual');
 const { randomUUID } = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -2605,8 +2606,32 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
-        // Verify provider and credentials
-        if (!foundOrder.service || !foundOrder.service.provider) {
+        if (!foundOrder.service) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ error: 'Service information missing' })
+          };
+        }
+
+        let currentServiceProvider = null;
+        if (foundOrder.service?.provider_id) {
+          const { data: currentProviderData } = await supabaseAdmin
+            .from('providers')
+            .select('id, name, api_url, api_key, status')
+            .eq('id', foundOrder.service.provider_id)
+            .single();
+          currentServiceProvider = currentProviderData || null;
+        }
+
+        const provider = await resolveProviderForExistingOrder(
+          supabaseAdmin,
+          foundOrder,
+          currentServiceProvider,
+          logger
+        );
+
+        if (!provider) {
           return {
             statusCode: 400,
             headers,
@@ -2614,7 +2639,6 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
-        const provider = foundOrder.service.provider;
         if (!provider.api_url || !provider.api_key) {
           return {
             statusCode: 400,
@@ -2623,10 +2647,9 @@ async function handleUpdateOrder(user, data, headers) {
           };
         }
 
-        // Create pending refill request (use DB trigger for refill_id)
-        const { error: insertError, data: insertData } = await supabaseAdmin
-          .from('refill_requests')
-          .insert({
+        const { error: insertError, data: insertData } = await insertRefillRequestWithRetry(
+          supabaseAdmin,
+          {
             user_id: foundOrder.user_id,
             order_number: foundOrder.order_number,
             provider_refill_id: null,
@@ -2636,9 +2659,9 @@ async function handleUpdateOrder(user, data, headers) {
             api_request: data,
             api_response: null,
             refill_requested_at: new Date().toISOString()
-          })
-          .select('refill_id')
-          .single();
+          },
+          logger
+        );
 
         if (insertError) {
           console.error('[REFILL] Failed to create refill request:', insertError);
@@ -2698,6 +2721,24 @@ async function handleUpdateOrder(user, data, headers) {
 
         console.log(`[REFILL] Provider response:`, refillResponse.data);
 
+        // Provider says refill is unsupported: switch to manual admin flow.
+        if (isRefillProviderUnsupportedResponse(refillResponse.data)) {
+          await supabaseAdmin
+            .from('refill_requests')
+            .update({ status: 'awaiting', api_response: refillResponse.data })
+            .eq('refill_id', String(refillId));
+
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              refill_id: String(refillId),
+              refill_status: 'awaiting'
+            })
+          };
+        }
+
         // Check for error in response
         if (refillResponse.data.error) {
           await supabaseAdmin
@@ -2719,14 +2760,18 @@ async function handleUpdateOrder(user, data, headers) {
         if (!providerRefillId) {
           await supabaseAdmin
             .from('refill_requests')
-            .update({ api_response: refillResponse.data })
+            .update({
+              status: 'awaiting',
+              api_response: refillResponse.data
+            })
             .eq('refill_id', String(refillId));
           return {
-            statusCode: 400,
+            statusCode: 200,
             headers,
-            body: JSON.stringify({ 
-              error: 'Provider did not return refill ID',
-              providerResponse: refillResponse.data
+            body: JSON.stringify({
+              success: true,
+              refill_id: String(refillId),
+              refill_status: 'awaiting'
             })
           };
         }
@@ -5480,7 +5525,7 @@ async function handleRefillOrder(user, body, headers) {
       provider_refill_id: null, // Initially null
       service_id: order.service?.public_id || order.service?.id,
       quantity: order?.quantity || 0,
-      status: 'pending', // Initially pending
+      status: 'pending',
       api_request: body,
       api_response: null,
       refill_requested_at: new Date().toISOString()
@@ -5586,25 +5631,22 @@ async function handleRefillOrder(user, body, headers) {
         if (providerUpdateError) {
           logger.warn('Could not update provider_refill_id/status', { orderId, error: providerUpdateError });
         }
+      } else if (isRefillProviderUnsupportedResponse(refillResponse.data)) {
+        await supabaseAdmin
+          .from('refill_requests')
+          .update({
+            status: 'awaiting',
+            provider_response: refillResponse.data
+          })
+          .eq('refill_id', String(refillId));
       } else {
-        // Even if no providerRefillId, save the response for debugging
-        logger.warn('Provider did not return refill ID', { 
-          orderId, 
-          providerResponse: refillResponse.data 
-        });
-        
-        // Try to save provider_response, but don't fail if column doesn't exist
-        try {
-          await supabaseAdmin
-            .from('refill_requests')
-            .update({ 
-              provider_response: refillResponse.data
-            })
-            .eq('refill_id', refillId);
-        } catch (err) {
-          // Column may not exist, that's ok
-          logger.debug('Could not save provider_response', { error: err.message });
-        }
+        await supabaseAdmin
+          .from('refill_requests')
+          .update({
+            status: 'awaiting',
+            provider_response: refillResponse.data
+          })
+          .eq('refill_id', String(refillId));
       }
     } catch (providerError) {
       logger.warn('Provider refill request failed (refill still pending)', { orderId, error: providerError.message });

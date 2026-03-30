@@ -141,7 +141,7 @@ async function listRefills(headers) {
       if (orderNumbers.length > 0) {
         const { data: orders, error: ordersError } = await supabaseAdmin
           .from('orders')
-          .select('order_number, provider_order_id, service:services(provider:providers(name, api_url, api_key))')
+          .select('order_number, provider_order_id, provider_id, provider_name, service:services(provider:providers(name, api_url, api_key))')
           .in('order_number', orderNumbers);
 
         if (!ordersError && orders) {
@@ -150,13 +150,36 @@ async function listRefills(headers) {
             orderMap[order.order_number] = order;
           });
 
+          const providerIds = [...new Set(
+            orders
+              .map(order => order?.provider_id)
+              .filter(Boolean)
+          )];
+
+          let providerMap = {};
+          if (providerIds.length > 0) {
+            const { data: providers } = await supabaseAdmin
+              .from('providers')
+              .select('id, name')
+              .in('id', providerIds);
+
+            providerMap = (providers || []).reduce((acc, provider) => {
+              acc[provider.id] = provider.name;
+              return acc;
+            }, {});
+          }
+
           // Attach provider info to refills
           refillsList.forEach(refill => {
             const order = orderMap[refill.order_number];
-            if (order?.service?.provider) {
+            if (order) {
               refill.orders = order;
-              refill.provider_name = order.service.provider.name || 'Unknown';
               refill.provider_order_id = order.provider_order_id;
+              refill.provider_name =
+                order.provider_name ||
+                providerMap[order.provider_id] ||
+                order.service?.provider?.name ||
+                'Unknown';
             } else {
               refill.provider_name = 'Unknown';
             }

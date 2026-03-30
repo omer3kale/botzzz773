@@ -27,18 +27,17 @@ CREATE OR REPLACE FUNCTION generate_refill_id()
 RETURNS TEXT AS $$
 DECLARE
   random_step INTEGER;
+  base_id BIGINT;
   next_id BIGINT;
 BEGIN
   -- Serialize refill_id generation so the random step is applied atomically.
   PERFORM pg_advisory_xact_lock(hashtext('refill_id_seq_random_step'));
 
   random_step := FLOOR(RANDOM() * 5 + 1)::INTEGER;
-  next_id := nextval('refill_id_seq');
+  base_id := nextval('refill_id_seq');
+  next_id := base_id + random_step - 1;
 
-  IF random_step > 1 THEN
-    PERFORM setval('refill_id_seq', next_id + random_step - 1, true);
-    next_id := next_id + random_step - 1;
-  END IF;
+  PERFORM setval('refill_id_seq', next_id, true);
 
   RETURN next_id::text;
 END;
