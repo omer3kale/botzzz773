@@ -16,6 +16,8 @@ const { supabase, supabaseAdmin } = require('./utils/supabase');
 const { withRateLimit } = require('./utils/rate-limit');
 const { createLogger, serializeError } = require('./utils/logger');
 const { sendFailedOrdersAlert } = require('./utils/failed-order-alerts');
+const { insertRefillRequestWithRetry } = require('./utils/refill-insert');
+const { resolveProviderForExistingOrder } = require('./utils/refill-provider');
 const { randomUUID } = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
@@ -149,6 +151,11 @@ function getUserFromToken(authHeader) {
   } catch (error) {
     return null;
   }
+}
+
+function isUuidLike(value) {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
 function toNumberOrNull(value) {
@@ -5421,13 +5428,21 @@ async function handleRefillOrder(user, body, headers) {
       };
     }
 
-    // Fetch order
-    const { data: order, error: orderError } = await supabaseAdmin
+    // Fetch order. Accept both internal UUID and customer-facing order numbers
+    // because dashboard fallbacks may provide either depending on the current snapshot.
+    let orderQuery = supabaseAdmin
       .from('orders')
-      .select('id, order_number, provider_order_id, service:services(id, public_id, provider:providers(*))')
-      .eq('id', orderId)
-      .eq('user_id', user.userId)
-      .single();
+      .select('id, order_number, provider_order_id, provider_id, provider_name, quantity, public_id, service:services(id, public_id, provider:providers(*))')
+      .eq('user_id', user.userId);
+
+    const normalizedOrderId = String(orderId).trim();
+    if (isUuidLike(normalizedOrderId)) {
+      orderQuery = orderQuery.eq('id', normalizedOrderId);
+    } else {
+      orderQuery = orderQuery.or(`order_number.eq.${normalizedOrderId},public_id.eq.${normalizedOrderId}`);
+    }
+
+    const { data: order, error: orderError } = await orderQuery.single();
 
     if (orderError || !order) {
       return {
@@ -5445,15 +5460,21 @@ async function handleRefillOrder(user, body, headers) {
       };
     }
 
-    const provider = order.service.provider;
+    const provider = await resolveProviderForExistingOrder(
+      supabaseAdmin,
+      order,
+      order.service.provider,
+      logger
+    );
 
-    // First, create the refill record with "pending" status immediately
     logger.info('Creating pending refill request', {
       orderId,
-      order_number: order.order_number
+      order_number: order.order_number,
+      providerName: provider?.name || null,
+      providerOrderId: order.provider_order_id
     });
 
-    const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+    const refillPayload = {
       user_id: user.userId,
       order_number: order.order_number,
       provider_refill_id: null, // Initially null
@@ -5463,7 +5484,13 @@ async function handleRefillOrder(user, body, headers) {
       api_request: body,
       api_response: null,
       refill_requested_at: new Date().toISOString()
-    }).select('refill_id').single();
+    };
+
+    const { error: insertError, data: insertData } = await insertRefillRequestWithRetry(
+      supabaseAdmin,
+      refillPayload,
+      logger
+    );
 
     if (insertError) {
       logger.error('Refill request insert failed', { orderId, error: insertError });

@@ -2892,8 +2892,13 @@
                         if (result.refill) {
                             refillResult = { endpoint: 'v2', refill: result.refill };
                         }
+                    } else {
+                        const errorBody = await response.text();
+                        console.warn('[REFILL] v2 endpoint failed with status:', response.status);
+                        console.warn('[REFILL] v2 error body:', errorBody);
                     }
                 } catch (error) {
+                    console.warn('[REFILL] v2 endpoint error:', error.message);
                     // V2 endpoint failed, will try orders.js
                 }
             } else {

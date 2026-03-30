@@ -2,6 +2,8 @@ const { supabaseAdmin } = require('./utils/supabase');
 const querystring = require('querystring');
 const axios = require('axios');
 const crypto = require('crypto');
+const { insertRefillRequestWithRetry } = require('./utils/refill-insert');
+const { resolveProviderForExistingOrder } = require('./utils/refill-provider');
 
 // --- SERVICE-LEVEL DISCOUNTS (Global overrides) ---
 // Map of public service_id -> discount percentage to apply for ALL users/resellers.
@@ -804,19 +806,28 @@ exports.handler = async (event) => {
          if (refillOrders.length === 1) {
             const orderNum = refillOrders[0];
             const { data: rOrder } = await supabaseAdmin.from('orders')
-               .select('id, order_number, provider_order_id, service:services(public_id, provider:providers(*))')
+               .select('id, order_number, provider_order_id, provider_id, provider_name, service:services(public_id, provider:providers(*))')
                .eq('order_number', orderNum)
                .eq('user_id', user.id).single();
             
             if (rOrder && rOrder.service && rOrder.service.provider) {
                 try {
+                   const refillProvider = await resolveProviderForExistingOrder(
+                     supabaseAdmin,
+                     rOrder,
+                     rOrder.service.provider,
+                     console
+                   );
+
                    // First, create the refill record with "pending" status immediately
                    console.log('[V2 REFILL] Creating pending refill request:', {
                        user_id: user.id,
-                       order_number: rOrder.order_number
+                       order_number: rOrder.order_number,
+                       provider_name: refillProvider?.name || null,
+                       provider_order_id: rOrder.provider_order_id
                    });
                    
-                     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                     const refillPayload = {
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -826,7 +837,13 @@ exports.handler = async (event) => {
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
-                   }).select('refill_id').single();
+                   };
+                   
+                   const { error: insertError, data: insertData } = await insertRefillRequestWithRetry(
+                     supabaseAdmin,
+                     refillPayload,
+                     console
+                   );
                    
                    if (insertError) {
                        console.error('[V2 REFILL] Insert error:', JSON.stringify(insertError));
@@ -852,7 +869,7 @@ exports.handler = async (event) => {
                    // If it fails, the pending refill remains in database for admin review
                    let providerRefillId = null;
                    try {
-                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+                       const rRes = await axios.post(refillProvider.api_url, new URLSearchParams({ key: refillProvider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                        
                        // Log full response for debugging
                        console.log('[V2 REFILL] Provider refill response:', {
@@ -917,14 +934,21 @@ exports.handler = async (event) => {
          const results = [];
          for (const orderNum of refillOrders) {
             const { data: rOrder } = await supabaseAdmin.from('orders')
-               .select('id, order_number, provider_order_id, quantity, service:services(public_id, id, provider:providers(*))')
+               .select('id, order_number, provider_order_id, provider_id, provider_name, quantity, service:services(public_id, id, provider:providers(*))')
                .eq('order_number', orderNum)
                .eq('user_id', user.id).single();
             
             if (rOrder && rOrder.service && rOrder.service.provider) {
                 try {
+                   const refillProvider = await resolveProviderForExistingOrder(
+                     supabaseAdmin,
+                     rOrder,
+                     rOrder.service.provider,
+                     console
+                   );
+
                    // First, create pending refill record immediately
-                     const { error: insertError, data: insertData } = await supabaseAdmin.from('refill_requests').insert({
+                     const refillPayload = {
                        user_id: user.id,
                        order_number: rOrder.order_number,
                        provider_refill_id: null, // Initially null
@@ -934,7 +958,13 @@ exports.handler = async (event) => {
                        api_request: params,
                        api_response: null,
                        refill_requested_at: new Date().toISOString()
-                   }).select('refill_id').single();
+                   };
+                   
+                   const { error: insertError, data: insertData } = await insertRefillRequestWithRetry(
+                     supabaseAdmin,
+                     refillPayload,
+                     console
+                   );
                    
                    if (insertError) {
                        results.push({ order: String(orderNum), refill: { error: 'Database error' } });
@@ -958,7 +988,7 @@ exports.handler = async (event) => {
                    
                    // Now try to request from provider (non-blocking)
                    try {
-                       const rRes = await axios.post(rOrder.service.provider.api_url, new URLSearchParams({ key: rOrder.service.provider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+                       const rRes = await axios.post(refillProvider.api_url, new URLSearchParams({ key: refillProvider.api_key, action: 'refill', order: rOrder.provider_order_id }), { timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
                        
                        // Log full response for debugging provider format
                        console.log('[V2 REFILL BULK] Provider response for order ' + orderNum + ':', {
