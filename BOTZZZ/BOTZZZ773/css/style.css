@@ -1699,6 +1699,7 @@ body.popup-mode .page-header {
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: var(--spacing-md);
     margin-bottom: var(--spacing-md);
+    align-items: stretch;
 }
 
 .payment-method-card {
@@ -1711,6 +1712,12 @@ body.popup-mode .page-header {
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+    height: 100%;
+    min-height: var(--addfunds-card-min-height, 0px);
+}
+
+.payment-method-card[data-method="binance_manual"] {
+    min-height: var(--addfunds-card-min-height-binance, var(--addfunds-card-min-height, 0px));
 }
 
 .payment-method-card:hover {
@@ -1741,8 +1748,9 @@ body.popup-mode .page-header {
 }
 
 .method-header {
-    display: flex;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
     gap: var(--spacing-sm);
 }
 
@@ -1775,6 +1783,7 @@ body.popup-mode .page-header {
 
 .method-meta {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -1791,6 +1800,11 @@ body.popup-mode .page-header {
     color: var(--text-gray);
 }
 
+.method-caption-compact {
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
 .method-pill {
     font-size: 0.7rem;
     font-weight: 700;
@@ -1800,6 +1814,11 @@ body.popup-mode .page-header {
     border: 1px solid rgba(255, 255, 255, 0.12);
     color: var(--text-white);
     white-space: nowrap;
+}
+
+.method-pill-below {
+    align-self: flex-start;
+    margin-top: 2px;
 }
 
 .method-pill.warning {
@@ -2894,14 +2913,22 @@ body.popup-mode .page-header {
     margin-bottom: 25px;
 }
 
+.payment-method-badge-wide {
+    width: fit-content;
+    max-width: 100%;
+    flex-wrap: nowrap;
+}
+
 .payment-method-badge i {
     font-size: 1.5rem;
     color: var(--primary-teal);
+    flex-shrink: 0;
 }
 
 .payment-method-badge span {
     font-size: 1.1rem;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .payment-details {
@@ -3010,6 +3037,13 @@ body.popup-mode .page-header {
     opacity: 0.9;
 }
 
+.support-contact-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
 .btn-contact {
     display: inline-flex;
     align-items: center;
@@ -3030,6 +3064,56 @@ body.popup-mode .page-header {
 
 .btn-contact i {
     font-size: 1.2rem;
+}
+
+.btn-contact-secondary {
+    background: rgba(255, 255, 255, 0.16);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.binance-qr-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(24, 214, 194, 0.22);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin-bottom: 25px;
+    text-align: center;
+}
+
+.binance-qr-card h3 {
+    margin: 0 0 14px 0;
+    color: var(--text-white);
+    font-size: 1.15rem;
+}
+
+.binance-qr-frame {
+    background: rgba(0, 0, 0, 0.35);
+    border-radius: var(--radius-md);
+    padding: 16px;
+}
+
+.binance-qr-image {
+    width: min(100%, 320px);
+    height: auto;
+    border-radius: 18px;
+    display: block;
+    margin: 0 auto;
+}
+
+.binance-qr-fallback {
+    display: none;
+    margin: 14px 0 0 0;
+    color: var(--text-light-gray);
+    line-height: 1.5;
+}
+
+.binance-qr-missing .binance-qr-image {
+    display: none;
+}
+
+.binance-qr-missing .binance-qr-fallback {
+    display: block;
 }
 
 /* Mobile responsiveness */
@@ -3058,6 +3142,16 @@ body.popup-mode .page-header {
     .btn-contact {
         font-size: 0.9rem;
         padding: 12px 20px;
+    }
+
+    .payment-method-badge-wide {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .payment-method-badge span {
+        white-space: normal;
+        text-align: center;
     }
 }
 

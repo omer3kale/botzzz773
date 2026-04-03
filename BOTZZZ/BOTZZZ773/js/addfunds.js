@@ -3,7 +3,6 @@ let isPopupMode = false;
 let authGuardTriggered = false;
 
 const AUTH_ALERT_MESSAGE = 'You must be signed in to add funds. Please sign in or create an account.';
-
 document.addEventListener('DOMContentLoaded', function() {
     const urlParams = new URLSearchParams(window.location.search);
     isPopupMode = urlParams.get('popup') === '1';
@@ -18,9 +17,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('addFundsForm');
     const customAmountInput = document.getElementById('customAmount');
     const amountButtons = document.querySelectorAll('.amount-btn');
-    const summaryAmount = document.getElementById('summaryAmount');
-    const summaryFee = document.getElementById('summaryFee');
     const summaryTotal = document.getElementById('summaryTotal');
+    const orderSummaryHint = document.getElementById('orderSummaryHint');
+    const orderSummaryBinanceQr = document.getElementById('orderSummaryBinanceQr');
     const balanceAmount = document.querySelector('.balance-amount');
     const paymentMethodHint = document.getElementById('paymentMethodHint');
     const refundSummary = document.getElementById('refundSummary');
@@ -73,17 +72,17 @@ document.addEventListener('DOMContentLoaded', function() {
     const BUTTON_LABELS = {
         heleket: 'Pay with Heleket',
         cryptomus: 'Pay with Cryptomus',
-        payeer: 'Get Payment Instructions'
+        binance_manual: 'Get Binance Instructions'
     };
 
     const BUTTON_LOADING_LABELS = {
         heleket: 'Generating Heleket invoice...',
         cryptomus: 'Creating Cryptomus invoice...',
-        payeer: 'Preparing instructions...'
+        binance_manual: 'Preparing Binance instructions...'
     };
 
     // Processing fee percentage
-    const FEE_PERCENTAGE = 1;
+    const FEE_PERCENTAGE = 0;
 
     // Load current balance on page load
     loadUserBalance({ reason: 'page-load' });
@@ -100,6 +99,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
         updatePaymentMethodHint();
+        updateOrderSummaryHint();
         updateSubmitButtonLabel();
     }
 
@@ -119,6 +119,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     updatePaymentMethodHint();
+    updateOrderSummaryHint();
     updateSubmitButtonLabel();
 
     // Listen for payment success event to refresh balance
@@ -154,18 +155,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update order summary
     function updateSummary(amount) {
         if (amount < 1) {
-            summaryAmount.textContent = '$0.00';
-            summaryFee.textContent = '$0.00';
             summaryTotal.textContent = '$0.00';
             return;
         }
 
-        const fee = amount * (FEE_PERCENTAGE / 100);
-        const total = amount + fee;
-
-        summaryAmount.textContent = '$' + amount.toFixed(2);
-        summaryFee.textContent = '$' + fee.toFixed(2);
-        summaryTotal.textContent = '$' + total.toFixed(2);
+        summaryTotal.textContent = '$' + amount.toFixed(2);
     }
 
     // Form submission
@@ -208,8 +202,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 await initiateHeleketPayment({ amount, userEmail });
             } else if (selectedPaymentMethod === 'cryptomus') {
                 await initiateCryptomusPayment({ amount, userEmail });
-            } else if (selectedPaymentMethod === 'payeer') {
-                await initiatePayeerPayment({ amount, userEmail });
+            } else if (selectedPaymentMethod === 'binance_manual') {
+                await initiateBinanceManualPayment({ amount, userEmail });
             }
         } catch (error) {
             console.error('Payment error:', error);
@@ -272,12 +266,31 @@ document.addEventListener('DOMContentLoaded', function() {
             paymentMethodHint.textContent = 'Heleket invoices open in a secure window and auto credit once blockchain confirmations land.';
         } else if (selectedPaymentMethod === 'cryptomus') {
             paymentMethodHint.textContent = 'Pay with Bitcoin, Ethereum, USDT, and more. Keep the tab open until Cryptomus confirms payment.';
-        } else if (selectedPaymentMethod === 'payeer') {
-            paymentMethodHint.textContent = 'Manual Payeer transfers require including your Order ID in the transfer notes.';
+        } else if (selectedPaymentMethod === 'binance_manual') {
+            paymentMethodHint.textContent = 'Send USDT only through BSC (BEP-20) to Binance ID 432401535, then contact support and share your payment details.';
         } else {
             paymentMethodHint.textContent = 'Choose a payment method to continue.';
         }
     }
+
+    function updateOrderSummaryHint() {
+        if (orderSummaryHint) {
+            if (selectedPaymentMethod === 'heleket') {
+                orderSummaryHint.textContent = 'You will be redirected to a secure Heleket invoice and your balance will be credited automatically after confirmation.';
+            } else if (selectedPaymentMethod === 'cryptomus') {
+                orderSummaryHint.textContent = 'You will be redirected to Cryptomus checkout to complete your payment securely.';
+            } else if (selectedPaymentMethod === 'binance_manual') {
+                orderSummaryHint.textContent = 'Send USDT through BSC (BEP-20), then contact support and share your payment details after completing the transfer.';
+            } else {
+                orderSummaryHint.textContent = 'Choose a payment method to see the next step before checkout.';
+            }
+        }
+
+        if (orderSummaryBinanceQr) {
+            orderSummaryBinanceQr.classList.toggle('hidden', selectedPaymentMethod !== 'binance_manual');
+        }
+    }
+
 
     function updateSubmitButtonLabel() {
         if (!submitBtnText) return;
@@ -388,6 +401,15 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             throw new Error(data.error || 'Payment initiation failed');
         }
+    }
+
+    async function initiateBinanceManualPayment({ amount }) {
+        const token = resolveAuthToken('initiate-payment');
+        if (!token) {
+            throw new Error('Please sign in to add funds.');
+        }
+
+        showBinanceManualPaymentInstructions(amount);
     }
 
     async function loadRecentRefundHighlight() {
@@ -602,6 +624,195 @@ function showManualPaymentInstructions(amount, orderId) {
                         <i class="fas fa-envelope"></i>
                         Contact: botzzz773@gmail.com
                     </a>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function showBinanceManualPaymentInstructions(amount) {
+    const modal = document.createElement('div');
+    modal.className = 'payment-instructions-modal';
+    modal.innerHTML = `
+        <div class="payment-instructions-content">
+            <div class="payment-instructions-header">
+                <h2>Binance Manual Payment</h2>
+                <button class="close-modal" onclick="this.closest('.payment-instructions-modal').remove()">×</button>
+            </div>
+            <div class="payment-instructions-body">
+                <div class="payment-method-badge">
+                    <i class="fas fa-wallet"></i>
+                    <span>Manual Binance Transfer</span>
+                </div>
+                <div class="payment-details">
+                    <h3>Payment Details</h3>
+                    <div class="detail-row">
+                        <span class="detail-label">Amount to Send:</span>
+                        <span class="detail-value amount">$${amount.toFixed(2)} USD</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Asset / Network:</span>
+                        <span class="detail-value">USDT on BSC (BEP-20)</span>
+                    </div>
+                    <div class="detail-row highlight">
+                        <span class="detail-label">Binance ID:</span>
+                        <span class="detail-value payeer-id">432401535</span>
+                    </div>
+                </div>
+                <div class="payment-instructions">
+                    <h3>Instructions</h3>
+                    <ol>
+                        <li>Log in to your Binance account.</li>
+                        <li>Open the transfer or send flow for Binance Pay / Binance ID transfers.</li>
+                        <li>Send the payment in USDT using BSC (BEP-20).</li>
+                        <li>Use Binance ID <strong>432401535</strong> as the recipient.</li>
+                        <li>After payment, contact support and send your payment details together with Payment ID <strong>${escapeHtml(orderId)}</strong>.</li>
+                    </ol>
+                </div>
+                <div class="payment-confirmation">
+                    <div class="confirmation-icon">
+                        <i class="fas fa-envelope"></i>
+                    </div>
+                    <h3>Contact Support After Payment</h3>
+                    <p>After the transfer is completed, contact support and share your payment details so we can verify and credit your balance.</p>
+                    <a href="mailto:botzzz773@gmail.com?subject=Binance Manual Payment Confirmation - Payment ${encodeURIComponent(orderId)}&body=I have sent $${amount.toFixed(2)} USDT via BSC (BEP-20) to Binance ID 432401535.%0D%0APayment ID: ${encodeURIComponent(orderId)}%0D%0APlease review my payment details and credit my balance."
+                       class="btn-primary btn-contact">
+                        <i class="fas fa-envelope"></i>
+                        Contact: botzzz773@gmail.com
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+// Override legacy manual payment modals with cleaner support actions and Binance QR slot.
+function showManualPaymentInstructions(amount, orderId) {
+    const modal = document.createElement('div');
+    modal.className = 'payment-instructions-modal';
+    modal.innerHTML = `
+        <div class="payment-instructions-content">
+            <div class="payment-instructions-header">
+                <h2>Payeer Manual Payment</h2>
+                <button class="close-modal" onclick="this.closest('.payment-instructions-modal').remove()">×</button>
+            </div>
+            <div class="payment-instructions-body">
+                <div class="payment-method-badge payment-method-badge-wide">
+                    <i class="fas fa-wallet"></i>
+                    <span>Manual Payeer Transfer</span>
+                </div>
+                <div class="payment-details">
+                    <h3>Payment Details</h3>
+                    <div class="detail-row">
+                        <span class="detail-label">Amount to Send:</span>
+                        <span class="detail-value amount">$${amount.toFixed(2)} USD</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Payment ID:</span>
+                        <span class="detail-value">${escapeHtml(orderId)}</span>
+                    </div>
+                    <div class="detail-row highlight">
+                        <span class="detail-label">Payeer ID:</span>
+                        <span class="detail-value payeer-id">P1135369069</span>
+                    </div>
+                </div>
+                <div class="payment-instructions">
+                    <h3>Instructions</h3>
+                    <ol>
+                        <li>Log in to your Payeer account.</li>
+                        <li>Open the transfer section.</li>
+                        <li>Send the payment to Payeer ID <strong>P1135369069</strong>.</li>
+                        <li>Include Payment ID <strong>${escapeHtml(orderId)}</strong> in the transfer notes.</li>
+                        <li>After payment, contact support and share your payment details.</li>
+                    </ol>
+                </div>
+                <div class="payment-confirmation">
+                    <div class="confirmation-icon">
+                        <i class="fas fa-headset"></i>
+                    </div>
+                    <h3>Contact Support After Payment</h3>
+                    <p>After sending the payment, contact support on WhatsApp or Telegram and share your payment details so we can activate your funds.</p>
+                    <div class="support-contact-actions">
+                        <a href="https://wa.me/447547387681" target="_blank" rel="noopener noreferrer" class="btn-primary btn-contact">
+                            <i class="fab fa-whatsapp"></i>
+                            WhatsApp Support
+                        </a>
+                        <a href="https://t.me/botzzz773" target="_blank" rel="noopener noreferrer" class="btn-primary btn-contact btn-contact-secondary">
+                            <i class="fab fa-telegram-plane"></i>
+                            Telegram Support
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function showBinanceManualPaymentInstructions(amount, orderId) {
+    const modal = document.createElement('div');
+    modal.className = 'payment-instructions-modal';
+    modal.innerHTML = `
+        <div class="payment-instructions-content">
+            <div class="payment-instructions-header">
+                <h2>Binance Manual Payment</h2>
+                <button class="close-modal" onclick="this.closest('.payment-instructions-modal').remove()">×</button>
+            </div>
+            <div class="payment-instructions-body">
+                <div class="payment-method-badge payment-method-badge-wide">
+                    <i class="fab fa-bitcoin"></i>
+                    <span>Manual Binance Transfer</span>
+                </div>
+                <div class="binance-qr-card">
+                    <div class="binance-qr-frame">
+                        <img src="img/binance-manual-qr.jpg" alt="Binance manual payment QR code" class="binance-qr-image" onerror="this.closest('.binance-qr-card').classList.add('binance-qr-missing')">
+                        <p class="binance-qr-fallback">QR area is ready. Add the shared QR file to <strong>img/binance-manual-qr.jpg</strong> and it will appear here.</p>
+                    </div>
+                </div>
+                <div class="payment-details">
+                    <h3>Payment Details</h3>
+                    <div class="detail-row">
+                        <span class="detail-label">Amount to Send:</span>
+                        <span class="detail-value amount">$${amount.toFixed(2)} USD</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Asset / Network:</span>
+                        <span class="detail-value">USDT on BSC (BEP-20)</span>
+                    </div>
+                    <div class="detail-row highlight">
+                        <span class="detail-label">Binance ID:</span>
+                        <span class="detail-value payeer-id">432401535</span>
+                    </div>
+                </div>
+                <div class="payment-instructions">
+                    <h3>Instructions</h3>
+                    <ol>
+                        <li>Log in to your Binance account.</li>
+                        <li>Open the transfer or scan flow in the Binance app.</li>
+                        <li>Scan the QR code above or use Binance ID <strong>432401535</strong>.</li>
+                        <li>Send the payment in USDT using BSC (BEP-20).</li>
+                        <li>If you need another payment channel, please contact support.</li>
+                        <li>After payment, contact support and send your payment details so we can review it manually.</li>
+                    </ol>
+                </div>
+                <div class="payment-confirmation">
+                    <div class="confirmation-icon">
+                        <i class="fas fa-headset"></i>
+                    </div>
+                    <h3>Contact Support After Payment</h3>
+                    <p>After the transfer is completed, contact support on WhatsApp or Telegram and share your payment details so we can verify and add the payment manually.</p>
+                    <div class="support-contact-actions">
+                        <a href="https://wa.me/447547387681" target="_blank" rel="noopener noreferrer" class="btn-primary btn-contact">
+                            <i class="fab fa-whatsapp"></i>
+                            WhatsApp Support
+                        </a>
+                        <a href="https://t.me/botzzz773" target="_blank" rel="noopener noreferrer" class="btn-primary btn-contact btn-contact-secondary">
+                            <i class="fab fa-telegram-plane"></i>
+                            Telegram Support
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>

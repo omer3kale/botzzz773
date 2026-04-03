@@ -141,7 +141,7 @@ function renderPaymentHistory(payments) {
 
 function formatMethod(method) {
     if (!method) return '—';
-    const normalized = method.toLowerCase();
+    const normalized = String(method).toLowerCase().replace(/[\s-]+/g, '_');
     switch (normalized) {
         case 'payeer':
             return 'Payeer';
@@ -151,6 +151,8 @@ function formatMethod(method) {
             return 'Cryptomus';
         case 'heleket':
             return 'Heleket';
+        case 'binance_manual':
+            return 'Binance Manual';
         case 'refund':
             return 'Refund';
         case 'crypto':

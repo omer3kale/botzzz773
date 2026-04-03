@@ -363,9 +363,9 @@ async function addPayment() {
                     <label>Payment Method *</label>
                     <select name="method" required>
                         <option value="adjustment">Balance Adjustment</option>
-                        <option value="payeer">Payeer</option>
                         <option value="cryptomus">Cryptomus</option>
                         <option value="heleket">Heleket</option>
+                        <option value="binance_manual">Binance Manual</option>
                     </select>
                 </div>
             </div>
@@ -714,15 +714,18 @@ async function loadPayments() {
                 const statusLabel = payment.status ? payment.status.charAt(0).toUpperCase() + payment.status.slice(1) : 'Unknown';
                 const ariaLabel = `Select payment ${paymentIdRaw || 'without id'} for ${userLabel}`;
                 const modeLabel = payment.gateway_response?.manual ? 'Manual' : 'Live';
-                const validMethods = ['adjustment', 'payeer', 'cryptomus', 'heleket'];
-                const methodValue = typeof payment.method === 'string' && validMethods.includes(payment.method.toLowerCase())
-                    ? payment.method.toLowerCase()
+                const normalizedMethod = typeof payment.method === 'string'
+                    ? payment.method.toLowerCase().replace(/[\s-]+/g, '_')
+                    : '';
+                const validMethods = ['adjustment', 'cryptomus', 'heleket', 'binance_manual'];
+                const methodValue = validMethods.includes(normalizedMethod)
+                    ? normalizedMethod
                     : 'other';
                 const methodLabelMap = {
                     adjustment: 'Adjustment',
-                    payeer: 'Payeer',
                     cryptomus: 'Cryptomus',
                     heleket: 'Heleket',
+                    binance_manual: 'Binance Manual',
                     other: 'Other'
                 };
                 const methodLabel = methodLabelMap[methodValue] || 'Other';
@@ -851,15 +854,15 @@ async function editPayment(paymentId) {
     const currentAmount = payment.amount || 0;
     const currentMemo = payment.memo || '';
     const currentStatus = payment.status || 'pending';
-    const currentMethod = payment.method || 'adjustment';
+    const currentMethod = (payment.method || 'adjustment').toLowerCase().replace(/[\s-]+/g, '_');
     
-    const methodOptions = ['adjustment', 'payeer', 'cryptomus', 'heleket']
+    const methodOptions = ['adjustment', 'cryptomus', 'heleket', 'binance_manual']
         .map(method => {
             const methodLabels = {
                 adjustment: 'Balance Adjustment',
-                payeer: 'Payeer',
                 cryptomus: 'Cryptomus',
-                heleket: 'Heleket'
+                heleket: 'Heleket',
+                binance_manual: 'Binance Manual'
             };
             return `<option value="${method}"${currentMethod === method ? ' selected' : ''}>${methodLabels[method]}</option>`;
         })

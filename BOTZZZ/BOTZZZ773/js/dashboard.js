@@ -2492,7 +2492,7 @@
             return 'Manual';
         }
 
-        const value = String(method).toLowerCase();
+        const value = String(method).toLowerCase().replace(/[\s-]+/g, '_');
         switch (value) {
             case 'payeer':
                 return 'Payeer';
@@ -2502,6 +2502,8 @@
                 return 'Cryptomus';
             case 'heleket':
                 return 'Heleket';
+            case 'binance_manual':
+                return 'Binance Manual';
             case 'refund':
                 return 'Refund';
             case 'manual':

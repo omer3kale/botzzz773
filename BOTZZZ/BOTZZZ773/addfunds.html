@@ -26,6 +26,16 @@
             html.auth-nav-ready .nav-auth { visibility: visible; }
             html.auth-pending .nav-menu,
             html.auth-pending .nav-auth { visibility: hidden !important; }
+
+            /* Add Funds card tuning
+               Edit these values to fine-tune payment card heights without touching CSS files.
+               Example: 220px / 240px / 260px
+            */
+            :root {
+                --addfunds-card-min-height: 0px;
+                --addfunds-card-min-height-binance: 0px;
+            }
+
         </style>
     <title>Add Funds - BOTZZZ773</title>
     <link rel="stylesheet" href="css/style.css">
@@ -55,6 +65,7 @@
 
     <!-- Comprehensive Analytics Tracking -->
     <script src="js/analytics-tracking.js" defer></script>
+    <script src="js/clarity.js" defer></script>
 
 <link rel="stylesheet" href="css/floating-contact.css"></head>
 <body>
@@ -96,7 +107,7 @@
                 <div class="container">
                     <div class="section-header">
                         <h1>Add Funds</h1>
-                        <p>Choose Heleket or Cryptomus for instant crypto deposits credited in seconds.</p>
+                        <p>Choose an instant gateway or use Binance Manual for USDT deposits on BSC (BEP-20).</p>
                     </div>
 
                     <div class="funds-wrapper">
@@ -161,15 +172,11 @@
                                             </svg>
                                         </div>
                                         <div class="method-meta">
-                                            <span class="method-title">Heleket Pay</span>
+                                            <span class="method-title">Heleket</span>
                                             <span class="method-caption">Direct crypto acquiring</span>
                                         </div>
-                                            <span class="method-pill">Fastest</span>
                                     </div>
-                                    <ul class="method-features">
-                                        <li>Auto credit after confirmation</li>
-                                        <li>USD invoicing with live FX</li>
-                                    </ul>
+                                    <span class="method-pill method-pill-below">Fastest</span>
                                 </button>
 
                                 <button type="button" class="payment-method-card" data-payment-method-card data-method="cryptomus" aria-pressed="false">
@@ -183,31 +190,43 @@
                                             <span class="method-title">Cryptomus</span>
                                             <span class="method-caption">Global crypto gateway</span>
                                         </div>
-                                            <span class="method-pill">Recommended</span>
+                                    </div>
+                                    <span class="method-pill method-pill-below">Recommended</span>
+                                </button>
+
+                                <button type="button" class="payment-method-card" data-payment-method-card data-method="binance_manual" aria-pressed="false">
+                                    <div class="method-header">
+                                        <div class="method-icon neon-gradient">
+                                            <i class="fa-brands fa-bitcoin" aria-hidden="true"></i>
+                                        </div>
+                                        <div class="method-meta">
+                                            <span class="method-title">Binance Manual</span>
+                                            <span class="method-caption method-caption-compact">USDT via BSC (BEP-20)</span>
+                                        </div>
+                                        <span class="method-pill">Manual</span>
                                     </div>
                                     <ul class="method-features">
-                                        <li>QR & wallet payments</li>
-                                        <li>1-hour invoice lifetime</li>
+                                        <li>Binance ID transfer: 432401535</li>
+                                        <li>Send payment details to support after transfer</li>
                                     </ul>
                                 </button>
                             </div>
+                            <p class="form-hint" id="paymentMethodHint">Heleket invoices open in a secure window and auto credit once blockchain confirmations land.</p>
                         </div>
 
-                        <!-- Order Summary -->
+                        <!-- Payment Summary -->
                         <div class="order-summary">
-                            <h3>Order Summary</h3>
-                            <div class="summary-row">
-                                <span>Amount to Add:</span>
-                                <span class="summary-value" id="summaryAmount">$0.00</span>
-                            </div>
-                            <div class="summary-row">
-                                <span>Processing Fee:</span>
-                                <span class="summary-value" id="summaryFee">$0.00</span>
-                            </div>
-                            <div class="summary-divider"></div>
+                            <h3>Payment Summary</h3>
                             <div class="summary-row summary-total">
                                 <span>Total Amount:</span>
                                 <span class="summary-value" id="summaryTotal">$0.00</span>
+                            </div>
+                            <p class="form-hint" id="orderSummaryHint">Choose a payment method to see the next step before checkout.</p>
+                            <div class="binance-qr-card hidden" id="orderSummaryBinanceQr">
+                                <div class="binance-qr-frame">
+                                    <img src="img/binance-manual-qr.jpg" alt="Binance manual payment QR code" class="binance-qr-image" onerror="this.closest('.binance-qr-card').classList.add('binance-qr-missing')">
+                                    <p class="binance-qr-fallback">Binance QR could not be loaded.</p>
+                                </div>
                             </div>
                         </div>
 
@@ -242,7 +261,7 @@
                             </svg>
                         </div>
                         <h3>Secure Payment</h3>
-                        <p>All transactions are encrypted and routed via Heleket & Cryptomus gateways</p>
+                        <p>Instant checkouts are routed through Heleket and Cryptomus, while Binance Manual payments use Binance ID transfer on BSC (BEP-20).</p>
                     </div>
 
                     <div class="info-card">
@@ -293,11 +312,11 @@
                     <div class="faq-grid">
                 <div class="faq-card">
                     <h3>Which gateways do you support?</h3>
-                    <p>Cryptomus handles all live crypto deposits while Heleket returns shortly after maintenance. Both gateways offer fast, automated balance crediting.</p>
+                    <p>Heleket and Cryptomus offer automated crypto deposits, and Binance Manual is available for USDT transfers on BSC (BEP-20).</p>
                 </div>
                 <div class="faq-card">
                     <h3>How long does it take to add funds?</h3>
-                    <p>Funds are typically added to your account instantly after successful payment. In rare cases, it may take up to 5 minutes for the balance to reflect.</p>
+                    <p>Automated gateway payments are usually credited instantly. Binance Manual payments are credited after you contact support and send your payment details for review.</p>
                 </div>
                 <div class="faq-card">
                     <h3>What is the minimum deposit amount?</h3>
@@ -305,11 +324,11 @@
                 </div>
                 <div class="faq-card">
                     <h3>Are there any fees?</h3>
-                    <p>A small processing fee of 1.00 % is applied to all transactions to cover payment gateway costs. The total amount including fees is shown before payment.</p>
+                    <p>No! There are no processing fees. The amount you deposit is the exact amount added to your balance.</p>
                 </div>
                 <div class="faq-card">
                     <h3>Is my payment information secure?</h3>
-                    <p>Yes! Crypto checkouts redirect you to Heleket or Cryptomus secure pages and we never store your wallet credentials.</p>
+                    <p>Yes. Instant checkouts redirect you to secure gateway pages, and Binance Manual only requires your transfer details after payment so support can verify the deposit.</p>
                 </div>
                 <div class="faq-card">
                     <h3>Can I get a refund?</h3>
