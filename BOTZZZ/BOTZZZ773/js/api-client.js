@@ -1,6 +1,40 @@
 // API Client - Centralized API communication
 const API_BASE_URL = window.location.origin;
 
+// Simple browser fingerprint generator (no external library needed)
+function generateFingerprint() {
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.textBaseline = 'top';
+        ctx.font = '14px Arial';
+        ctx.fillText('fp', 2, 2);
+        const canvasData = canvas.toDataURL();
+
+        const components = [
+            navigator.userAgent,
+            navigator.language,
+            screen.width + 'x' + screen.height,
+            screen.colorDepth,
+            new Date().getTimezoneOffset(),
+            navigator.hardwareConcurrency || '',
+            navigator.maxTouchPoints || 0,
+            canvasData.slice(-50)
+        ];
+        // Simple hash
+        const str = components.join('|');
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return 'fp_' + Math.abs(hash).toString(36);
+    } catch (e) {
+        return null;
+    }
+}
+
 class APIClient {
     constructor() {
         this.baseURL = API_BASE_URL;
@@ -63,7 +97,8 @@ class APIClient {
         const body = {
             action: 'login',
             email,
-            password
+            password,
+            fingerprint: generateFingerprint()
         };
         
         // Include admin OTP if provided
@@ -91,7 +126,8 @@ class APIClient {
                 password,
                 username,
                 firstName,
-                lastName
+                lastName,
+                fingerprint: generateFingerprint()
             })
         });
     }

@@ -61,6 +61,34 @@ function verifyToken(token) {
   }
 }
 
+// Helper: extract client IP and user-agent from event
+function getClientInfo(event) {
+  let ip = event.headers['x-forwarded-for']?.split(',')[0]?.trim()
+    || event.headers['x-real-ip']
+    || event.headers['client-ip']
+    || 'unknown';
+  // Strip IPv6-mapped IPv4 prefix
+  if (ip.startsWith('::ffff:')) ip = ip.substring(7);
+  const userAgent = event.headers['user-agent'] || 'unknown';
+  return { ip, userAgent };
+}
+
+// Helper: log login/signup to user_logins table
+async function recordLogin(userId, action, event, fingerprint) {
+  try {
+    const { ip, userAgent } = getClientInfo(event);
+    await supabaseAdmin.from('user_logins').insert({
+      user_id: userId,
+      ip_address: ip,
+      user_agent: userAgent,
+      fingerprint: fingerprint || null,
+      action: action
+    });
+  } catch (err) {
+    logger.warn('Failed to record login', { userId, error: serializeError(err) });
+  }
+}
+
 const baseHandler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': getCorsOrigin(event),
@@ -88,13 +116,13 @@ const baseHandler = async (event) => {
 
     switch (action) {
       case 'signup':
-        return await handleSignup(data, headers);
+        return await handleSignup(data, headers, event);
       case 'login':
-        return await handleLogin(data, headers);
+        return await handleLogin(data, headers, event);
       case 'google-signin':
-        return await handleGoogleSignIn(data, headers);
+        return await handleGoogleSignIn(data, headers, event);
       case 'google-signup':
-        return await handleGoogleSignUp(data, headers);
+        return await handleGoogleSignUp(data, headers, event);
       case 'verify':
         return await handleVerify(data, headers);
       case 'logout':
@@ -130,7 +158,7 @@ const AUTH_RATE_LIMIT = {
 
 exports.handler = withRateLimit(AUTH_RATE_LIMIT, baseHandler);
 
-async function handleSignup({ email, password, username, firstName, lastName }, headers) {
+async function handleSignup({ email, password, username, firstName, lastName, fingerprint }, headers, event) {
   try {
     // Validate input
     if (!email || !password || !username) {
@@ -202,6 +230,9 @@ async function handleSignup({ email, password, username, firstName, lastName }, 
 
     // Create token
     const token = createToken(newUser);
+
+    // Record signup login
+    await recordLogin(newUser.id, 'signup', event, fingerprint);
 
     // Log new user notification for admin
     try {
@@ -341,7 +372,7 @@ async function triggerAdminOTP(email) {
   }
 }
 
-async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
+async function handleLogin({ email, password, adminOtp, requestOtp, fingerprint }, headers, event) {
   try {
     // Validate input
     if (!email || !password) {
@@ -501,6 +532,9 @@ async function handleLogin({ email, password, adminOtp, requestOtp }, headers) {
       .from('users')
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id);
+
+    // Record login
+    await recordLogin(user.id, 'login', event, fingerprint);
 
     // Create token
     const token = createToken(user);
@@ -737,7 +771,7 @@ async function handleResetPassword({ token, newPassword }, headers) {
 }
 
 // Google Sign-In Handler
-async function handleGoogleSignIn(data, headers) {
+async function handleGoogleSignIn(data, headers, event) {
   try {
     const { credential, email, name, picture, adminOnly } = data;
 
@@ -942,6 +976,9 @@ Best regards, Botzzz773 Team
       user = newUser;
     }
 
+    // Record login
+    await recordLogin(user.id, existingUser ? 'google-signin' : 'google-signup', event, data.fingerprint);
+
     // Generate JWT token
     const token = createToken(user);
 
@@ -975,9 +1012,9 @@ Best regards, Botzzz773 Team
 }
 
 // Google Sign-Up Handler (same as sign-in for Google OAuth)
-async function handleGoogleSignUp(data, headers) {
+async function handleGoogleSignUp(data, headers, event) {
   // Google sign-up is the same as sign-in (auto-creates account if doesn't exist)
-  return await handleGoogleSignIn(data, headers);
+  return await handleGoogleSignIn(data, headers, event);
 }
 
 // Change Password Handler (for logged-in users)

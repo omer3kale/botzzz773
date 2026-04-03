@@ -61,7 +61,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
-    z-index: 100;
+    z-index: 1100;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(8px);
     box-shadow: 2px 0 16px rgba(0, 0, 0, 0.2);
@@ -969,11 +969,11 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     background: linear-gradient(135deg, rgba(15, 15, 20, 0.95) 0%, rgba(20, 20, 28, 0.9) 100%);
     border: 1px solid rgba(43, 195, 164, 0.25);
     border-radius: 16px;
-    overflow-x: hidden;
+    overflow-x: auto;
     overflow-y: visible;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(43, 195, 164, 0.12);
     max-width: 100%;
-    contain: layout style;
+    -webkit-overflow-scrolling: touch;
 }
 
 .orders-pager {
@@ -982,7 +982,7 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     justify-content: flex-start;
     gap: 8px;
     position: relative;
-    z-index: 100;
+    z-index: 1;
     margin-left: 0;
 }
 
@@ -1556,6 +1556,13 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
         margin-left: 0;
     }
 
+    .dashboard-topbar {
+        display: flex;
+        height: auto;
+        overflow: visible;
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
     .mobile-menu-toggle {
         display: flex;
     }
@@ -1602,11 +1609,24 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     }
 
     .orders-table-container {
-        overflow-x: scroll;
+        overflow-x: auto;
     }
 
     .orders-table {
-        min-width: 900px;
+        table-layout: auto;
+        min-width: 800px;
+    }
+
+    .orders-table th,
+    .orders-table td {
+        white-space: nowrap;
+        padding: 8px 6px;
+    }
+
+    .orders-table th:nth-child(3),
+    .orders-table td:nth-child(3) {
+        white-space: normal;
+        max-width: 180px;
     }
 }
 
@@ -2314,7 +2334,8 @@ body.dashboard-shell:not(.popup-mode) .dashboard-content {
     }
 
     .orders-table {
-        min-width: 720px !important;
+        table-layout: auto !important;
+        min-width: 800px !important;
     }
 
     .refills-table {

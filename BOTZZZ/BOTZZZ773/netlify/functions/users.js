@@ -177,7 +177,7 @@ exports.handler = async (event) => {
     const { action, userId, ...data } = bodyData;
 
     // Admin-only actions
-    const adminActions = ['list', 'create', 'update-any', 'delete', 'get-activity-logs', 'revert-profile-change'];
+    const adminActions = ['list', 'create', 'update-any', 'delete', 'get-activity-logs', 'revert-profile-change', 'detect-duplicates', 'get-user-logins'];
     if (adminActions.includes(action) && user.role !== 'admin') {
       return {
         statusCode: 403,
@@ -199,6 +199,12 @@ exports.handler = async (event) => {
         }
         if (action === 'revert-profile-change') {
           return await handleRevertProfileChange(data.logId, headers);
+        }
+        if (action === 'detect-duplicates') {
+          return await handleDetectDuplicates(headers);
+        }
+        if (action === 'get-user-logins') {
+          return await handleGetUserLogins(userId, headers);
         }
         return {
           statusCode: 400,
@@ -656,6 +662,163 @@ async function handleDelete(user, targetUserId, headers) {
     };
   } catch (error) {
     console.error('Delete user error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// Detect duplicate/multi-account users by shared IP or fingerprint
+async function handleDetectDuplicates(headers) {
+  try {
+    const { data: logins, error } = await supabaseAdmin
+      .from('user_logins')
+      .select('user_id, ip_address, fingerprint, action, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch login data' })
+      };
+    }
+
+    if (!logins || logins.length === 0) {
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ duplicates: [], message: 'No login data yet' })
+      };
+    }
+
+    // Group user_ids by IP
+    const ipMap = {};
+    const fpMap = {};
+
+    for (const login of logins) {
+      if (login.ip_address && login.ip_address !== 'unknown') {
+        if (!ipMap[login.ip_address]) ipMap[login.ip_address] = new Set();
+        ipMap[login.ip_address].add(login.user_id);
+      }
+      if (login.fingerprint) {
+        if (!fpMap[login.fingerprint]) fpMap[login.fingerprint] = new Set();
+        fpMap[login.fingerprint].add(login.user_id);
+      }
+    }
+
+    // Find IPs/fingerprints shared by multiple users
+    const duplicates = [];
+    const seen = new Set();
+
+    for (const [ip, userIds] of Object.entries(ipMap)) {
+      if (userIds.size > 1) {
+        const key = [...userIds].sort().join(',');
+        if (!seen.has(key)) {
+          seen.add(key);
+          duplicates.push({
+            type: 'ip',
+            value: ip,
+            user_ids: [...userIds]
+          });
+        }
+      }
+    }
+
+    for (const [fp, userIds] of Object.entries(fpMap)) {
+      if (userIds.size > 1) {
+        const key = [...userIds].sort().join(',');
+        const existing = duplicates.find(d => {
+          const existingKey = [...d.user_ids].sort().join(',');
+          return existingKey === key;
+        });
+        if (existing) {
+          existing.fingerprint = fp;
+          existing.type = 'ip+fingerprint';
+        } else {
+          duplicates.push({
+            type: 'fingerprint',
+            value: fp,
+            user_ids: [...userIds]
+          });
+        }
+      }
+    }
+
+    // Fetch user details for duplicate groups
+    const allUserIds = new Set();
+    for (const dup of duplicates) {
+      for (const uid of dup.user_ids) allUserIds.add(uid);
+    }
+
+    let userDetails = {};
+    if (allUserIds.size > 0) {
+      const { data: users } = await supabaseAdmin
+        .from('users')
+        .select('id, username, email, full_name, status, balance, created_at, last_login')
+        .in('id', [...allUserIds]);
+
+      if (users) {
+        for (const u of users) {
+          userDetails[u.id] = u;
+        }
+      }
+    }
+
+    for (const dup of duplicates) {
+      dup.users = dup.user_ids.map(id => userDetails[id] || { id });
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ duplicates })
+    };
+  } catch (error) {
+    console.error('Detect duplicates error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
+  }
+}
+
+// Get login history for a specific user
+async function handleGetUserLogins(userId, headers) {
+  try {
+    if (!userId) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'userId is required' })
+      };
+    }
+
+    const { data: logins, error } = await supabaseAdmin
+      .from('user_logins')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ error: 'Failed to fetch user logins' })
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ logins: logins || [] })
+    };
+  } catch (error) {
+    console.error('Get user logins error:', error);
     return {
       statusCode: 500,
       headers,

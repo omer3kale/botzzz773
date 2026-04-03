@@ -385,6 +385,12 @@ function viewUser(userId) {
                     <span class="detail-value">${lastUpdate}</span>
                 </div>
             </div>
+            <div class="user-detail-section">
+                <h4><i class="fas fa-fingerprint"></i> Login History</h4>
+                <div id="loginHistoryContent" style="max-height: 200px; overflow-y: auto;">
+                    <div style="text-align: center; padding: 12px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+                </div>
+            </div>
         </div>
     `;
 
@@ -397,8 +403,9 @@ function viewUser(userId) {
 
     createModal(`User: ${user.username}`, content, actions);
 
-    // Load change history asynchronously
+    // Load change history and login history asynchronously
     loadUserChangeHistory(userId);
+    showUserLoginHistory(userId);
 }
 
 // Edit user
@@ -1232,5 +1239,202 @@ async function revertProfileChange(logId, userId) {
     } catch (error) {
         console.error('Revert error:', error);
         showNotification(error.message || 'Failed to revert change', 'error');
+    }
+}
+
+// =============================================
+// DUPLICATE ACCOUNT DETECTION
+// =============================================
+
+async function detectDuplicateAccounts() {
+    const token = localStorage.getItem('token');
+    if (!token) {
+        showNotification('Not authenticated', 'error');
+        return;
+    }
+
+    // Show loading modal
+    createModal('Detecting Duplicate Accounts...', `
+        <div style="text-align: center; padding: 2rem;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: var(--admin-primary);"></i>
+            <p style="margin-top: 1rem; color: var(--admin-gray-text);">Analyzing login records for shared IPs and device fingerprints...</p>
+        </div>
+    `);
+
+    try {
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'detect-duplicates' })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to detect duplicates');
+        }
+
+        const result = await response.json();
+        const duplicates = result.duplicates || [];
+
+        if (duplicates.length === 0) {
+            closeModal();
+            createModal('Duplicate Detection', `
+                <div style="text-align: center; padding: 2rem;">
+                    <i class="fas fa-check-circle" style="font-size: 3rem; color: #10B981;"></i>
+                    <h3 style="margin-top: 1rem; color: #10B981;">No Duplicates Found</h3>
+                    <p style="color: var(--admin-gray-text); margin-top: 0.5rem;">${result.message || 'All accounts appear to be unique.'}</p>
+                </div>
+            `, '<button class="btn-primary" onclick="closeModal()">Close</button>');
+            return;
+        }
+
+        // Build duplicate groups HTML
+        const groupsHtml = duplicates.map((dup, idx) => {
+            const matchType = dup.type === 'ip+fingerprint' ? 'IP + Device Fingerprint'
+                : dup.type === 'ip' ? 'IP Address'
+                : 'Device Fingerprint';
+
+            const matchColor = dup.type === 'ip+fingerprint' ? '#EF4444'
+                : dup.type === 'ip' ? '#F59E0B'
+                : '#8B5CF6';
+
+            const usersHtml = dup.users.map(u => {
+                const balance = parseFloat(u.balance || 0);
+                const status = u.status || 'unknown';
+                const statusColor = status === 'active' ? '#10B981' : '#EF4444';
+                const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : 'Never';
+                const created = u.created_at ? new Date(u.created_at).toLocaleDateString() : 'N/A';
+
+                return `
+                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: rgba(255,255,255,0.03); border-radius: 8px; margin-bottom: 6px; border: 1px solid var(--admin-border);">
+                        <div style="flex: 1;">
+                            <div style="font-weight: 600; color: var(--admin-text);">${u.username || u.email || u.id?.substring(0, 8)}</div>
+                            <div style="font-size: 12px; color: var(--admin-gray-text);">${u.email || ''}</div>
+                        </div>
+                        <div style="text-align: center; min-width: 80px;">
+                            <div style="font-size: 12px; color: var(--admin-gray-text);">Balance</div>
+                            <div style="font-weight: 600; color: var(--admin-text);">$${balance.toFixed(2)}</div>
+                        </div>
+                        <div style="text-align: center; min-width: 80px;">
+                            <div style="font-size: 12px; color: var(--admin-gray-text);">Status</div>
+                            <span style="color: ${statusColor}; font-weight: 600; font-size: 13px;">${status}</span>
+                        </div>
+                        <div style="text-align: center; min-width: 100px;">
+                            <div style="font-size: 12px; color: var(--admin-gray-text);">Created</div>
+                            <div style="font-size: 13px; color: var(--admin-text);">${created}</div>
+                        </div>
+                        <div style="margin-left: 12px;">
+                            <button onclick="closeModal(); viewUser('${u.id}')" class="btn-sm" style="background: var(--admin-primary); color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font-size: 12px; cursor: pointer;">
+                                <i class="fas fa-eye"></i> View
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div style="background: var(--admin-card-bg); border: 1px solid var(--admin-border); border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <div>
+                            <span style="background: ${matchColor}22; color: ${matchColor}; padding: 4px 12px; border-radius: 6px; font-size: 12px; font-weight: 700;">
+                                <i class="fas fa-exclamation-triangle"></i> ${matchType} Match
+                            </span>
+                            <span style="font-size: 12px; color: var(--admin-gray-text); margin-left: 8px;">${dup.users.length} accounts</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--admin-gray-text); font-family: monospace;">
+                            ${dup.type.includes('ip') ? 'IP: ' + dup.value : ''}
+                            ${dup.fingerprint ? (dup.type.includes('ip') ? ' | ' : '') + 'FP: ' + dup.fingerprint : ''}
+                            ${!dup.type.includes('ip') && !dup.fingerprint ? dup.value : ''}
+                        </div>
+                    </div>
+                    ${usersHtml}
+                </div>
+            `;
+        }).join('');
+
+        closeModal();
+        createModal(
+            `<i class="fas fa-user-friends" style="color: #F59E0B;"></i> Duplicate Accounts Detected (${duplicates.length} groups)`,
+            `<div style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">${groupsHtml}</div>`,
+            '<button class="btn-primary" onclick="closeModal()">Close</button>'
+        );
+
+    } catch (error) {
+        console.error('Duplicate detection error:', error);
+        closeModal();
+        showNotification('Failed to detect duplicates: ' + error.message, 'error');
+    }
+}
+
+// Show login history for a user (called from viewUser modal)
+async function showUserLoginHistory(userId) {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const container = document.getElementById('loginHistoryContent');
+    if (!container) return;
+
+    container.innerHTML = '<div style="text-align: center; padding: 12px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+
+    try {
+        const response = await fetch('/.netlify/functions/users', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ action: 'get-user-logins', userId })
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch login history');
+
+        const result = await response.json();
+        const logins = result.logins || [];
+
+        if (logins.length === 0) {
+            container.innerHTML = '<div style="text-align: center; padding: 12px; color: var(--admin-gray-text); font-size: 13px;">No login records yet</div>';
+            return;
+        }
+
+        // Parse user-agent to short browser name
+        function parseUA(ua) {
+            if (!ua || ua === 'unknown') return '';
+            if (ua.includes('Chrome') && !ua.includes('Edg')) return 'Chrome';
+            if (ua.includes('Edg')) return 'Edge';
+            if (ua.includes('Firefox')) return 'Firefox';
+            if (ua.includes('Safari') && !ua.includes('Chrome')) return 'Safari';
+            return ua.substring(0, 30);
+        }
+
+        container.innerHTML = logins.map(login => {
+            const date = new Date(login.created_at).toLocaleString();
+            const actionLabel = login.action === 'signup' ? 'Signup' :
+                login.action === 'google-signin' ? 'Google' :
+                login.action === 'google-signup' ? 'Google Signup' : 'Login';
+            const actionColor = login.action === 'signup' ? '#10B981' :
+                login.action.includes('google') ? '#4285F4' : '#2bc3a4';
+            const browser = parseUA(login.user_agent);
+            const ip = login.ip_address || 'N/A';
+
+            return `
+                <div style="border-bottom: 1px solid var(--admin-border); padding: 8px 0; font-size: 12px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="background: ${actionColor}22; color: ${actionColor}; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">${actionLabel}</span>
+                        <span style="color: var(--admin-gray-text);">${date}</span>
+                    </div>
+                    <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 10px; color: var(--admin-gray-text);">
+                        <span title="IP Address"><i class="fas fa-globe" style="width: 14px;"></i> ${ip}</span>
+                        ${login.fingerprint ? `<span title="Device Fingerprint"><i class="fas fa-fingerprint" style="width: 14px;"></i> ${login.fingerprint}</span>` : ''}
+                        ${browser ? `<span title="Browser"><i class="fas fa-desktop" style="width: 14px;"></i> ${browser}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    } catch (error) {
+        console.error('Failed to load login history:', error);
+        container.innerHTML = '<div style="text-align: center; padding: 12px; color: #ef4444; font-size: 13px;">Failed to load login history</div>';
     }
 }
