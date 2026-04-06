@@ -117,6 +117,31 @@ function processProfitChartData(data) {
     }
 }
 
+function getDisplayedDayCount() {
+    if (reportData?.profitChart) {
+        const dayCount = Object.keys(reportData.profitChart).length;
+        if (dayCount > 0) {
+            return dayCount;
+        }
+    }
+
+    switch (selectedDateRange) {
+        case '30days':
+            return 30;
+        case '90days':
+            return 90;
+        case 'this_month':
+            return new Date().getDate();
+        case 'last_month':
+            return new Date(new Date().getFullYear(), new Date().getMonth(), 0).getDate();
+        case 'ytd':
+            return Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 1)) / (1000 * 60 * 60 * 24)) + 1;
+        case '7days':
+        default:
+            return 7;
+    }
+}
+
 // Display profit statistics
 function displayProfitStats(stats) {
     const totalProfitEl = document.querySelector('[data-stat="total-profit"]');
@@ -132,7 +157,9 @@ function displayProfitStats(stats) {
     }
     
     if (dailyAvgEl) {
-        const avgDaily = parseFloat(stats.totalProfits) / 7;
+        const totalProfit = parseFloat(stats.totalProfits) || 0;
+        const dayCount = getDisplayedDayCount();
+        const avgDaily = dayCount > 0 ? totalProfit / dayCount : totalProfit;
         dailyAvgEl.textContent = formatCurrencyDynamic(avgDaily);
     }
 }

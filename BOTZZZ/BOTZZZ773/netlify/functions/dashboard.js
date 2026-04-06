@@ -23,6 +23,40 @@ function getUserFromToken(authHeader) {
   }
 }
 
+function getNumericValue(value, fallback = 0) {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeOrderStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'cancelled' ? 'canceled' : normalized;
+}
+
+function calculateOrderProfit(order, getConversionRate) {
+  const status = normalizeOrderStatus(order.status);
+  if (status === 'canceled') {
+    return 0;
+  }
+
+  const income = getNumericValue(order.charge, getNumericValue(order.original_charge, 0));
+  const providerCost = getNumericValue(order.provider_cost, 0);
+  const providerCostUsd = providerCost * getConversionRate(order.provider_currency || 'USD');
+
+  if (status === 'partial') {
+    const quantity = getNumericValue(order.quantity, 0);
+    const remains = getNumericValue(order.remains, 0);
+
+    if (quantity > 0) {
+      const delivered = Math.max(0, Math.min(quantity, quantity - remains));
+      const deliveredRatio = delivered / quantity;
+      return (income * deliveredRatio) - (providerCostUsd * deliveredRatio);
+    }
+  }
+
+  return income - providerCostUsd;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': getCorsOrigin(event),
@@ -144,8 +178,7 @@ async function handleAdminStats(headers, event) {
 
       // 2. All completed/partial orders → total profit
       paginatedFetch(() => supabaseAdmin.from('orders')
-        .select('charge, original_charge, provider_cost, provider_currency')
-        .in('status', ['completed', 'partial'])),
+        .select('status, charge, original_charge, provider_cost, provider_currency, quantity, remains')),
 
       // 3. Exchange rates from API
       getExchangeRates().catch(err => {
@@ -169,7 +202,7 @@ async function handleAdminStats(headers, event) {
 
       // 8. Date-range orders → daily profit, orders chart, user breakdown, charges
       paginatedFetch(() => supabaseAdmin.from('orders')
-        .select('created_at, charge, original_charge, provider_cost, provider_currency, status, user_id')
+        .select('created_at, charge, original_charge, provider_cost, provider_currency, status, user_id, quantity, remains')
         .gte('created_at', startISO).lte('created_at', endISO)
         .order('created_at', { ascending: false })),
 
@@ -215,10 +248,7 @@ async function handleAdminStats(headers, event) {
     const totalRevenue = revenueData.reduce((sum, p) => sum + parseFloat(p.amount), 0);
 
     const totalProfits = ordersData.reduce((sum, o) => {
-      const income = parseFloat(o.charge || o.original_charge || 0);
-      const outcome = parseFloat(o.provider_cost || 0);
-      const outcomeUSD = outcome * getConversionRate(o.provider_currency || 'USD');
-      return sum + (income - outcomeUSD);
+      return sum + calculateOrderProfit(o, getConversionRate);
     }, 0);
 
     const totalOrders = totalOrdersRes.count || 0;
@@ -296,15 +326,8 @@ async function handleAdminStats(headers, event) {
     // ─── Single pass over ordersForProfit: profit, charges, order count, user breakdown ───
     ordersForProfit.forEach(order => {
       const date = order.created_at.split('T')[0];
-      const income = parseFloat(order.charge || order.original_charge || 0);
-      const outcome = parseFloat(order.provider_cost || 0);
-      const outcomeUSD = outcome * getConversionRate(order.provider_currency || 'USD');
-      let dailyProfit = income - outcomeUSD;
-
-      // Cancelled order ise profiti negatif yap (geri al)
-      if (order.status === 'cancelled') {
-        dailyProfit = -dailyProfit;
-      }
+      const income = getNumericValue(order.charge, getNumericValue(order.original_charge, 0));
+      const dailyProfit = calculateOrderProfit(order, getConversionRate);
 
       // Profit chart
       if (profitByDay[date] !== undefined) {

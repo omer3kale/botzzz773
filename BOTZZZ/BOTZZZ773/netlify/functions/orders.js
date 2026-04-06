@@ -25,6 +25,9 @@ const axios = require('axios');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const logger = createLogger('orders');
+const PROVIDER_SUBMISSION_TIMEOUT_MS = 8000;
+const PROVIDER_SUBMISSION_MAX_RETRIES = 2;
+const ORPHAN_ORDER_STALE_MS = 2 * 60 * 1000;
 
 function normalizeMetaObject(meta) {
   if (!meta) {
@@ -77,6 +80,29 @@ function normalizeCustomComments(raw) {
 
 function logOrderError(message, error, meta) {
   logger.error(message, { error: serializeError(error), ...meta });
+}
+
+function isStaleOrderWithoutProviderId(order, nowMs = Date.now()) {
+  if (!order || order.provider_order_id) {
+    return false;
+  }
+
+  const status = String(order.status || '').toLowerCase();
+  if (!['pending', 'processing', 'in progress', 'refilling'].includes(status)) {
+    return false;
+  }
+
+  const referenceTime = order.last_status_sync || order.created_at;
+  if (!referenceTime) {
+    return false;
+  }
+
+  const referenceMs = new Date(referenceTime).getTime();
+  if (!Number.isFinite(referenceMs)) {
+    return false;
+  }
+
+  return (nowMs - referenceMs) >= ORPHAN_ORDER_STALE_MS;
 }
 
 async function markOrderFailure(orderId, {
@@ -632,18 +658,6 @@ async function processOrderRefund(order, options = {}) {
     return { success: false, error: `Refund amount exceeds maximum limit of $${MAX_REFUND_AMOUNT}` };
   }
 
-  // Check if order already has refund_applied_at set (primary guard)
-  const { data: existingRefundMarker } = await supabaseAdmin
-    .from('orders')
-    .select('refund_applied_at')
-    .eq('id', orderId)
-    .maybeSingle();
-
-  if (existingRefundMarker?.refund_applied_at) {
-    console.log(`[REFUND] Order ${orderId} already has refund_applied_at set to ${existingRefundMarker.refund_applied_at}, skipping`);
-    return { success: true, alreadyRefunded: true, message: 'Already refunded' };
-  }
-
   // Secondary check: verify no refund record exists (belt-and-suspenders)
   if (skipIfAlreadyRefunded) {
     const { data: existingRefund } = await supabaseAdmin
@@ -658,16 +672,23 @@ async function processOrderRefund(order, options = {}) {
     }
   }
 
-  // Now set refund_applied_at marker
+  // Atomically claim the refund marker so concurrent refund paths can't both proceed.
   const nowIso = new Date().toISOString();
-  const { error: refundMarkError } = await supabaseAdmin
+  const { data: claimedRefundRows, error: refundMarkError } = await supabaseAdmin
     .from('orders')
     .update({ refund_applied_at: nowIso })
-    .eq('id', orderId);
+    .eq('id', orderId)
+    .is('refund_applied_at', null)
+    .select('id');
 
   if (refundMarkError) {
     console.error(`[REFUND] Error marking refund for order ${orderId}:`, refundMarkError);
-    // Don't fail; continue to process refund
+    return { success: false, error: 'Failed to lock refund marker', details: refundMarkError.message };
+  }
+
+  if (!claimedRefundRows || claimedRefundRows.length === 0) {
+    console.log(`[REFUND] Order ${orderId} refund marker was already claimed by another flow, skipping`);
+    return { success: true, alreadyRefunded: true, message: 'Already refunded' };
   } else {
     console.log(`[REFUND] Order ${orderId} marked with refund_applied_at = ${nowIso}`);
   }
@@ -1060,33 +1081,9 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       if (statusFilter === 'failed') {
         query = query.in('status', ['failed', 'error']);
         countQuery = countQuery.in('status', ['failed', 'error']);
-        query = query
-          .not('provider_error', 'ilike', '%rate limit%')
-          .not('provider_error', 'ilike', '%rate limited%')
-          .not('provider_error', 'ilike', '%too many requests%')
-          .not('provider_error', 'ilike', '%requests are too fast%')
-          .not('provider_error', 'ilike', '%hitting rate limit%')
-          .not('provider_error', 'ilike', '%too fast%');
-        countQuery = countQuery
-          .not('provider_error', 'ilike', '%rate limit%')
-          .not('provider_error', 'ilike', '%rate limited%')
-          .not('provider_error', 'ilike', '%too many requests%')
-          .not('provider_error', 'ilike', '%requests are too fast%')
-          .not('provider_error', 'ilike', '%hitting rate limit%')
-          .not('provider_error', 'ilike', '%too fast%');
       } else if (statusFilter === 'rate_limited') {
         query = query.in('status', ['failed', 'error']);
         countQuery = countQuery.in('status', ['failed', 'error']);
-        const rateLimitOrClause = [
-          'provider_error.ilike.%rate limit%',
-          'provider_error.ilike.%rate limited%',
-          'provider_error.ilike.%too many requests%',
-          'provider_error.ilike.%requests are too fast%',
-          'provider_error.ilike.%hitting rate limit%',
-          'provider_error.ilike.%too fast%'
-        ].join(',');
-        query = query.or(rateLimitOrClause);
-        countQuery = countQuery.or(rateLimitOrClause);
       } else {
         query = query.eq('status', statusFilter);
         countQuery = countQuery.eq('status', statusFilter);
@@ -1211,6 +1208,28 @@ async function handleGetOrders(user, headers, queryParams = {}) {
           });
         }
       }
+
+      const rateLimitIndicators = [
+        'rate limit',
+        'rate limited',
+        'too many requests',
+        'requests are too fast',
+        'hitting rate limit',
+        'too fast'
+      ];
+
+      normalizedOrders = normalizedOrders.filter(order => {
+        const providerError = String(order?.provider_error || '').toLowerCase();
+        const failureMessage = String(order?.failure_log?.error_message || '').toLowerCase();
+        const combinedErrorText = `${providerError} ${failureMessage}`.trim();
+        const isRateLimited = rateLimitIndicators.some(indicator => combinedErrorText.includes(indicator));
+
+        if (statusFilter === 'rate_limited') {
+          return isRateLimited;
+        }
+
+        return !isRateLimited;
+      });
     }
 
     // Perfect Panel compatibility mapping
@@ -1896,6 +1915,21 @@ async function handleCreateOrder(user, data, headers) {
     
     let providerOrderId = null;
     try {
+      const submissionHeartbeatAt = new Date().toISOString();
+      try {
+        await supabaseAdmin
+          .from('orders')
+          .update({
+            last_status_sync: submissionHeartbeatAt,
+            provider_status: 'submitting'
+          })
+          .eq('id', order.id);
+        order.last_status_sync = submissionHeartbeatAt;
+        order.provider_status = 'submitting';
+      } catch (heartbeatError) {
+        console.warn('[ORDER] Failed to persist submission heartbeat:', heartbeatError?.message || heartbeatError);
+      }
+
       const providerResponse = await submitOrderToProviderWithRetry(service.provider, {
         service: service.provider_service_id,
         link: linkStr,
@@ -1903,7 +1937,7 @@ async function handleCreateOrder(user, data, headers) {
         comments: isCustomComments && normalizedComments.length > 0
           ? normalizedComments.join('\n')
           : undefined
-      });
+      }, PROVIDER_SUBMISSION_MAX_RETRIES);
 
       if (!providerResponse || !providerResponse.order) {
         throw new Error('Provider did not return an order ID');
@@ -3281,7 +3315,7 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   for (let batchNum = 0; batchNum < MAX_FETCH_BATCHES; batchNum++) {
     let ordersQuery = supabaseAdmin
       .from('orders')
-      .select('id, service_id, provider_id, provider_order_id, status, customer_status, customer_status_lock, provider_response, meta, external_order_id, order_number, public_id');
+      .select('id, service_id, provider_id, provider_order_id, status, customer_status, customer_status_lock, provider_response, meta, external_order_id, order_number, public_id, created_at, last_status_sync');
 
     if (orderIds && orderIds.length > 0) {
       ordersQuery = ordersQuery.in('id', orderIds);
@@ -3344,6 +3378,35 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
   for (const order of ordersData) {
     const resolvedProviderId = resolveProviderOrderIdFromRecord(order);
     if (!resolvedProviderId) {
+      if (isStaleOrderWithoutProviderId(order)) {
+        const recoveryMessage = 'Provider submission did not complete; order marked failed for safe resend.';
+        console.warn('[ORDER SYNC] Recovering stale order without provider ID', {
+          orderId: order.id,
+          status: order.status,
+          createdAt: order.created_at,
+          lastStatusSync: order.last_status_sync
+        });
+
+        await markOrderFailure(order.id, {
+          message: recoveryMessage,
+          source: 'system',
+          code: 'provider_submission_interrupted',
+          context: {
+            stage: 'provider_submission_recovery',
+            has_provider_order_id: false
+          }
+        });
+
+        skippedResults.push({
+          orderId: order.id,
+          providerOrderId: null,
+          success: false,
+          recovered: true,
+          error: recoveryMessage
+        });
+        continue;
+      }
+
       skippedResults.push({
         orderId: order.id,
         providerOrderId: null,
@@ -3974,7 +4037,7 @@ async function fetchProviderOrderStatus(provider, providerOrderId) {
 }
 
 // Retry wrapper for order submission with exponential backoff
-async function submitOrderToProviderWithRetry(provider, orderData, maxRetries = 3) {
+async function submitOrderToProviderWithRetry(provider, orderData, maxRetries = PROVIDER_SUBMISSION_MAX_RETRIES) {
   let lastError;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -4093,7 +4156,7 @@ async function submitOrderToProvider(provider, orderData) {
         'Accept-Language': 'en-US,en;q=0.9',
         'Cache-Control': 'no-cache'
       },
-      timeout: 30000, // 30 second timeout
+      timeout: PROVIDER_SUBMISSION_TIMEOUT_MS,
       validateStatus: (status) => status < 500 // Don't throw on 4xx errors
     });
 

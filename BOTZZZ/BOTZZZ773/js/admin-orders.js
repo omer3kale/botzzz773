@@ -67,6 +67,7 @@ let orderIdSelectionShortcutAttached = false;
 
 // Track current view state explicitly
 let currentOrdersView = 'all'; // 'all' | 'failed' | 'provider-errors'
+let currentOrdersStatusFilter = 'all';
 
 // BOTZZZ773 Real-time WebSocket state
 let realtimeEnabled = false;
@@ -851,6 +852,8 @@ function refreshOrdersAfterAdminChange() {
     console.log('[ORDERS] Refreshing after admin change, current view:', currentOrdersView);
     if (currentOrdersView === 'failed') {
         loadFailedOrders();
+    } else if (currentOrdersView === 'rate-limited') {
+        loadFailedOrders('rate_limited');
     } else if (currentOrdersView === 'provider-errors') {
         showProviderErrors();
     } else {
@@ -1719,6 +1722,8 @@ function startOrdersAutoRefresh() {
         // Refresh based on current view state
         if (currentOrdersView === 'failed') {
             await loadFailedOrders();
+        } else if (currentOrdersView === 'rate-limited') {
+            await loadFailedOrders('rate_limited');
         } else if (currentOrdersView !== 'provider-errors') {
             await loadOrders({ skipSync: true });
         }
@@ -1938,6 +1943,7 @@ async function initializeOrdersPage() {
     console.log('[ORDERS] Initializing orders page - loading ALL orders');
     // Reset to all view on page load
     currentOrdersView = 'all';
+    currentOrdersStatusFilter = 'all';
     document.querySelector('.orders-table-panel')?.classList.remove('failed-view');
     
     // Ensure All tab is active
@@ -2079,6 +2085,7 @@ async function filterOrders(status) {
     
     // Normalize status: convert 'in-progress' to 'in progress'
     const normalizedStatus = status === 'in-progress' ? 'in progress' : status;
+    currentOrdersStatusFilter = status;
     
     // If we're currently in provider-errors view, hide it first to restore the orders layout
     if (currentOrdersView === 'provider-errors') {
@@ -2827,7 +2834,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Debounce search to avoid too many API calls
             searchTimeout = setTimeout(() => {
                 window.ordersCurrentPage = 1;  // Reset to first page on new search
-                loadOrders({ skipSync: true });
+                if (currentOrdersView === 'failed') {
+                    loadFailedOrders('failed');
+                } else if (currentOrdersView === 'rate-limited') {
+                    loadFailedOrders('rate_limited');
+                } else if (currentOrdersView === 'provider-errors') {
+                    loadProviderErrors();
+                } else {
+                    loadOrders({ skipSync: true });
+                }
             }, window.ordersSearchDebounceMs);
         });
     }
@@ -2905,6 +2920,8 @@ function handleNextPage() {
 
 // Load real orders from database
 async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
+    const effectiveStatusFilter = statusFilter ?? (currentOrdersStatusFilter !== 'all' ? currentOrdersStatusFilter : null);
+
     // Clear selections when loading new orders
     selectedOrderIds.clear();
     
@@ -2975,7 +2992,7 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         }
         
         // When searching or filtering by status, fetch all matching orders
-        if (!useNumbersFilter && (statusFilter || searchQuery)) {
+        if (!useNumbersFilter && (effectiveStatusFilter || searchQuery)) {
             limitToUse = 10000;  // Fetch up to 10k orders
             offsetToUse = 0;     // Always start from beginning for search/filter
         }
@@ -2989,8 +3006,11 @@ async function loadOrders({ skipSync = false, statusFilter = null } = {}) {
         if (useNumbersFilter) {
             apiUrl.searchParams.append('numbers', numericCommaIds.join(','));
         }
-        if (statusFilter) {
-            apiUrl.searchParams.append('status', statusFilter);
+        if (effectiveStatusFilter) {
+            const normalizedFilter = effectiveStatusFilter === 'in-progress'
+                ? 'in progress'
+                : effectiveStatusFilter;
+            apiUrl.searchParams.append('status', normalizedFilter);
         }
 
         console.log('[ORDERS] API Request URL:', apiUrl.toString());

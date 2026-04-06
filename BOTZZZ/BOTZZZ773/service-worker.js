@@ -1,5 +1,5 @@
 // Service Worker for BOTZZZ773 PWA
-const CACHE_VERSION = 'v1.1.1-balance';
+const CACHE_VERSION = 'v1.1.2-csp-bypass';
 const CACHE_NAME = `botzzz773-${CACHE_VERSION}`;
 const API_CACHE_NAME = `botzzz773-api-${CACHE_VERSION}`;
 const PENDING_REQUESTS_CACHE = 'botzzz773-pending-requests';
@@ -9,6 +9,20 @@ const OFFLINE_QUEUE_ENDPOINTS = [
   '/.netlify/functions/orders',
   '/.netlify/functions/payments'
 ];
+
+const EXTERNAL_BYPASS_HOSTS = new Set([
+  'fonts.googleapis.com',
+  'fonts.gstatic.com',
+  'ui-avatars.com',
+  'www.googletagmanager.com',
+  'googletagmanager.com',
+  'www.google-analytics.com',
+  'google-analytics.com'
+]);
+
+function shouldBypassServiceWorker(requestUrl) {
+  return requestUrl.origin !== self.location.origin || EXTERNAL_BYPASS_HOSTS.has(requestUrl.hostname);
+}
 
 // Assets to cache immediately on install
 const STATIC_ASSETS = [
@@ -76,6 +90,10 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  if (shouldBypassServiceWorker(url)) {
+    return;
+  }
 
   if (shouldQueueRequest(url, request.method)) {
     event.respondWith(queueRequest(request));

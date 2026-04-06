@@ -500,6 +500,13 @@ async function handleGetHistory(user, headers) {
 
 async function handleGetRefundHistory(headers) {
   try {
+    const buildRefundMergeKey = (refund = {}) => {
+      const paymentRefundId = refund.gateway_response?.refund_id ? `refund-id:${refund.gateway_response.refund_id}` : null;
+      const txCode = refund.transaction_id || refund.refund_code || refund.gateway_response?.refund_code || null;
+      const orderId = refund.order_id ? `order:${refund.order_id}` : null;
+      return paymentRefundId || (txCode ? `code:${txCode}` : null) || orderId || `id:${refund.id}`;
+    };
+
     // Fetch from both payments table (for payment-recorded refunds) 
     // AND refunds table (for all refunds, including those that failed to record in payments)
     const { data: paymentRefunds, error: paymentError } = await supabaseAdmin
@@ -530,29 +537,33 @@ async function handleGetRefundHistory(headers) {
     
     // First add from payments table
     (paymentRefunds || []).forEach(refund => {
-      refundsMap.set(refund.id, refund);
+      refundsMap.set(buildRefundMergeKey(refund), refund);
     });
     
     // Then add from refunds table (fill gaps)
     (allRefunds || []).forEach(refund => {
-      if (!refundsMap.has(refund.id)) {
+      const transformedRefund = {
+        id: refund.id,
+        transaction_id: refund.refund_code,
+        user_id: refund.user_id,
+        order_id: refund.order_id,
+        amount: -Math.abs(Number(refund.amount)),  // Make negative for consistency
+        method: 'refund',
+        status: refund.status,
+        gateway_response: {
+          refund_id: refund.id,
+          refund_code: refund.refund_code,
+          reason: refund.reason,
+          source: refund.source,
+          order_number: refund.metadata?.order_number || null
+        },
+        memo: refund.metadata?.memo || null,
+        created_at: refund.created_at
+      };
+      const mergeKey = buildRefundMergeKey(transformedRefund);
+      if (!refundsMap.has(mergeKey)) {
         // Transform refunds table format to match payments table format for consistency
-        refundsMap.set(refund.id, {
-          id: refund.id,
-          transaction_id: refund.refund_code,
-          user_id: refund.user_id,
-          order_id: refund.order_id,
-          amount: -Math.abs(Number(refund.amount)),  // Make negative for consistency
-          method: 'refund',
-          status: refund.status,
-          gateway_response: {
-            reason: refund.reason,
-            source: refund.source,
-            order_number: refund.metadata?.order_number || null
-          },
-          memo: refund.metadata?.memo || null,
-          created_at: refund.created_at
-        });
+        refundsMap.set(mergeKey, transformedRefund);
       }
     });
     
