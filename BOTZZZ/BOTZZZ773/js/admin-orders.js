@@ -1913,6 +1913,27 @@ async function updateFailedOrdersBadge() {
     }
 }
 
+async function updateRateLimitedOrdersBadge() {
+    try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        const response = await fetch('/.netlify/functions/orders?status=rate_limited&countOnly=true', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const badge = document.getElementById('rateLimitedOrderCount');
+            if (badge) {
+                badge.textContent = data.count || data.orders?.length || 0;
+            }
+        }
+    } catch (error) {
+        console.error('[ORDERS] Failed to update rate-limited badge:', error);
+    }
+}
+
 async function initializeOrdersPage() {
     console.log('[ORDERS] Initializing orders page - loading ALL orders');
     // Reset to all view on page load
@@ -1931,6 +1952,8 @@ async function initializeOrdersPage() {
     // No auto-sync on page load — cron handles sync every 5 min.
     // Admin can use manual Sync button for on-demand refresh.
     updateOrdersSyncStatus('Loaded from DB', 'success');
+    updateFailedOrdersBadge();
+    updateRateLimitedOrdersBadge();
     
     // Try to enable real-time updates first
     const realtimeActive = initializeRealtimeOrders();
@@ -2087,10 +2110,16 @@ async function filterOrders(status) {
     tabs.forEach(tab => tab.classList.remove('active'));
     document.querySelector(`[data-status="${status}"]`)?.classList.add('active');
     
-    // Handle 'failed' filter separately - load from API with status=failed
+    // Handle failed / rate-limited filters separately
     if (normalizedStatus === 'failed') {
         currentOrdersView = 'failed';
-        loadFailedOrders();
+        loadFailedOrders('failed');
+        return;
+    }
+
+    if (status === 'rate-limited') {
+        currentOrdersView = 'rate-limited';
+        loadFailedOrders('rate_limited');
         return;
     }
     
@@ -3481,35 +3510,39 @@ function buildServicesOptionsHTML(services, selectedServiceId = null) {
 // ==========================================
 
 // Load failed orders from API
-async function loadFailedOrders() {
-    console.log('[FAILED ORDERS] Loading failed orders view');
+async function loadFailedOrders(mode = 'failed') {
+    const isRateLimitedMode = mode === 'rate_limited';
+    const logPrefix = isRateLimitedMode ? '[RATE LIMITED ORDERS]' : '[FAILED ORDERS]';
+    const statusQuery = isRateLimitedMode ? 'rate_limited' : 'failed';
+    const badgeId = isRateLimitedMode ? 'rateLimitedOrderCount' : 'failedOrderCount';
+    console.log(`${logPrefix} Loading orders view`);
     // Clear selections when loading failed orders
     selectedOrderIds.clear();
     
-    currentOrdersView = 'failed';
+    currentOrdersView = isRateLimitedMode ? 'rate-limited' : 'failed';
     // Add failed-view class for column width overrides
     document.querySelector('.orders-table-panel')?.classList.add('failed-view');
     const tbody = document.getElementById('ordersTableBody');
     if (!tbody) {
-        console.error('[FAILED ORDERS] Table body element not found!');
+        console.error(`${logPrefix} Table body element not found!`);
         return;
     }
 
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading failed orders...</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align: center; padding: 20px;"><i class="fas fa-spinner fa-spin"></i> Loading ${isRateLimitedMode ? 'rate-limited' : 'failed'} orders...</td></tr>`;
 
     try {
         const token = localStorage.getItem('token');
         if (!token) {
-            console.error('[FAILED ORDERS] No auth token found!');
+            console.error(`${logPrefix} No auth token found!`);
             throw new Error('Not authenticated - please sign in again');
         }
 
-        console.log('[FAILED ORDERS] Fetching failed orders from API...');
+        console.log(`${logPrefix} Fetching orders from API...`);
         
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
         
-        const response = await fetch('/.netlify/functions/orders?status=failed&limit=10000', {
+        const response = await fetch(`/.netlify/functions/orders?status=${statusQuery}&limit=10000`, {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -3521,7 +3554,7 @@ async function loadFailedOrders() {
         clearTimeout(timeoutId);
 
         if (response.status === 401 || response.status === 403) {
-            console.error('[FAILED ORDERS] Authentication failed');
+            console.error(`${logPrefix} Authentication failed`);
             localStorage.removeItem('token');
             window.location.href = '/signin.html';
             return;
@@ -3529,30 +3562,30 @@ async function loadFailedOrders() {
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('[FAILED ORDERS] API error:', errorText);
+            console.error(`${logPrefix} API error:`, errorText);
             throw new Error(`Server error (${response.status}): ${errorText.substring(0, 100)}`);
         }
 
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
-            console.error('[FAILED ORDERS] Invalid response type:', contentType);
+            console.error(`${logPrefix} Invalid response type:`, contentType);
             throw new Error('Invalid server response format');
         }
 
         const data = await response.json();
         
         if (!data || typeof data !== 'object') {
-            console.error('[FAILED ORDERS] Invalid response data:', data);
+            console.error(`${logPrefix} Invalid response data:`, data);
             throw new Error('Invalid response data from server');
         }
         
         const failedOrders = Array.isArray(data.orders) ? data.orders : [];
         failedOrdersRegistry.clear();
         
-        console.log('[FAILED ORDERS] Received', failedOrders.length, 'failed orders');
+        console.log(`${logPrefix} Received`, failedOrders.length, isRateLimitedMode ? 'rate-limited orders' : 'failed orders');
         
         // Update badge count
-        const badge = document.getElementById('failedOrderCount');
+        const badge = document.getElementById(badgeId);
         if (badge) {
             badge.textContent = failedOrders.length;
         }
@@ -3562,8 +3595,8 @@ async function loadFailedOrders() {
                 <tr>
                     <td colspan="13" style="text-align: center; padding: 40px;">
                         <i class="fas fa-check-circle" style="font-size: 48px; color: #10b981; margin-bottom: 16px;"></i>
-                        <p style="font-size: 16px; color: #64748b;">No failed orders found!</p>
-                        <p style="font-size: 14px; color: #94a3b8;">All orders processed successfully.</p>
+                        <p style="font-size: 16px; color: #64748b;">${isRateLimitedMode ? 'No rate-limited orders found!' : 'No failed orders found!'}</p>
+                        <p style="font-size: 14px; color: #94a3b8;">${isRateLimitedMode ? 'No provider rate limit issues are waiting right now.' : 'All orders processed successfully.'}</p>
                     </td>
                 </tr>
             `;
@@ -3576,7 +3609,7 @@ async function loadFailedOrders() {
             try {
                 // Validate order object
                 if (!order || typeof order !== 'object') {
-                    console.warn('[FAILED ORDERS] Invalid order object at index', index);
+                    console.warn(`${logPrefix} Invalid order object at index`, index);
                     return;
                 }
 
@@ -3663,7 +3696,7 @@ async function loadFailedOrders() {
                         providerError = String(order.error);
                     }
                 } catch (e) {
-                    console.warn('[FAILED ORDERS] Error extracting provider error:', e);
+                    console.warn(`${logPrefix} Error extracting provider error:`, e);
                 }
                 const errorPreview = truncateText(providerError, 80);
                 // Provider name for error display
@@ -3741,7 +3774,8 @@ async function loadFailedOrders() {
     } catch (error) {
         console.error('[FAILED ORDERS] Error:', error);
         
-        let errorMessage = 'Error loading failed orders';
+        const isRateLimitedMode = mode === 'rate_limited';
+        let errorMessage = isRateLimitedMode ? 'Error loading rate-limited orders' : 'Error loading failed orders';
         let errorDetails = '';
         
         if (error.name === 'AbortError') {
@@ -3757,7 +3791,7 @@ async function loadFailedOrders() {
                     <i class="fas fa-exclamation-circle" style="font-size: 48px; color: #ef4444; margin-bottom: 16px;"></i>
                     <p style="font-size: 16px; color: #ef4444; font-weight: 600; margin-bottom: 8px;">${escapeHtml(errorMessage)}</p>
                     <p style="font-size: 14px; color: #64748b; margin-bottom: 16px;">${escapeHtml(errorDetails)}</p>
-                    <button class="btn-primary" onclick="loadFailedOrders()" style="margin-top: 12px;">
+                    <button class="btn-primary" onclick="loadFailedOrders('${mode}')" style="margin-top: 12px;">
                         <i class="fas fa-redo"></i> Retry
                     </button>
                 </td>

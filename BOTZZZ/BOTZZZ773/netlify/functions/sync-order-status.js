@@ -8,6 +8,71 @@ const MAX_AUTO_RETRIES = 3;
 // Backoff: 2min, 5min, 15min (in ms)
 const RETRY_BACKOFF_MS = [2 * 60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 
+function isRateLimitProviderError(message = '') {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('429')
+    || normalized.includes('too many requests')
+    || normalized.includes('rate limited')
+    || normalized.includes('rate limit')
+    || normalized.includes('requests are too fast')
+    || normalized.includes('hitting rate limit')
+    || normalized.includes('too fast');
+}
+
+async function recoverRateLimitedFailedOrders() {
+  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const recovery = { found: 0, recovered: 0 };
+
+  try {
+    const { data: failedOrders, error } = await supabaseAdmin
+      .from('orders')
+      .select('id, order_number, customer_status, provider_status, provider_order_id, provider_error, updated_at')
+      .in('status', ['failed', 'error'])
+      .not('provider_order_id', 'is', null)
+      .gt('updated_at', sixHoursAgo)
+      .order('updated_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('[RATE-LIMIT RECOVERY] Query error:', error.message);
+      return recovery;
+    }
+
+    const recoverableOrders = (failedOrders || []).filter(order => isRateLimitProviderError(order.provider_error));
+    recovery.found = recoverableOrders.length;
+
+    for (const order of recoverableOrders) {
+      const nextStatus = order.provider_status === 'pending' ? 'pending' : 'processing';
+      const nextCustomerStatus = order.customer_status === 'canceled' ? 'canceled' : 'pending';
+
+      const { error: updateError } = await supabaseAdmin
+        .from('orders')
+        .update({
+          status: nextStatus,
+          customer_status: nextCustomerStatus,
+          provider_status: nextStatus,
+          last_status_sync: null
+        })
+        .eq('id', order.id);
+
+      if (updateError) {
+        console.error(`[RATE-LIMIT RECOVERY] Failed to requeue order ${order.order_number || order.id}:`, updateError.message);
+        continue;
+      }
+
+      recovery.recovered++;
+    }
+
+    if (recovery.recovered > 0) {
+      console.log(`[RATE-LIMIT RECOVERY] Re-queued ${recovery.recovered}/${recovery.found} rate-limited failed orders`);
+    }
+  } catch (err) {
+    console.error('[RATE-LIMIT RECOVERY] Fatal error:', err.message);
+  }
+
+  return recovery;
+}
+
 async function autoRetryTimeoutOrders() {
   const now = new Date();
   const retryResults = { found: 0, retried: 0, succeeded: 0, failed: 0, skipped: 0 };
@@ -203,6 +268,13 @@ exports.handler = async (event = {}) => {
   console.log(`[SCHEDULED] Order status sync invoked at ${runAt} with limit ${limit}`);
 
   try {
+    let recoveryResults = { found: 0, recovered: 0 };
+    try {
+      recoveryResults = await recoverRateLimitedFailedOrders();
+    } catch (recoveryErr) {
+      console.error('[RATE-LIMIT RECOVERY] Non-critical error:', recoveryErr.message);
+    }
+
     const result = await performOrderStatusSync({ limit, providerId: providerFilter || null });
 
     // Auto-retry timeout-failed orders BEFORE sending alerts
@@ -274,7 +346,7 @@ exports.handler = async (event = {}) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ ...result, runAt, alertsSent, autoRetry: retryResults })
+      body: JSON.stringify({ ...result, runAt, alertsSent, autoRetry: retryResults, rateLimitRecovery: recoveryResults })
     };
   } catch (error) {
     console.error('[SCHEDULED] Order status sync failed:', error);

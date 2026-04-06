@@ -16,6 +16,21 @@ let authGuardTriggered = false;
 let userDiscountRate = 0; // User's discount percentage (0-100)
 let userServiceDiscounts = {}; // User-specific per-service discounts: { serviceId: discountRate }
 const PER_SERVICE_DISCOUNTS = (window.BOTZZZ_CONFIG && window.BOTZZZ_CONFIG.PER_SERVICE_DISCOUNTS) || {};
+const COUNTRY_TARGETED_CATEGORY_TOKEN = 'country-targeted';
+const FLAG_COUNTRY_NAME_MAP = {
+    BR: 'Brazil',
+    IT: 'Italy',
+    SE: 'Sweden',
+    DE: 'Germany',
+    ES: 'Spain',
+    NG: 'Nigeria',
+    US: 'United States',
+    GB: 'United Kingdom',
+    FR: 'France',
+    TR: 'Turkey',
+    CA: 'Canada',
+    AU: 'Australia'
+};
 
 async function refreshUserProfile(token) {
     if (!token) return null;
@@ -1428,14 +1443,18 @@ function showSubcategoryOptions(parentSlug) {
             this.classList.add('active');
             
             // Filter and load services for this subcategory
+            let shouldCloseModal = true;
+
             if (type === 'subcategory' && categoryId) {
-                await loadServicesForSubcategory(categoryId, filter);
+                shouldCloseModal = await loadServicesForSubcategory(categoryId, filter);
             } else {
                 await filterServices(filter);
             }
             
             // Close modal after selection
-            setTimeout(() => closeSubcategoryModal(), 300);
+            if (shouldCloseModal !== false) {
+                setTimeout(() => closeSubcategoryModal(), 300);
+            }
         });
     });
 }
@@ -1629,6 +1648,299 @@ function buildSubcategorySearchTerms(name = '') {
     return Array.from(terms);
 }
 
+function isCountryTargetedCategory(categoryOrSlug) {
+    const source = typeof categoryOrSlug === 'string'
+        ? categoryOrSlug
+        : (categoryOrSlug?.slug || categoryOrSlug?.name || '');
+    return normalizeCategorySlug(source).includes(COUNTRY_TARGETED_CATEGORY_TOKEN);
+}
+
+function getCountryCodeFromFlag(flag = '') {
+    const chars = Array.from(String(flag || ''));
+    if (chars.length !== 2) {
+        return '';
+    }
+
+    const codePoints = chars.map(char => char.codePointAt(0));
+    const isRegionalIndicator = codePoints.every(
+        point => point >= 0x1F1E6 && point <= 0x1F1FF
+    );
+
+    if (!isRegionalIndicator) {
+        return '';
+    }
+
+    return codePoints
+        .map(point => String.fromCharCode(65 + (point - 0x1F1E6)))
+        .join('');
+}
+
+function extractCountryTargetMetadata(serviceName = '') {
+    const normalizedName = String(serviceName || '');
+    if (!normalizedName) {
+        return null;
+    }
+
+    const flagMatch = normalizedName.match(/[\u{1F1E6}-\u{1F1FF}]{2}/u);
+    const flag = flagMatch ? flagMatch[0] : '';
+    const countryCode = getCountryCodeFromFlag(flag);
+    const bracketMatches = Array.from(normalizedName.matchAll(/\[([^\]]+)\]/g));
+    const bracketCountryName = bracketMatches
+        .map(match => String(match[1] || '').trim())
+        .find(value => {
+            if (!value || /^[rR]\d+$/.test(value)) {
+                return false;
+            }
+
+            const lowered = value.toLowerCase();
+            return !(
+                lowered.includes('comments in package') ||
+                lowered.includes('real old premium account') ||
+                lowered.includes('looking account') ||
+                lowered.includes('real accounts') ||
+                lowered.includes('hq profiles') ||
+                lowered.includes('premium quality') ||
+                lowered.includes('button working') ||
+                lowered.includes('non drop') ||
+                lowered.includes('hq')
+            );
+        });
+
+    const countryName = FLAG_COUNTRY_NAME_MAP[countryCode] || bracketCountryName || '';
+
+    if (!flag && !countryName) {
+        return null;
+    }
+
+    const label = [flag, countryName].filter(Boolean).join(' ').trim();
+
+    return {
+        flag,
+        countryCode,
+        countryName: countryName || '',
+        label: label || normalizedName
+    };
+}
+
+function getServicesForCategorySelection(selectedCategory, parentCategory, categorySlug) {
+    const normalizedSlug = normalizeCategorySlug(categorySlug);
+    const parentSlug = normalizeCategorySlug(parentCategory?.slug || parentCategory?.name || normalizedSlug);
+    const targetSlug = normalizeCategorySlug(selectedCategory?.slug || selectedCategory?.name || normalizedSlug);
+    const slugTargets = new Set([parentSlug, targetSlug].filter(Boolean));
+    const subcategoryTerms = buildSubcategorySearchTerms(selectedCategory?.name || categorySlug);
+
+    let filteredServices = approvedServicesCache.filter(service => {
+        const serviceSlug = getServiceCategorySlug(service);
+        if (!serviceSlug) {
+            return false;
+        }
+
+        if (slugTargets.has(serviceSlug)) {
+            if (selectedCategory?.parent_id && serviceSlug === parentSlug && subcategoryTerms.length) {
+                const serviceName = String(service.name || '').toLowerCase();
+                return subcategoryTerms.some(term => serviceName.includes(term));
+            }
+            return true;
+        }
+
+        return false;
+    });
+
+    if (filteredServices.length === 0 && subcategoryTerms.length) {
+        filteredServices = approvedServicesCache.filter(service => {
+            const serviceSlug = getServiceCategorySlug(service);
+            const serviceName = String(service.name || '').toLowerCase();
+            const belongsToParent = parentSlug ? serviceSlug === parentSlug : true;
+            return belongsToParent && subcategoryTerms.some(term => serviceName.includes(term));
+        });
+    }
+
+    if (filteredServices.length === 0) {
+        const fallbackTerms = String(categorySlug || '')
+            .replace(/-/g, ' ')
+            .toLowerCase()
+            .split(' ')
+            .filter(Boolean);
+
+        filteredServices = approvedServicesCache.filter(service => {
+            const serviceName = String(service.name || '').toLowerCase();
+            const serviceCategory = (service.category || '').toLowerCase();
+            return fallbackTerms.some(term =>
+                serviceName.includes(term) || serviceCategory.includes(term)
+            );
+        });
+    }
+
+    return {
+        filteredServices,
+        parentSlug,
+        targetSlug
+    };
+}
+
+function buildCountryOptionsForServices(services = []) {
+    const seen = new Set();
+
+    return sortServicesForDisplay(services)
+        .map(service => {
+            const metadata = extractCountryTargetMetadata(service?.name);
+            if (!metadata) {
+                return null;
+            }
+
+            const key = `${metadata.flag}::${metadata.countryName}`.toLowerCase();
+            if (seen.has(key)) {
+                return null;
+            }
+
+            seen.add(key);
+            return metadata;
+        })
+        .filter(Boolean);
+}
+
+function showCountryTargetOptions(selectedCategory, parentCategory, services, categorySlug) {
+    const countryOptions = buildCountryOptionsForServices(services);
+
+    if (!countryOptions.length) {
+        return false;
+    }
+
+    const existingModal = document.getElementById('subcategoryModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    const categoryTitle = selectedCategory?.name || parentCategory?.name || 'Country Targeted';
+    let modalHTML = `
+        <div class="subcategory-modal" id="subcategoryModal">
+            <div class="subcategory-modal-overlay" onclick="closeSubcategoryModal()"></div>
+            <div class="subcategory-modal-content">
+                <div class="subcategory-header">
+                    <h3><i class="${selectedCategory?.icon || parentCategory?.icon || 'fas fa-globe'} subcategory-header-icon"></i>${categoryTitle} Countries</h3>
+                    <button class="close-subcategory" onclick="closeSubcategoryModal()">&times;</button>
+                </div>
+                <div class="subcategory-options">
+                    <button class="subcategory-btn subcategory-btn--all" data-country-filter="all">
+                        <i class="fas fa-th"></i> All ${categoryTitle} Services
+                    </button>
+    `;
+
+    countryOptions.forEach(option => {
+        modalHTML += `
+            <button class="subcategory-btn" data-country-filter="${escapeHtml(option.flag)}" data-country-name="${escapeHtml(option.countryName)}">
+                <span>${escapeHtml(option.label)}</span>
+            </button>
+        `;
+    });
+
+    modalHTML += `
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    setTimeout(() => {
+        document.getElementById('subcategoryModal')?.classList.add('show');
+    }, 10);
+
+    document.querySelectorAll('.subcategory-btn').forEach(btn => {
+        btn.addEventListener('click', async function() {
+            const selectedFlag = this.dataset.countryFilter;
+            const selectedCountryName = this.dataset.countryName || '';
+
+            document.querySelectorAll('.subcategory-btn').forEach(button => button.classList.remove('active'));
+            this.classList.add('active');
+
+            if (selectedFlag === 'all') {
+                await loadServicesForSubcategory(selectedCategory?.id, categorySlug);
+            } else {
+                await loadServicesForCountryTarget(selectedCategory?.id, categorySlug, {
+                    flag: selectedFlag,
+                    countryName: selectedCountryName
+                });
+            }
+
+            setTimeout(() => closeSubcategoryModal(), 300);
+        });
+    });
+
+    return true;
+}
+
+async function loadServicesForCountryTarget(categoryId, categorySlug, countryOption = {}) {
+    servicesStatusController?.setState('loading');
+
+    try {
+        if (!approvedServicesCache.length) {
+            const loaded = await loadServicesFromAPI();
+            if (!loaded) {
+                servicesStatusController?.setState('error');
+                return;
+            }
+        }
+
+        if (!categoriesCache) {
+            categoriesCache = await loadCategoriesFromAPI();
+        }
+
+        const normalizedSlug = normalizeCategorySlug(categorySlug);
+        const { parents, children } = getCategoryCollections();
+        const allCategories = [...parents, ...children];
+
+        let selectedCategory = allCategories.find(cat => {
+            if (categoryId && String(cat.id) === String(categoryId)) {
+                return true;
+            }
+            return normalizeCategorySlug(cat.slug || cat.name) === normalizedSlug;
+        }) || null;
+
+        if (!selectedCategory && normalizedSlug) {
+            selectedCategory = findCategoryBySlug(normalizedSlug);
+        }
+
+        const parentCategory = selectedCategory
+            ? (selectedCategory.parent_id ? resolveParentCategory(selectedCategory) : selectedCategory)
+            : findCategoryBySlug(normalizedSlug);
+
+        const selection = getServicesForCategorySelection(selectedCategory, parentCategory, categorySlug);
+        const filteredServices = selection.filteredServices.filter(service => {
+            const metadata = extractCountryTargetMetadata(service?.name);
+            if (!metadata) {
+                return false;
+            }
+
+            const matchesFlag = countryOption.flag ? metadata.flag === countryOption.flag : true;
+            const matchesCountryName = countryOption.countryName
+                ? metadata.countryName.toLowerCase() === String(countryOption.countryName).toLowerCase()
+                : true;
+
+            return matchesFlag && matchesCountryName;
+        });
+
+        await displayFilteredServices(filteredServices, {
+            slug: selection.targetSlug || selection.parentSlug || normalizedSlug,
+            label: parentCategory?.name || formatCategoryLabel(selection.targetSlug || selection.parentSlug || normalizedSlug),
+            subcategoryLabel: `${selectedCategory?.name || formatCategoryLabel(categorySlug)} · ${countryOption.countryName || countryOption.flag}`,
+            parentSlug: selection.parentSlug || normalizedSlug
+        });
+
+        const currentUrl = new URL(window.location);
+        currentUrl.searchParams.set('category', categorySlug);
+        if (countryOption.flag) {
+            currentUrl.searchParams.set('country', countryOption.flag);
+        }
+        window.history.pushState({}, '', currentUrl);
+
+        servicesStatusController?.setState('success');
+    } catch (error) {
+        console.error('Error loading country targeted services:', error);
+        servicesStatusController?.setState('error');
+    }
+}
+
 // Load services for a specific subcategory
 async function loadServicesForSubcategory(categoryId, categorySlug) {
     servicesStatusController?.setState('loading');
@@ -1638,7 +1950,7 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
             const loaded = await loadServicesFromAPI();
             if (!loaded) {
                 servicesStatusController?.setState('error');
-                return;
+                return false;
             }
         }
 
@@ -1665,53 +1977,28 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
             ? (selectedCategory.parent_id ? resolveParentCategory(selectedCategory) : selectedCategory)
             : findCategoryBySlug(normalizedSlug);
 
-        const parentSlug = normalizeCategorySlug(parentCategory?.slug || parentCategory?.name || normalizedSlug);
-        const targetSlug = normalizeCategorySlug(selectedCategory?.slug || selectedCategory?.name || normalizedSlug);
-        const slugTargets = new Set([parentSlug, targetSlug].filter(Boolean));
-        const subcategoryTerms = buildSubcategorySearchTerms(selectedCategory?.name || categorySlug);
+        const selection = getServicesForCategorySelection(selectedCategory, parentCategory, categorySlug);
+        const filteredServices = selection.filteredServices;
 
-        let filteredServices = approvedServicesCache.filter(service => {
-            const serviceSlug = getServiceCategorySlug(service);
-            if (!serviceSlug) {
+        if (selectedCategory?.parent_id && isCountryTargetedCategory(selectedCategory)) {
+            const openedCountryModal = showCountryTargetOptions(
+                selectedCategory,
+                parentCategory,
+                filteredServices,
+                categorySlug
+            );
+
+            if (openedCountryModal) {
+                servicesStatusController?.setState('success');
                 return false;
             }
-
-            if (slugTargets.has(serviceSlug)) {
-                if (selectedCategory?.parent_id && serviceSlug === parentSlug && subcategoryTerms.length) {
-                    const serviceName = String(service.name || '').toLowerCase();
-                    return subcategoryTerms.some(term => serviceName.includes(term));
-                }
-                return true;
-            }
-
-            return false;
-        });
-
-        if (filteredServices.length === 0 && subcategoryTerms.length) {
-            filteredServices = approvedServicesCache.filter(service => {
-                const serviceSlug = getServiceCategorySlug(service);
-                const serviceName = String(service.name || '').toLowerCase();
-                const belongsToParent = parentSlug ? serviceSlug === parentSlug : true;
-                return belongsToParent && subcategoryTerms.some(term => serviceName.includes(term));
-            });
-        }
-
-        if (filteredServices.length === 0) {
-            const fallbackTerms = (categorySlug || '').replace(/-/g, ' ').toLowerCase().split(' ').filter(Boolean);
-            filteredServices = approvedServicesCache.filter(service => {
-                const serviceName = String(service.name || '').toLowerCase();
-                const serviceCategory = (service.category || '').toLowerCase();
-                return fallbackTerms.some(term =>
-                    serviceName.includes(term) || serviceCategory.includes(term)
-                );
-            });
         }
 
         await displayFilteredServices(filteredServices, {
-            slug: targetSlug || parentSlug || normalizedSlug,
-            label: parentCategory?.name || formatCategoryLabel(targetSlug || parentSlug || normalizedSlug),
+            slug: selection.targetSlug || selection.parentSlug || normalizedSlug,
+            label: parentCategory?.name || formatCategoryLabel(selection.targetSlug || selection.parentSlug || normalizedSlug),
             subcategoryLabel: selectedCategory && selectedCategory.parent_id ? selectedCategory.name : '',
-            parentSlug: parentSlug || normalizedSlug
+            parentSlug: selection.parentSlug || normalizedSlug
         });
 
         const currentUrl = new URL(window.location);
@@ -1719,9 +2006,11 @@ async function loadServicesForSubcategory(categoryId, categorySlug) {
         window.history.pushState({}, '', currentUrl);
 
         servicesStatusController?.setState('success');
+        return true;
     } catch (error) {
         console.error('Error loading subcategory services:', error);
         servicesStatusController?.setState('error');
+        return false;
     }
 }
 

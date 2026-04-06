@@ -493,12 +493,10 @@ async function handleGetServices(event, user, headers) {
     const useAdminScope = isAdminUser && !wantsCustomerScope;
     const responseScope = useAdminScope ? 'admin' : 'customer';
 
-    const queryClient = useAdminScope
-      ? (hasServiceRoleKey ? supabaseAdmin : supabase)
-      : supabase;
+    const queryClient = hasServiceRoleKey ? supabaseAdmin : supabase;
 
-    if (useAdminScope && !hasServiceRoleKey) {
-      logger.warn('Service role key missing. Admin queries will use anon client.');
+    if (!hasServiceRoleKey) {
+      logger.warn('Service role key missing. Services queries will use anon client.');
     }
 
     let query;

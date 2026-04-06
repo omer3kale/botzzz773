@@ -39,6 +39,16 @@
         DEBUG: false
     });
 
+    function resolveRuntimeConfig() {
+        const runtimeEnv = global.BOTZZZ773_PUBLIC_ENV || {};
+
+        return {
+            ...CONFIG,
+            SUPABASE_URL: runtimeEnv.SUPABASE_URL || CONFIG.SUPABASE_URL,
+            SUPABASE_ANON_KEY: runtimeEnv.SUPABASE_ANON_KEY || CONFIG.SUPABASE_ANON_KEY
+        };
+    }
+
     // ==========================================
     // STATE
     // ==========================================
@@ -46,7 +56,8 @@
     let state = {
         client: null,
         isInitialized: false,
-        initPromise: null
+        initPromise: null,
+        config: resolveRuntimeConfig()
     };
 
     // ==========================================
@@ -98,8 +109,8 @@
                     
                     try {
                         state.client = global.supabase.createClient(
-                            CONFIG.SUPABASE_URL,
-                            CONFIG.SUPABASE_ANON_KEY,
+                            state.config.SUPABASE_URL,
+                            state.config.SUPABASE_ANON_KEY,
                             {
                                 realtime: {
                                     params: {
@@ -130,12 +141,28 @@
                         
                     } catch (error) {
                         log('error', 'Failed to create client', error);
+                        if (typeof global.dispatchEvent === 'function') {
+                            global.dispatchEvent(new CustomEvent('supabase:error', {
+                                detail: {
+                                    error: error.message,
+                                    url: state.config.SUPABASE_URL
+                                }
+                            }));
+                        }
                         reject(error);
                     }
                 } else {
                     // Check timeout
                     if (Date.now() - startTime > CONFIG.INIT_TIMEOUT_MS) {
                         log('error', 'Initialization timeout - Supabase CDN not loaded');
+                        if (typeof global.dispatchEvent === 'function') {
+                            global.dispatchEvent(new CustomEvent('supabase:error', {
+                                detail: {
+                                    error: 'Supabase initialization timeout',
+                                    url: state.config.SUPABASE_URL
+                                }
+                            }));
+                        }
                         reject(new Error('Supabase initialization timeout'));
                         return;
                     }
@@ -188,7 +215,7 @@
      */
     function getConfig() {
         return {
-            url: CONFIG.SUPABASE_URL,
+            url: state.config.SUPABASE_URL,
             isInitialized: state.isInitialized,
             version: CONFIG.VERSION,
             product: CONFIG.PRODUCT

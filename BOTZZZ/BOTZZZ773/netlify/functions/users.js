@@ -322,8 +322,10 @@ async function handleGet(user, headers) {
       };
     }
 
-    // Regular users get their own data
-    const { data: userData, error } = await supabase
+    // Regular users authenticate with our custom JWT, not Supabase Auth.
+    // After enabling RLS on public.users, anon client reads can no longer rely on auth.uid().
+    // Read the caller's row via service role, scoped explicitly to the verified user id.
+    const { data: userData, error } = await supabaseAdmin
       .from('users')
       .select('*')
       .eq('id', user.userId)

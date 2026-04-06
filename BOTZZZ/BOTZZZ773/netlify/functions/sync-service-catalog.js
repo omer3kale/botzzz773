@@ -280,7 +280,7 @@ async function syncProviderServices(provider, options = {}) {
       const minQuantity = toQuantity(payload.min ?? payload.minimum);
       const rawMax = payload.max ?? payload.maximum;
       const maxQuantity = rawMax === undefined || rawMax === null ? null : toQuantity(rawMax);
-      const status = truncateString(normalizeServiceStatus(payload.status ?? payload.state ?? payload.available), 20);
+      const providerReportedStatus = truncateString(normalizeServiceStatus(payload.status ?? payload.state ?? payload.available), 20);
       const description = payload.description || payload.desc || '';
 
       const averageTime = normalizeAverageTime(
@@ -312,6 +312,11 @@ async function syncProviderServices(provider, options = {}) {
         }
       }
 
+      const existing = existingMap.get(serviceKey);
+      const status = existing?.status === 'inactive' && providerReportedStatus === 'active'
+        ? 'inactive'
+        : providerReportedStatus;
+
       const basePayload = {
         name,
         category,
@@ -338,8 +343,6 @@ async function syncProviderServices(provider, options = {}) {
       }
 
       const providerCost = providerCostUSD !== null ? providerCostUSD : null;
-      const existing = existingMap.get(serviceKey);
-      
       // Smart provider_rate update strategy
       // Preserve existing provider_rate if user has manually set it via metadata
       let shouldPreserveProviderRate = false;

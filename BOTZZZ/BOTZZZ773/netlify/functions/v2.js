@@ -301,6 +301,7 @@ exports.handler = async (event) => {
           .from('services')
           .select('*, provider:providers(id, name, api_url, api_key)')
           .eq('public_id', params.service)
+          .eq('status', 'active')
           .single();
         if (!sData) return errorResponse('Service not found');
 

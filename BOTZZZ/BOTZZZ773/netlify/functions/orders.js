@@ -928,7 +928,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
     }));
     
     // Validate status filter if provided
-    const validStatuses = ['pending', 'processing', 'in progress', 'completed', 'partial', 'canceled', 'failed', 'error'];
+    const validStatuses = ['pending', 'processing', 'in progress', 'completed', 'partial', 'canceled', 'failed', 'error', 'rate_limited'];
     if (statusFilter && !validStatuses.includes(statusFilter)) {
       console.warn('[GET ORDERS] Invalid status filter:', statusFilter);
       return {
@@ -1043,8 +1043,8 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       query = query.eq('user_id', user.userId);
       countQuery = countQuery.eq('user_id', user.userId);
       
-      // Non-admins cannot filter by 'failed' status (they shouldn't see failed orders)
-      if (statusFilter === 'failed' || statusFilter === 'error') {
+      // Non-admins cannot filter by failed/error/rate-limited status views
+      if (statusFilter === 'failed' || statusFilter === 'error' || statusFilter === 'rate_limited') {
         console.warn('[GET ORDERS] Non-admin attempted to filter failed orders:', user.userId);
         return {
           statusCode: 403,
@@ -1060,6 +1060,33 @@ async function handleGetOrders(user, headers, queryParams = {}) {
       if (statusFilter === 'failed') {
         query = query.in('status', ['failed', 'error']);
         countQuery = countQuery.in('status', ['failed', 'error']);
+        query = query
+          .not('provider_error', 'ilike', '%rate limit%')
+          .not('provider_error', 'ilike', '%rate limited%')
+          .not('provider_error', 'ilike', '%too many requests%')
+          .not('provider_error', 'ilike', '%requests are too fast%')
+          .not('provider_error', 'ilike', '%hitting rate limit%')
+          .not('provider_error', 'ilike', '%too fast%');
+        countQuery = countQuery
+          .not('provider_error', 'ilike', '%rate limit%')
+          .not('provider_error', 'ilike', '%rate limited%')
+          .not('provider_error', 'ilike', '%too many requests%')
+          .not('provider_error', 'ilike', '%requests are too fast%')
+          .not('provider_error', 'ilike', '%hitting rate limit%')
+          .not('provider_error', 'ilike', '%too fast%');
+      } else if (statusFilter === 'rate_limited') {
+        query = query.in('status', ['failed', 'error']);
+        countQuery = countQuery.in('status', ['failed', 'error']);
+        const rateLimitOrClause = [
+          'provider_error.ilike.%rate limit%',
+          'provider_error.ilike.%rate limited%',
+          'provider_error.ilike.%too many requests%',
+          'provider_error.ilike.%requests are too fast%',
+          'provider_error.ilike.%hitting rate limit%',
+          'provider_error.ilike.%too fast%'
+        ].join(',');
+        query = query.or(rateLimitOrClause);
+        countQuery = countQuery.or(rateLimitOrClause);
       } else {
         query = query.eq('status', statusFilter);
         countQuery = countQuery.eq('status', statusFilter);
@@ -1153,7 +1180,7 @@ async function handleGetOrders(user, headers, queryParams = {}) {
         })
       : [];
 
-    if (user.role === 'admin' && statusFilter === 'failed' && normalizedOrders.length > 0) {
+    if (user.role === 'admin' && (statusFilter === 'failed' || statusFilter === 'rate_limited') && normalizedOrders.length > 0) {
       const failedOrderIds = normalizedOrders
         .map(order => order?.id)
         .filter(id => id !== null && id !== undefined);
@@ -3662,11 +3689,22 @@ async function performOrderStatusSync({ orderIds = null, providerId = null, limi
       }
       
       // Check if this is a transient error (rate limit, timeout, network) — don't mark as failed, retry next sync
-      const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests') || errorMessage.includes('Rate limited');
-      const isNetworkError = errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ECONNRESET') 
-        || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ENOTFOUND')
-        || errorMessage.includes('timeout') || errorMessage.includes('socket hang up')
-        || errorMessage.includes('network') || errorMessage.includes('EAI_AGAIN');
+      const normalizedErrorMessage = String(errorMessage || '').toLowerCase();
+      const isRateLimit = normalizedErrorMessage.includes('429')
+        || normalizedErrorMessage.includes('too many requests')
+        || normalizedErrorMessage.includes('rate limited')
+        || normalizedErrorMessage.includes('rate limit')
+        || normalizedErrorMessage.includes('requests are too fast')
+        || normalizedErrorMessage.includes('hitting rate limit')
+        || normalizedErrorMessage.includes('too fast');
+      const isNetworkError = normalizedErrorMessage.includes('econnrefused')
+        || normalizedErrorMessage.includes('econnreset')
+        || normalizedErrorMessage.includes('etimedout')
+        || normalizedErrorMessage.includes('enotfound')
+        || normalizedErrorMessage.includes('timeout')
+        || normalizedErrorMessage.includes('socket hang up')
+        || normalizedErrorMessage.includes('network')
+        || normalizedErrorMessage.includes('eai_again');
       const isTransientError = isRateLimit || isNetworkError;
       
       if (!isTransientError) {

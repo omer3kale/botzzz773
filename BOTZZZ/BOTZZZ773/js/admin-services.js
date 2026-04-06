@@ -1640,7 +1640,7 @@ async function submitAddService(event) {
         if (response.ok && data && data.success) {
             showNotification(data.message || 'Service created successfully!', 'success');
             closeModal();
-            await loadServices();
+            await reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Create service failed:', response.status, serverMessage, data);
@@ -2585,7 +2585,7 @@ async function submitAddSubscription(event) {
         if (response.ok && data && data.success) {
             showNotification('Subscription service created successfully!', 'success');
             closeModal();
-            loadServices();
+            await reloadServicesPreserveScroll();
         } else {
             const serverMessage = data && data.error ? data.error : `HTTP ${response.status} ${response.statusText}`;
             console.error('Create subscription failed:', response.status, serverMessage, data);
@@ -2717,7 +2717,7 @@ async function submitEditService(event, serviceId) {
         } else {
             showNotification(`Service #${serviceId} updated successfully!`, 'success');
             closeModal();
-            await loadServices();
+            await reloadServicesPreserveScroll();
         }
     } catch (error) {
         console.error('Update service error:', error);
@@ -2889,7 +2889,7 @@ async function confirmToggleService(serviceId) {
 
         showNotification(`Service #${serviceId} ${targetState ? 'added to the customer portal.' : 'removed from the customer portal.'}`, 'success');
         closeModal();
-        await loadServices();
+        await reloadServicesPreserveScroll();
     } catch (error) {
         console.error('Toggle service visibility error:', error);
         showNotification(error.message || 'Failed to update visibility. Please try again.', 'error');
@@ -3203,12 +3203,46 @@ window.loadServices = loadServices;
 // ==========================================
 // Scroll-preserving reload
 // ==========================================
+function captureServicesFilterState() {
+    return {
+        search: document.getElementById('serviceSearch')?.value || '',
+        category: document.getElementById('filterCategory')?.value || '',
+        status: document.getElementById('filterStatus')?.value || '',
+        provider: document.getElementById('filterProvider')?.value || ''
+    };
+}
+
+function restoreServicesFilterState(state = {}) {
+    const searchInput = document.getElementById('serviceSearch');
+    const categorySelect = document.getElementById('filterCategory');
+    const statusSelect = document.getElementById('filterStatus');
+    const providerSelect = document.getElementById('filterProvider');
+
+    if (searchInput) {
+        searchInput.value = state.search || '';
+    }
+
+    if (categorySelect) {
+        categorySelect.value = state.category || '';
+    }
+
+    if (statusSelect) {
+        statusSelect.value = state.status || '';
+    }
+
+    if (providerSelect) {
+        providerSelect.value = state.provider || '';
+    }
+}
+
 async function reloadServicesPreserveScroll() {
     const container = document.querySelector('.table-container');
     const scrollPos = container ? container.scrollTop : 0;
     const pageScrollPos = window.scrollY;
+    const filterState = captureServicesFilterState();
     await loadServices();
     populateFilterDropdowns();
+    restoreServicesFilterState(filterState);
     applyFilters();
     if (container) container.scrollTop = scrollPos;
     window.scrollTo(0, pageScrollPos);
